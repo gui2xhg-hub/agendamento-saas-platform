@@ -8,7 +8,7 @@ export default function AdminTenant() {
 
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [password, setPassword] = useState('');
-  const [activeTab, setActiveTab] = useState('services'); // 'services' | 'professionals' | 'reports' | 'settings'
+  const [activeTab, setActiveTab] = useState('services');
   const [loading, setLoading] = useState(true);
 
   const [tenant, setTenant] = useState(null);
@@ -17,7 +17,6 @@ export default function AdminTenant() {
   const [appointments, setAppointments] = useState([]);
   const [reportFilter, setReportFilter] = useState('all');
 
-  // FORMULÁRIO DE SERVIÇO (COM CATEGORIA E PROFISSIONAIS VINCULADOS)
   const [newService, setNewService] = useState({ 
     name: '', 
     price: '', 
@@ -27,7 +26,6 @@ export default function AdminTenant() {
   });
   const [editingService, setEditingService] = useState(null);
 
-  // FORMULÁRIO DE PROFISSIONAL (COM AVATAR E PORCENTAGEM DE COMISSÃO)
   const [newProf, setNewProf] = useState({ 
     name: '', 
     phone: '', 
@@ -50,7 +48,6 @@ export default function AdminTenant() {
     if (tData) {
       setTenant(tData);
 
-      // VERIFICA SESSÃO SALVA PELO APP PWA
       const savedPass = localStorage.getItem('sinerge_tenant_pass');
       if (savedPass && (savedPass === tData.admin_password || savedPass === 'master123')) {
         setIsAuthenticated(true);
@@ -104,17 +101,16 @@ export default function AdminTenant() {
       pix_access_token: tenant.pix_access_token || ''
     }).eq('id', tenant.id);
 
-    if (error) alert("Erro ao salvar: " + error.message);
+    if (error) alert("Erro ao salvar configurações: " + error.message);
     else { alert("Configurações salvas com sucesso!"); fetchData(); }
   };
 
-  // HANDLERS DE SERVIÇOS
   const handleAddService = async (e) => {
     e.preventDefault();
     if (!newService.name || !newService.price) return alert("Preencha nome e preço do serviço!");
     const formattedPrice = parseFloat(String(newService.price).replace(',', '.'));
     
-    await supabase.from('services').insert([{
+    const { error } = await supabase.from('services').insert([{
       tenant_id: tenant.id,
       name: newService.name.trim(),
       price: formattedPrice,
@@ -124,15 +120,20 @@ export default function AdminTenant() {
       active: true
     }]);
 
-    setNewService({ name: '', price: '', duration_minutes: '30', category: 'Geral', professional_ids: [] });
-    fetchData();
+    if (error) {
+      alert("Erro ao cadastrar serviço: " + error.message);
+    } else {
+      alert("Serviço cadastrado com sucesso!");
+      setNewService({ name: '', price: '', duration_minutes: '30', category: 'Geral', professional_ids: [] });
+      fetchData();
+    }
   };
 
   const handleUpdateService = async (e) => {
     e.preventDefault();
     const formattedPrice = parseFloat(String(editingService.price).replace(',', '.'));
     
-    await supabase.from('services').update({
+    const { error } = await supabase.from('services').update({
       name: editingService.name.trim(),
       price: formattedPrice,
       duration_minutes: parseInt(editingService.duration_minutes || 30),
@@ -140,16 +141,19 @@ export default function AdminTenant() {
       professional_ids: editingService.professional_ids || []
     }).eq('id', editingService.id);
 
-    setEditingService(null);
-    fetchData();
+    if (error) {
+      alert("Erro ao atualizar serviço: " + error.message);
+    } else {
+      setEditingService(null);
+      fetchData();
+    }
   };
 
-  // HANDLERS DE PROFISSIONAIS / EQUIPE
   const handleAddProf = async (e) => {
     e.preventDefault();
     if (!newProf.name) return alert("Digite o nome do profissional!");
     
-    await supabase.from('professionals').insert([{
+    const { error } = await supabase.from('professionals').insert([{
       tenant_id: tenant.id,
       name: newProf.name.trim(),
       phone: newProf.phone ? newProf.phone.replace(/\D/g, '') : '',
@@ -158,24 +162,31 @@ export default function AdminTenant() {
       active: true
     }]);
 
-    setNewProf({ name: '', phone: '', avatar_url: '', commission_percentage: '50' });
-    fetchData();
+    if (error) {
+      alert("Erro ao cadastrar profissional: " + error.message);
+    } else {
+      setNewProf({ name: '', phone: '', avatar_url: '', commission_percentage: '50' });
+      fetchData();
+    }
   };
 
   const handleUpdateProf = async (e) => {
     e.preventDefault();
-    await supabase.from('professionals').update({
+    const { error } = await supabase.from('professionals').update({
       name: editingProf.name.trim(),
       phone: editingProf.phone ? editingProf.phone.replace(/\D/g, '') : '',
       avatar_url: editingProf.avatar_url,
       commission_percentage: parseFloat(editingProf.commission_percentage || 50)
     }).eq('id', editingProf.id);
 
-    setEditingProf(null);
-    fetchData();
+    if (error) {
+      alert("Erro ao atualizar profissional: " + error.message);
+    } else {
+      setEditingProf(null);
+      fetchData();
+    }
   };
 
-  // FILTRO E CÁLCULO DE COMISSÕES DO RELATÓRIO
   const getFilteredAppointments = () => {
     const now = new Date();
     return appointments.filter(a => {
@@ -194,7 +205,6 @@ export default function AdminTenant() {
   const filteredApps = getFilteredAppointments();
   const totalRevenue = filteredApps.reduce((sum, a) => sum + Number(a.total_price || 0), 0);
 
-  // MAPEAMENTO DE COMISSÃO A PAGAR POR PROFISSIONAL
   const profCommissionsMap = {};
   filteredApps.forEach(a => {
     const prof = professionals.find(p => p.id === a.professional_id);
@@ -244,7 +254,6 @@ export default function AdminTenant() {
         </button>
       </header>
 
-      {/* ABAS */}
       <div className="flex space-x-1 bg-gray-900 p-1 rounded-xl border border-gray-800 mb-6 text-[11px] font-bold overflow-x-auto">
         <button onClick={() => setActiveTab('services')} className={`flex-1 py-2 px-2 rounded-lg whitespace-nowrap ${activeTab === 'services' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>💈 Serviços</button>
         <button onClick={() => setActiveTab('professionals')} className={`flex-1 py-2 px-2 rounded-lg whitespace-nowrap ${activeTab === 'professionals' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>👨‍🔬 Equipe</button>
@@ -252,7 +261,6 @@ export default function AdminTenant() {
         <button onClick={() => setActiveTab('settings')} className={`flex-1 py-2 px-2 rounded-lg whitespace-nowrap ${activeTab === 'settings' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>⚙️ Config</button>
       </div>
 
-      {/* SERVIÇOS */}
       {activeTab === 'services' && (
         <div className="space-y-6">
           <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
@@ -266,7 +274,6 @@ export default function AdminTenant() {
                 <input type="text" placeholder="Categoria" value={newService.category} className="w-1/3 bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewService({ ...newService, category: e.target.value })} />
               </div>
 
-              {/* SELEÇÃO DE PROFISSIONAIS HABILITADOS */}
               {professionals.length > 0 && (
                 <div className="border-t border-gray-800 pt-2">
                   <label className="text-[11px] text-gray-400 font-bold block mb-1">
@@ -337,7 +344,6 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* EQUIPE / PROFISSIONAIS */}
       {activeTab === 'professionals' && (
         <div className="space-y-6">
           <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
@@ -375,7 +381,6 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* FINANCEIRO / RELATÓRIO / COMISSÕES */}
       {activeTab === 'reports' && (
         <div className="space-y-4">
           <div className="flex flex-col space-y-2 bg-gray-900 p-3 rounded-xl border border-gray-800 text-xs">
@@ -417,7 +422,6 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* CONFIGURAÇÕES */}
       {activeTab === 'settings' && (
         <div className="space-y-6">
           <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
@@ -454,7 +458,6 @@ export default function AdminTenant() {
                 <input type="text" value={tenant.admin_password || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, admin_password: e.target.value })} />
               </div>
 
-              {/* CONFIGURAÇÃO DE PIX AUTOMÁTICO */}
               <div className="pt-3 border-t border-gray-800 space-y-3">
                 <div className="flex justify-between items-center">
                   <div>
@@ -487,7 +490,6 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* MODAL EDITAR SERVIÇO */}
       {editingService && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
           <form onSubmit={handleUpdateService} className="bg-gray-900 w-full max-w-sm rounded-2xl p-5 border border-blue-500/40 space-y-3 max-h-[90vh] overflow-y-auto">
@@ -538,7 +540,6 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* MODAL EDITAR PROFISSIONAL */}
       {editingProf && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
           <form onSubmit={handleUpdateProf} className="bg-gray-900 w-full max-w-sm rounded-2xl p-5 border border-blue-500/40 space-y-3">

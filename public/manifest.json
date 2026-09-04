@@ -1,0 +1,22 @@
+{
+  "name": "Agendamento Online",
+  "short_name": "Agendamentos",
+  "description": "Sistema de Agendamento Online e Gestão de Agenda",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#090d16",
+  "theme_color": "#FF8C00",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "https://images.unsplash.com/photo-1585747860715-2ba37e788b70?w=192&auto=format&fit=crop&q=80",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "https://images.unsplash.com/photo-1585747860715-2ba37e788b70?w=512&auto=format&fit=crop&q=80",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

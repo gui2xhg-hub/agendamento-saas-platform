@@ -17,24 +17,40 @@ export default function AdminTenant() {
   const [appointments, setAppointments] = useState([]);
   const [reportFilter, setReportFilter] = useState('all');
 
-  // FORMULÁRIOS DE SERVIÇO
-  const [newService, setNewService] = useState({ name: '', price: '', duration_minutes: '30' });
+  // FORMULÁRIO DE SERVIÇO (COM CATEGORIA E PROFISSIONAIS VINCULADOS)
+  const [newService, setNewService] = useState({ 
+    name: '', 
+    price: '', 
+    duration_minutes: '30', 
+    category: 'Geral', 
+    professional_ids: [] 
+  });
   const [editingService, setEditingService] = useState(null);
 
-  // FORMULÁRIOS DE PROFISSIONAL / EQUIPE
-  const [newProf, setNewProf] = useState({ name: '', phone: '' });
+  // FORMULÁRIO DE PROFISSIONAL (COM AVATAR E PORCENTAGEM DE COMISSÃO)
+  const [newProf, setNewProf] = useState({ 
+    name: '', 
+    phone: '', 
+    avatar_url: '', 
+    commission_percentage: '50' 
+  });
   const [editingProf, setEditingProf] = useState(null);
 
   useEffect(() => {
-    if (slug) fetchTenant();
-  }, [slug]);
+    if (router.isReady && slug) {
+      fetchTenant();
+    }
+  }, [router.isReady, slug]);
 
   const fetchTenant = async () => {
-    const { data: tData } = await supabase.from('tenants').select('*').eq('slug', slug).single();
+    setLoading(true);
+    const cleanSlug = String(slug).toLowerCase().trim();
+    const { data: tData } = await supabase.from('tenants').select('*').eq('slug', cleanSlug).maybeSingle();
+
     if (tData) {
       setTenant(tData);
 
-      // SESSÃO AUTOMÁTICA PELO APP
+      // VERIFICA SESSÃO SALVA PELO APP PWA
       const savedPass = localStorage.getItem('sinerge_tenant_pass');
       if (savedPass && (savedPass === tData.admin_password || savedPass === 'master123')) {
         setIsAuthenticated(true);
@@ -80,7 +96,8 @@ export default function AdminTenant() {
       primary_color: tenant.primary_color || '#FF8C00',
       secondary_color: tenant.secondary_color || '#111827',
       opening_time: tenant.opening_time || '08:00',
-      closing_time: tenant.closing_time || '19:00',
+      closing_time: tenant.closing_time || '20:00',
+      custom_message: tenant.custom_message || '',
       admin_password: tenant.admin_password,
       pix_enabled: tenant.pix_enabled || false,
       pix_provider: tenant.pix_provider || 'mercadopago',
@@ -91,59 +108,74 @@ export default function AdminTenant() {
     else { alert("Configurações salvas com sucesso!"); fetchData(); }
   };
 
-  // SERVIÇOS
+  // HANDLERS DE SERVIÇOS
   const handleAddService = async (e) => {
     e.preventDefault();
     if (!newService.name || !newService.price) return alert("Preencha nome e preço do serviço!");
     const formattedPrice = parseFloat(String(newService.price).replace(',', '.'));
+    
     await supabase.from('services').insert([{
       tenant_id: tenant.id,
-      name: newService.name,
+      name: newService.name.trim(),
       price: formattedPrice,
       duration_minutes: parseInt(newService.duration_minutes || 30),
+      category: newService.category || 'Geral',
+      professional_ids: newService.professional_ids || [],
       active: true
     }]);
-    setNewService({ name: '', price: '', duration_minutes: '30' });
+
+    setNewService({ name: '', price: '', duration_minutes: '30', category: 'Geral', professional_ids: [] });
     fetchData();
   };
 
   const handleUpdateService = async (e) => {
     e.preventDefault();
     const formattedPrice = parseFloat(String(editingService.price).replace(',', '.'));
+    
     await supabase.from('services').update({
-      name: editingService.name,
+      name: editingService.name.trim(),
       price: formattedPrice,
-      duration_minutes: parseInt(editingService.duration_minutes || 30)
+      duration_minutes: parseInt(editingService.duration_minutes || 30),
+      category: editingService.category || 'Geral',
+      professional_ids: editingService.professional_ids || []
     }).eq('id', editingService.id);
+
     setEditingService(null);
     fetchData();
   };
 
-  // PROFISSIONAIS
-  const handleAddProfessional = async (e) => {
+  // HANDLERS DE PROFISSIONAIS / EQUIPE
+  const handleAddProf = async (e) => {
     e.preventDefault();
     if (!newProf.name) return alert("Digite o nome do profissional!");
+    
     await supabase.from('professionals').insert([{
       tenant_id: tenant.id,
-      name: newProf.name,
+      name: newProf.name.trim(),
       phone: newProf.phone ? newProf.phone.replace(/\D/g, '') : '',
+      avatar_url: newProf.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80',
+      commission_percentage: parseFloat(newProf.commission_percentage || 50),
       active: true
     }]);
-    setNewProf({ name: '', phone: '' });
+
+    setNewProf({ name: '', phone: '', avatar_url: '', commission_percentage: '50' });
     fetchData();
   };
 
-  const handleUpdateProfessional = async (e) => {
+  const handleUpdateProf = async (e) => {
     e.preventDefault();
     await supabase.from('professionals').update({
-      name: editingProf.name,
-      phone: editingProf.phone ? editingProf.phone.replace(/\D/g, '') : ''
+      name: editingProf.name.trim(),
+      phone: editingProf.phone ? editingProf.phone.replace(/\D/g, '') : '',
+      avatar_url: editingProf.avatar_url,
+      commission_percentage: parseFloat(editingProf.commission_percentage || 50)
     }).eq('id', editingProf.id);
+
     setEditingProf(null);
     fetchData();
   };
 
-  // RELATÓRIO
+  // FILTRO E CÁLCULO DE COMISSÕES DO RELATÓRIO
   const getFilteredAppointments = () => {
     const now = new Date();
     return appointments.filter(a => {
@@ -162,17 +194,28 @@ export default function AdminTenant() {
   const filteredApps = getFilteredAppointments();
   const totalRevenue = filteredApps.reduce((sum, a) => sum + Number(a.total_price || 0), 0);
 
+  // MAPEAMENTO DE COMISSÃO A PAGAR POR PROFISSIONAL
+  const profCommissionsMap = {};
+  filteredApps.forEach(a => {
+    const prof = professionals.find(p => p.id === a.professional_id);
+    if (prof) {
+      const commRate = Number(prof.commission_percentage || 50) / 100;
+      const commValue = Number(a.total_price || 0) * commRate;
+      profCommissionsMap[prof.name] = (profCommissionsMap[prof.name] || 0) + commValue;
+    }
+  });
+
   if (loading) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><p className="text-sm text-gray-400">Carregando painel...</p></div>;
   if (!tenant) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><h1 className="text-xl font-bold text-orange-500">Estabelecimento não encontrado</h1></div>;
 
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center p-4 font-sans">
-        <form onSubmit={handleLogin} className="bg-gray-900 p-6 rounded-2xl border border-gray-800 w-full max-w-sm space-y-4">
+        <form onSubmit={handleLogin} className="bg-gray-900 p-6 rounded-2xl border border-gray-800 w-full max-w-sm space-y-4 shadow-2xl">
           <h2 className="text-xl font-bold text-orange-500 text-center">{tenant.name}</h2>
           <p className="text-xs text-gray-400 text-center">Painel Administrativo de Agendamento</p>
-          <input type="password" placeholder="Senha de administrador..." className="w-full bg-gray-800 border border-gray-700 p-3 rounded-xl text-xs text-white focus:outline-none" onChange={(e) => setPassword(e.target.value)} />
-          <button type="submit" className="w-full bg-orange-500 text-white font-bold py-3 rounded-xl text-xs">Entrar no Painel</button>
+          <input type="password" placeholder="Senha de acesso..." className="w-full bg-gray-800 border border-gray-700 p-3 rounded-xl text-xs text-white focus:outline-none focus:border-orange-500" onChange={(e) => setPassword(e.target.value)} />
+          <button type="submit" className="w-full bg-orange-500 text-white font-bold py-3.5 rounded-xl text-xs transition">Entrar no Painel 🚀</button>
         </form>
       </div>
     );
@@ -203,8 +246,8 @@ export default function AdminTenant() {
 
       {/* ABAS */}
       <div className="flex space-x-1 bg-gray-900 p-1 rounded-xl border border-gray-800 mb-6 text-[11px] font-bold overflow-x-auto">
-        <button onClick={() => setActiveTab('services')} className={`flex-1 py-2 px-2 rounded-lg whitespace-nowrap ${activeTab === 'services' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>✂️ Serviços</button>
-        <button onClick={() => setActiveTab('professionals')} className={`flex-1 py-2 px-2 rounded-lg whitespace-nowrap ${activeTab === 'professionals' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>💈 Equipe</button>
+        <button onClick={() => setActiveTab('services')} className={`flex-1 py-2 px-2 rounded-lg whitespace-nowrap ${activeTab === 'services' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>💈 Serviços</button>
+        <button onClick={() => setActiveTab('professionals')} className={`flex-1 py-2 px-2 rounded-lg whitespace-nowrap ${activeTab === 'professionals' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>👨‍🔬 Equipe</button>
         <button onClick={() => setActiveTab('reports')} className={`flex-1 py-2 px-2 rounded-lg whitespace-nowrap ${activeTab === 'reports' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>📊 Financeiro</button>
         <button onClick={() => setActiveTab('settings')} className={`flex-1 py-2 px-2 rounded-lg whitespace-nowrap ${activeTab === 'settings' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>⚙️ Config</button>
       </div>
@@ -216,29 +259,80 @@ export default function AdminTenant() {
             <h3 className="font-bold text-sm text-orange-400">➕ Cadastrar Novo Serviço</h3>
             <form onSubmit={handleAddService} className="space-y-3">
               <input type="text" placeholder="Nome Ex: Corte Degradê ou Unha em Gel" value={newService.name} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewService({ ...newService, name: e.target.value })} />
+              
               <div className="flex space-x-2">
-                <input type="text" placeholder="Preço R$ Ex: 35.00" value={newService.price} className="w-1/2 bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewService({ ...newService, price: e.target.value })} />
-                <input type="number" placeholder="Duração (minutos)" value={newService.duration_minutes} className="w-1/2 bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewService({ ...newService, duration_minutes: e.target.value })} />
+                <input type="text" placeholder="Preço R$" value={newService.price} className="w-1/3 bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewService({ ...newService, price: e.target.value })} />
+                <input type="number" placeholder="Duração (min)" value={newService.duration_minutes} className="w-1/3 bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewService({ ...newService, duration_minutes: e.target.value })} />
+                <input type="text" placeholder="Categoria" value={newService.category} className="w-1/3 bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewService({ ...newService, category: e.target.value })} />
               </div>
+
+              {/* SELEÇÃO DE PROFISSIONAIS HABILITADOS */}
+              {professionals.length > 0 && (
+                <div className="border-t border-gray-800 pt-2">
+                  <label className="text-[11px] text-gray-400 font-bold block mb-1">
+                    Profissionais que realizam este serviço:
+                  </label>
+                  <p className="text-[10px] text-gray-500 mb-2">*(Se nenhum for marcado, toda a equipe fará)*</p>
+                  
+                  <div className="grid grid-cols-2 gap-2 max-h-36 overflow-y-auto">
+                    {professionals.map(p => {
+                      const isChecked = (newService.professional_ids || []).includes(p.id);
+                      return (
+                        <label key={p.id} className={`flex items-center space-x-2 p-2 rounded-lg text-xs cursor-pointer border transition ${isChecked ? 'bg-orange-500/10 border-orange-500 text-orange-400' : 'bg-gray-800 border-gray-700 text-gray-300'}`}>
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={(e) => {
+                              let currentArr = [...(newService.professional_ids || [])];
+                              if (e.target.checked) currentArr.push(p.id);
+                              else currentArr = currentArr.filter(id => id !== p.id);
+                              setNewService({ ...newService, professional_ids: currentArr });
+                            }}
+                            className="accent-orange-500"
+                          />
+                          <span className="truncate font-semibold">{p.name}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               <button type="submit" className="w-full bg-green-600 font-bold py-2.5 rounded-lg text-xs">Salvar Serviço 🚀</button>
             </form>
           </section>
 
           <section className="space-y-2">
             <h3 className="font-bold text-sm text-gray-300">📋 Catálogo de Serviços ({services.length})</h3>
-            {services.map((s) => (
-              <div key={s.id} className="bg-gray-900 p-3 rounded-xl border border-gray-800 flex justify-between items-center">
-                <div>
-                  <span className={`font-bold text-xs block ${!s.active ? 'line-through text-gray-500' : 'text-white'}`}>{s.name}</span>
-                  <span className="text-xs text-orange-400 font-bold">R$ {Number(s.price).toFixed(2)} • <span className="text-gray-400 font-normal">{s.duration_minutes} min</span></span>
+            {services.map((s) => {
+              const assignedProfIds = s.professional_ids || [];
+              const assignedProfs = professionals.filter(p => assignedProfIds.includes(p.id));
+
+              return (
+                <div key={s.id} className="bg-gray-900 p-3 rounded-xl border border-gray-800 space-y-2">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <span className={`font-bold text-xs block ${!s.active ? 'line-through text-gray-500' : 'text-white'}`}>{s.name} <span className="text-[10px] text-gray-500 font-normal">({s.category || 'Geral'})</span></span>
+                      <span className="text-xs text-orange-400 font-bold">R$ {Number(s.price).toFixed(2)} • <span className="text-gray-400 font-normal">{s.duration_minutes} min</span></span>
+                    </div>
+                    <div className="flex items-center space-x-1.5">
+                      <button onClick={() => setEditingService(s)} className="text-xs bg-blue-600/20 text-blue-400 p-1.5 rounded-lg font-bold border border-blue-500/30">✏️ Editar</button>
+                      <button onClick={async () => { await supabase.from('services').update({ active: !s.active }).eq('id', s.id); fetchData(); }} className={`text-[10px] font-bold px-2 py-1.5 rounded-lg ${s.active ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'}`}>{s.active ? 'Ativo' : 'Pausado'}</button>
+                      <button onClick={async () => { if (confirm("Excluir serviço?")) { await supabase.from('services').delete().eq('id', s.id); fetchData(); } }} className="text-xs bg-red-500/20 text-red-400 p-1.5 rounded-lg font-bold">🗑</button>
+                    </div>
+                  </div>
+
+                  <div className="text-[10px] text-gray-400 border-t border-gray-800/60 pt-1.5">
+                    <span className="font-semibold text-gray-500">Realizado por: </span>
+                    {assignedProfs.length > 0 ? (
+                      <span className="text-purple-300 font-medium">{assignedProfs.map(p => p.name).join(', ')}</span>
+                    ) : (
+                      <span className="text-gray-400 italic">Toda a Equipe</span>
+                    )}
+                  </div>
                 </div>
-                <div className="flex items-center space-x-1.5">
-                  <button onClick={() => setEditingService(s)} className="text-xs bg-blue-600/20 text-blue-400 p-1.5 rounded-lg font-bold border border-blue-500/30">✏️ Editar</button>
-                  <button onClick={async () => { await supabase.from('services').update({ active: !s.active }).eq('id', s.id); fetchData(); }} className={`text-[10px] font-bold px-2 py-1.5 rounded-lg ${s.active ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'}`}>{s.active ? 'Ativo' : 'Pausado'}</button>
-                  <button onClick={async () => { if (confirm("Excluir serviço?")) { await supabase.from('services').delete().eq('id', s.id); fetchData(); } }} className="text-xs bg-red-500/20 text-red-400 p-1.5 rounded-lg font-bold">🗑</button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </section>
         </div>
       )}
@@ -247,25 +341,33 @@ export default function AdminTenant() {
       {activeTab === 'professionals' && (
         <div className="space-y-6">
           <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
-            <h3 className="font-bold text-sm text-orange-400">➕ Cadastrar Profissional</h3>
-            <form onSubmit={handleAddProfessional} className="space-y-3">
-              <input type="text" placeholder="Nome do Profissional" value={newProf.name} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProf({ ...newProf, name: e.target.value })} />
-              <input type="text" placeholder="WhatsApp (Opcional)" value={newProf.phone} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProf({ ...newProf, phone: e.target.value })} />
-              <button type="submit" className="w-full bg-green-600 font-bold py-2.5 rounded-lg text-xs">Cadastrar Membro da Equipe</button>
+            <h3 className="font-bold text-sm text-orange-400">➕ Novo Profissional / Barbeiro</h3>
+            <form onSubmit={handleAddProf} className="space-y-3">
+              <input type="text" placeholder="Nome Completo" value={newProf.name} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProf({ ...newProf, name: e.target.value })} />
+              <input type="text" placeholder="WhatsApp" value={newProf.phone} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProf({ ...newProf, phone: e.target.value })} />
+              <input type="text" placeholder="URL da Foto de Perfil (Avatar)" value={newProf.avatar_url} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProf({ ...newProf, avatar_url: e.target.value })} />
+              <div>
+                <label className="text-[10px] text-gray-400 block mb-1">Porcentagem de Comissão (%):</label>
+                <input type="number" value={newProf.commission_percentage} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProf({ ...newProf, commission_percentage: e.target.value })} />
+              </div>
+              <button type="submit" className="w-full bg-green-600 font-bold py-2.5 rounded-lg text-xs">Cadastrar Profissional</button>
             </form>
           </section>
 
           <section className="space-y-2">
             <h3 className="font-bold text-sm text-gray-300">💈 Equipe ({professionals.length})</h3>
             {professionals.map((p) => (
-              <div key={p.id} className="bg-gray-900 p-3 rounded-xl border border-gray-800 flex justify-between items-center">
-                <div>
-                  <span className="font-bold text-xs text-white block">{p.name}</span>
-                  {p.phone && <span className="text-[10px] text-gray-400">📱 {p.phone}</span>}
+              <div key={p.id} className="bg-gray-900 p-3 rounded-xl border border-gray-800 flex justify-between items-center text-xs">
+                <div className="flex items-center space-x-3">
+                  <img src={p.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80'} alt={p.name} className="w-9 h-9 rounded-full object-cover border border-gray-700" />
+                  <div>
+                    <span className="font-bold block text-white">{p.name}</span>
+                    <span className="text-gray-400 text-[10px]">Comissão: <b className="text-green-400">{p.commission_percentage}%</b> {p.phone && `• 📱 ${p.phone}`}</span>
+                  </div>
                 </div>
-                <div className="flex items-center space-x-1.5">
-                  <button onClick={() => setEditingProf(p)} className="text-xs bg-blue-600/20 text-blue-400 p-1.5 rounded-lg font-bold border border-blue-500/30">✏️ Editar</button>
-                  <button onClick={async () => { if (confirm("Excluir profissional?")) { await supabase.from('professionals').delete().eq('id', p.id); fetchData(); } }} className="text-xs bg-red-500/20 text-red-400 p-1.5 rounded-lg font-bold">🗑</button>
+                <div className="flex space-x-1.5">
+                  <button onClick={() => setEditingProf(p)} className="bg-blue-600/20 text-blue-400 p-1.5 rounded-lg font-bold border border-blue-500/30">✏️ Editar</button>
+                  <button onClick={async () => { if (confirm("Excluir profissional?")) { await supabase.from('professionals').delete().eq('id', p.id); fetchData(); } }} className="text-red-400 font-bold p-1.5">🗑</button>
                 </div>
               </div>
             ))}
@@ -273,11 +375,11 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* FINANCEIRO / RELATÓRIO */}
+      {/* FINANCEIRO / RELATÓRIO / COMISSÕES */}
       {activeTab === 'reports' && (
         <div className="space-y-4">
           <div className="flex flex-col space-y-2 bg-gray-900 p-3 rounded-xl border border-gray-800 text-xs">
-            <span className="text-gray-400 font-bold">Período dos Agendamentos:</span>
+            <span className="text-gray-400 font-bold">Filtro de Período:</span>
             <div className="flex space-x-1 overflow-x-auto pb-1">
               <button onClick={() => setReportFilter('all')} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${reportFilter === 'all' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400'}`}>Tudo</button>
               <button onClick={() => setReportFilter('today')} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${reportFilter === 'today' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400'}`}>Hoje</button>
@@ -288,7 +390,7 @@ export default function AdminTenant() {
 
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-gray-900 p-4 rounded-xl border border-gray-800">
-              <span className="text-[11px] text-gray-400 block mb-1">Faturamento Estimado</span>
+              <span className="text-[11px] text-gray-400 block mb-1">Faturamento Bruto</span>
               <span className="text-lg font-bold text-green-400">R$ {totalRevenue.toFixed(2)}</span>
             </div>
             <div className="bg-gray-900 p-4 rounded-xl border border-gray-800">
@@ -296,6 +398,22 @@ export default function AdminTenant() {
               <span className="text-lg font-bold text-orange-400">{filteredApps.length}</span>
             </div>
           </div>
+
+          <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
+            <h3 className="font-bold text-xs text-orange-400 uppercase tracking-wider">💰 REPASSE DE COMISSÕES</h3>
+            <div className="space-y-2">
+              {Object.keys(profCommissionsMap).length === 0 ? (
+                <p className="text-xs text-gray-400">Nenhum cálculo de comissão no período.</p>
+              ) : (
+                Object.entries(profCommissionsMap).map(([profName, val], idx) => (
+                  <div key={idx} className="flex justify-between items-center bg-gray-800 p-2.5 rounded-lg text-xs">
+                    <span className="font-bold text-white">{profName}</span>
+                    <span className="bg-green-500/20 text-green-400 px-2.5 py-1 rounded-md font-bold">A pagar: R$ {val.toFixed(2)}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          </section>
         </div>
       )}
 
@@ -303,10 +421,10 @@ export default function AdminTenant() {
       {activeTab === 'settings' && (
         <div className="space-y-6">
           <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
-            <h3 className="font-bold text-sm text-orange-400">⚙️ Configurações do Estabelecimento</h3>
+            <h3 className="font-bold text-sm text-orange-400">⚙️ Configurações da Loja</h3>
             <form onSubmit={handleSaveTenantSettings} className="space-y-3">
               <div>
-                <label className="text-[11px] text-gray-400 block mb-1">Nome da Barbearia / Salão:</label>
+                <label className="text-[11px] text-gray-400 block mb-1">Nome do Estabelecimento:</label>
                 <input type="text" value={tenant.name || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, name: e.target.value })} />
               </div>
 
@@ -317,12 +435,17 @@ export default function AdminTenant() {
                 </div>
                 <div>
                   <label className="text-[11px] text-gray-400 block mb-1">Fechamento:</label>
-                  <input type="time" value={tenant.closing_time || '19:00'} className="w-full bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, closing_time: e.target.value })} />
+                  <input type="time" value={tenant.closing_time || '20:00'} className="w-full bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, closing_time: e.target.value })} />
                 </div>
               </div>
 
               <div>
-                <label className="text-[11px] text-gray-400 block mb-1">WhatsApp para Notificações:</label>
+                <label className="text-[11px] text-gray-400 block mb-1">Instrução Customizada no WhatsApp:</label>
+                <input type="text" placeholder="Ex: Por favor, chegue com 5 minutos de antecedência." value={tenant.custom_message || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, custom_message: e.target.value })} />
+              </div>
+
+              <div>
+                <label className="text-[11px] text-gray-400 block mb-1">WhatsApp de Recebimento:</label>
                 <input type="text" value={tenant.whatsapp || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, whatsapp: e.target.value })} />
               </div>
 
@@ -331,7 +454,7 @@ export default function AdminTenant() {
                 <input type="text" value={tenant.admin_password || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, admin_password: e.target.value })} />
               </div>
 
-              {/* CONFIGURAÇÃO DE PIX */}
+              {/* CONFIGURAÇÃO DE PIX AUTOMÁTICO */}
               <div className="pt-3 border-t border-gray-800 space-y-3">
                 <div className="flex justify-between items-center">
                   <div>
@@ -367,14 +490,50 @@ export default function AdminTenant() {
       {/* MODAL EDITAR SERVIÇO */}
       {editingService && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-          <form onSubmit={handleUpdateService} className="bg-gray-900 w-full max-w-sm rounded-2xl p-5 border border-blue-500/40 space-y-3">
+          <form onSubmit={handleUpdateService} className="bg-gray-900 w-full max-w-sm rounded-2xl p-5 border border-blue-500/40 space-y-3 max-h-[90vh] overflow-y-auto">
             <h3 className="font-bold text-sm text-blue-400">✏️ Editar Serviço</h3>
+            
             <input type="text" value={editingService.name} onChange={(e) => setEditingService({ ...editingService, name: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
+            
             <div className="flex space-x-2">
-              <input type="text" value={editingService.price} onChange={(e) => setEditingService({ ...editingService, price: e.target.value })} className="w-1/2 bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
-              <input type="number" value={editingService.duration_minutes} onChange={(e) => setEditingService({ ...editingService, duration_minutes: e.target.value })} className="w-1/2 bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
+              <input type="text" value={editingService.price} onChange={(e) => setEditingService({ ...editingService, price: e.target.value })} className="w-1/3 bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
+              <input type="number" value={editingService.duration_minutes} onChange={(e) => setEditingService({ ...editingService, duration_minutes: e.target.value })} className="w-1/3 bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
+              <input type="text" value={editingService.category || 'Geral'} onChange={(e) => setEditingService({ ...editingService, category: e.target.value })} className="w-1/3 bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
             </div>
-            <div className="flex space-x-2"><button type="button" onClick={() => setEditingService(null)} className="w-1/2 bg-gray-800 py-2 rounded-lg text-xs">Cancelar</button><button type="submit" className="w-1/2 bg-blue-600 py-2 rounded-lg text-xs font-bold text-white">Salvar</button></div>
+
+            {professionals.length > 0 && (
+              <div className="border-t border-gray-800 pt-2">
+                <label className="text-[11px] text-gray-400 font-bold block mb-1">
+                  Profissionais que realizam este serviço:
+                </label>
+                <div className="grid grid-cols-2 gap-2 max-h-36 overflow-y-auto">
+                  {professionals.map(p => {
+                    const isChecked = (editingService.professional_ids || []).includes(p.id);
+                    return (
+                      <label key={p.id} className={`flex items-center space-x-2 p-2 rounded-lg text-xs cursor-pointer border transition ${isChecked ? 'bg-blue-500/10 border-blue-500 text-blue-400' : 'bg-gray-800 border-gray-700 text-gray-300'}`}>
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={(e) => {
+                            let currentArr = [...(editingService.professional_ids || [])];
+                            if (e.target.checked) currentArr.push(p.id);
+                            else currentArr = currentArr.filter(id => id !== p.id);
+                            setEditingService({ ...editingService, professional_ids: currentArr });
+                          }}
+                          className="accent-blue-500"
+                        />
+                        <span className="truncate font-semibold">{p.name}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            <div className="flex space-x-2 pt-2">
+              <button type="button" onClick={() => setEditingService(null)} className="w-1/2 bg-gray-800 py-2 rounded-lg text-xs">Cancelar</button>
+              <button type="submit" className="w-1/2 bg-blue-600 py-2 rounded-lg text-xs font-bold text-white">Salvar</button>
+            </div>
           </form>
         </div>
       )}
@@ -382,11 +541,16 @@ export default function AdminTenant() {
       {/* MODAL EDITAR PROFISSIONAL */}
       {editingProf && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-          <form onSubmit={handleUpdateProfessional} className="bg-gray-900 w-full max-w-sm rounded-2xl p-5 border border-blue-500/40 space-y-3">
+          <form onSubmit={handleUpdateProf} className="bg-gray-900 w-full max-w-sm rounded-2xl p-5 border border-blue-500/40 space-y-3">
             <h3 className="font-bold text-sm text-blue-400">✏️ Editar Profissional</h3>
             <input type="text" value={editingProf.name} onChange={(e) => setEditingProf({ ...editingProf, name: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
             <input type="text" value={editingProf.phone || ''} onChange={(e) => setEditingProf({ ...editingProf, phone: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" placeholder="WhatsApp" />
-            <div className="flex space-x-2"><button type="button" onClick={() => setEditingProf(null)} className="w-1/2 bg-gray-800 py-2 rounded-lg text-xs">Cancelar</button><button type="submit" className="w-1/2 bg-blue-600 py-2 rounded-lg text-xs font-bold text-white">Salvar</button></div>
+            <input type="text" value={editingProf.avatar_url || ''} onChange={(e) => setEditingProf({ ...editingProf, avatar_url: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" placeholder="URL Avatar" />
+            <input type="number" value={editingProf.commission_percentage || ''} onChange={(e) => setEditingProf({ ...editingProf, commission_percentage: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" placeholder="% Comissão" />
+            <div className="flex space-x-2">
+              <button type="button" onClick={() => setEditingProf(null)} className="w-1/2 bg-gray-800 py-2 rounded-lg text-xs">Cancelar</button>
+              <button type="submit" className="w-1/2 bg-blue-600 py-2 rounded-lg text-xs font-bold text-white">Atualizar</button>
+            </div>
           </form>
         </div>
       )}

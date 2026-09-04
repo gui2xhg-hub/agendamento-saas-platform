@@ -14,15 +14,20 @@ export default function AgendaTenant() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (slug) fetchTenantData();
-  }, [slug]);
+    if (router.isReady && slug) {
+      fetchTenantData();
+    }
+  }, [router.isReady, slug]);
 
   useEffect(() => {
     if (tenant?.id) fetchAppointments();
   }, [tenant?.id, selectedDate, selectedProfFilter]);
 
   const fetchTenantData = async () => {
-    const { data: tData } = await supabase.from('tenants').select('*').eq('slug', slug).single();
+    setLoading(true);
+    const cleanSlug = String(slug).toLowerCase().trim();
+    const { data: tData } = await supabase.from('tenants').select('*').eq('slug', cleanSlug).maybeSingle();
+
     if (tData) {
       setTenant(tData);
       const { data: pData } = await supabase.from('professionals').select('*').eq('tenant_id', tData.id);
@@ -62,7 +67,6 @@ export default function AgendaTenant() {
 
   return (
     <div className="min-h-screen bg-gray-950 text-white p-4 font-sans max-w-6xl mx-auto pb-12">
-      {/* CABEÇALHO */}
       <header className="flex justify-between items-center py-4 border-b border-gray-800 mb-6">
         <div>
           <h1 className="font-bold text-xl text-orange-500">📅 Agenda do Dia — {tenant.name}</h1>
@@ -73,7 +77,6 @@ export default function AgendaTenant() {
         </button>
       </header>
 
-      {/* FILTROS DE DATA E PROFISSIONAL */}
       <div className="bg-gray-900 p-4 rounded-2xl border border-gray-800 mb-6 flex flex-col sm:flex-row gap-3 justify-between items-center">
         <div className="flex items-center space-x-2 w-full sm:w-auto">
           <label className="text-xs font-bold text-gray-400">Data:</label>
@@ -106,7 +109,6 @@ export default function AgendaTenant() {
         </div>
       </div>
 
-      {/* GRADE DE AGENDAMENTOS */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {appointments.length === 0 ? (
           <div className="col-span-full text-center py-12 text-gray-500 text-sm">
@@ -140,7 +142,6 @@ export default function AgendaTenant() {
                   <p><b>Duração Total:</b> {app.total_duration_minutes || 30} min</p>
                 </div>
 
-                {/* SERVIÇOS */}
                 <div className="space-y-1 border-t border-b border-gray-800 py-2">
                   <span className="text-[10px] font-bold text-gray-400 uppercase">Serviços:</span>
                   {servicesList.map((s, idx) => (
@@ -151,7 +152,6 @@ export default function AgendaTenant() {
                   ))}
                 </div>
 
-                {/* VALOR E STATUS DE PAGAMENTO */}
                 <div className="flex justify-between items-center text-xs">
                   <div>
                     <span className="font-bold text-gray-400 block text-[10px]">TOTAL:</span>
@@ -166,7 +166,6 @@ export default function AgendaTenant() {
                   </button>
                 </div>
 
-                {/* BOTÕES DE AÇÃO DE STATUS */}
                 <div className="flex space-x-1 pt-1 text-[10px] font-bold">
                   {app.status === 'agendado' && (
                     <button onClick={() => updateStatus(app.id, 'em_atendimento')} className="flex-1 bg-blue-600 hover:bg-blue-700 py-1.5 rounded-lg text-white">

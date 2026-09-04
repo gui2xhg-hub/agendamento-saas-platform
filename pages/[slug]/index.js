@@ -414,7 +414,11 @@ export default function AgendamentoCliente() {
                 min={new Date().toISOString().split('T')[0]}
                 value={selectedDate}
                 onChange={(e) => setSelectedDate(e.target.value)}
-                className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white focus:outline-none"
+                className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white focus:outline-none cursor-pointer"
+                style={{
+                  colorScheme: 'dark',
+                  accentColor: primaryColor
+                }}
               />
             </div>
 
@@ -536,7 +540,7 @@ export default function AgendamentoCliente() {
 
                           <p className="text-gray-300"><b>Valor:</b> R$ {Number(app.total_price).toFixed(2)} ({app.payment_method})</p>
 
-                          {/* BOTOES DE CANCELAR E REAGENDAR (Apenas se status for 'agendado') */}
+                          {/* BOTOES DE CANCELAR E REAGENDAR */}
                           {canManage && (
                             <div className="flex space-x-2 pt-1 border-t border-gray-700/60">
                               <button
@@ -572,7 +576,11 @@ export default function AgendamentoCliente() {
                     min={new Date().toISOString().split('T')[0]}
                     value={userNewDate}
                     onChange={(e) => setUserNewDate(e.target.value)}
-                    className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none"
+                    className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none cursor-pointer"
+                    style={{
+                      colorScheme: 'dark',
+                      accentColor: primaryColor
+                    }}
                   />
                 </div>
 

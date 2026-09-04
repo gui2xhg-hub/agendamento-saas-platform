@@ -9,11 +9,13 @@ export default function AgendamentoCliente() {
   const [tenant, setTenant] = useState(null);
   const [professionals, setProfessionals] = useState([]);
   const [services, setServices] = useState([]);
+  const [profServices, setProfServices] = useState([]);
+  const [blockedTimes, setBlockedTimes] = useState([]);
   const [loading, setLoading] = useState(true);
 
   // ESTADOS DO AGENDAMENTO
-  const [selectedProf, setSelectedProf] = useState('ANY');
   const [selectedServices, setSelectedServices] = useState([]);
+  const [selectedProf, setSelectedProf] = useState('ANY');
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [selectedTime, setSelectedTime] = useState('');
   const [existingAppointments, setExistingAppointments] = useState([]);
@@ -24,6 +26,12 @@ export default function AgendamentoCliente() {
   const [paymentMethod, setPaymentMethod] = useState('No Local');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // MODAL MEUS AGENDAMENTOS
+  const [showMyAppsModal, setShowMyAppsModal] = useState(false);
+  const [searchPhone, setSearchPhone] = useState('');
+  const [myAppointments, setMyAppointments] = useState([]);
+  const [isSearchingApps, setIsSearchingApps] = useState(false);
+
   useEffect(() => {
     if (router.isReady && slug) {
       fetchTenantData();
@@ -32,7 +40,7 @@ export default function AgendamentoCliente() {
 
   useEffect(() => {
     if (tenant?.id && selectedDate) {
-      fetchExistingAppointments();
+      fetchExistingAppointmentsAndBlocks();
     }
   }, [tenant?.id, selectedDate, selectedProf]);
 
@@ -45,30 +53,59 @@ export default function AgendamentoCliente() {
       setTenant(tData);
       const { data: pData } = await supabase.from('professionals').select('*').eq('tenant_id', tData.id).eq('active', true);
       const { data: sData } = await supabase.from('services').select('*').eq('tenant_id', tData.id).eq('active', true);
+      const { data: psData } = await supabase.from('professional_services').select('*');
 
       if (pData) setProfessionals(pData);
       if (sData) setServices(sData);
+      if (psData) setProfServices(psData);
     }
     setLoading(false);
   };
 
-  const fetchExistingAppointments = async () => {
-    let query = supabase
+  const fetchExistingAppointmentsAndBlocks = async () => {
+    let appQuery = supabase
       .from('appointments')
       .select('*')
       .eq('tenant_id', tenant.id)
       .eq('appointment_date', selectedDate)
       .neq('status', 'cancelado');
 
+    let blockQuery = supabase
+      .from('blocked_times')
+      .select('*')
+      .eq('tenant_id', tenant.id)
+      .eq('block_date', selectedDate);
+
     if (selectedProf !== 'ANY') {
-      query = query.eq('professional_id', selectedProf);
+      appQuery = appQuery.eq('professional_id', selectedProf);
     }
 
-    const { data } = await query;
-    if (data) setExistingAppointments(data);
+    const { data: apps } = await appQuery;
+    const { data: blocks } = await blockQuery;
+
+    if (apps) setExistingAppointments(apps);
+    if (blocks) setBlockedTimes(blocks);
   };
 
-  if (loading) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><p className="text-xs text-gray-400">Carregando horários...</p></div>;
+  // BUSCA DE AGENDAMENTOS DO CLIENTE
+  const handleSearchMyAppointments = async (e) => {
+    e.preventDefault();
+    const clean = searchPhone.replace(/\D/g, '');
+    if (!clean) return alert("Digite um número de telefone válido!");
+
+    setIsSearchingApps(true);
+    const { data } = await supabase
+      .from('appointments')
+      .select('*')
+      .eq('tenant_id', tenant.id)
+      .ilike('customer_phone', `%${clean}%`)
+      .order('appointment_date', { ascending: false });
+
+    if (data) setMyAppointments(data);
+    setIsSearchingApps(false);
+  };
+
+  if (loading) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><p className="text-xs text-gray-400">Carregando...</p></div>;
   if (!tenant) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><h1 className="text-xl font-bold text-orange-500">Estabelecimento não encontrado</h1></div>;
 
   const primaryColor = tenant.primary_color || '#FF8C00';
@@ -76,6 +113,14 @@ export default function AgendamentoCliente() {
 
   const totalDuration = selectedServices.reduce((acc, s) => acc + (s.duration_minutes || 30), 0);
   const totalPrice = selectedServices.reduce((acc, s) => acc + Number(s.price || 0), 0);
+
+  // FILTRO: PROFISSIONAIS QUE ATENDEM OS SERVIÇOS SELECIONADOS
+  const filteredProfessionals = professionals.filter(p => {
+    if (selectedServices.length === 0) return true;
+    if (profServices.length === 0) return true; // Se ainda não foram vinculados serviços, mostra todos por padrão
+    const pServiceIds = profServices.filter(ps => ps.professional_id === p.id).map(ps => ps.service_id);
+    return selectedServices.every(srv => pServiceIds.includes(srv.id));
+  });
 
   const handleToggleService = (srv) => {
     const exists = selectedServices.some(s => s.id === srv.id);
@@ -85,6 +130,7 @@ export default function AgendamentoCliente() {
       setSelectedServices([...selectedServices, srv]);
     }
     setSelectedTime('');
+    setSelectedProf('ANY');
   };
 
   const generateAvailableTimeSlots = () => {
@@ -107,15 +153,27 @@ export default function AgendamentoCliente() {
       const slotStartMin = h * 60 + m;
       const slotEndMin = slotStartMin + totalDuration;
 
+      // 1. Verifica se conflita com agendamentos existentes
       const isOccupied = existingAppointments.some(app => {
         const [appStartH, appStartM] = app.start_time.split(':').map(Number);
         const appStartMin = appStartH * 60 + appStartM;
         const appEndMin = appStartMin + (app.total_duration_minutes || 30);
-
         return (slotStartMin < appEndMin && slotEndMin > appStartMin);
       });
 
-      if (!isOccupied) {
+      // 2. Verifica se conflita com agenda fechada / horários bloqueados
+      const isBlocked = blockedTimes.some(b => {
+        if (b.professional_id !== null && selectedProf !== 'ANY' && b.professional_id !== parseInt(selectedProf)) {
+          return false;
+        }
+        const [bStartH, bStartM] = b.start_time.split(':').map(Number);
+        const [bEndH, bEndM] = b.end_time.split(':').map(Number);
+        const bStartMin = bStartH * 60 + bStartM;
+        const bEndMin = bEndH * 60 + bEndM;
+        return (slotStartMin < bEndMin && slotEndMin > bStartMin);
+      });
+
+      if (!isOccupied && !isBlocked) {
         slots.push(timeString);
       }
 
@@ -140,14 +198,14 @@ export default function AgendamentoCliente() {
     endDateObj.setHours(h, m + totalDuration, 0, 0);
     const endTime = endDateObj.toTimeString().substring(0, 5);
 
-    const chosenProfId = selectedProf === 'ANY' ? (professionals[0]?.id || null) : parseInt(selectedProf);
+    const chosenProfId = selectedProf === 'ANY' ? (filteredProfessionals[0]?.id || null) : parseInt(selectedProf);
     const chosenProfName = professionals.find(p => p.id === chosenProfId)?.name || 'Qualquer Profissional';
 
     const appointmentData = {
       tenant_id: tenant.id,
       professional_id: chosenProfId,
       customer_name: customerName,
-      customer_phone: customerPhone,
+      customer_phone: customerPhone.replace(/\D/g, ''),
       services_json: selectedServices,
       total_price: totalPrice,
       total_duration_minutes: totalDuration,
@@ -191,8 +249,16 @@ export default function AgendamentoCliente() {
 
   return (
     <div className="min-h-screen text-white font-sans pb-12 max-w-md mx-auto" style={{ backgroundColor: secondaryColor }}>
+      {/* CAPA & BOTÃO MEUS AGENDAMENTOS */}
       <div className="relative h-36 bg-gray-900 border-b border-gray-800">
         <img src={tenant.banner_url || 'https://images.unsplash.com/photo-1503951914875-452162b0f3f1?w=800&auto=format&fit=crop&q=80'} alt="Capa" className="w-full h-full object-cover opacity-50" />
+        
+        <button
+          onClick={() => setShowMyAppsModal(true)}
+          className="absolute top-3 right-3 bg-black/60 hover:bg-black border border-white/20 text-white text-[10px] font-bold px-3 py-1.5 rounded-full backdrop-blur-md transition">
+          📋 Meus Agendamentos
+        </button>
+
         <div className="absolute -bottom-5 left-4 flex items-center space-x-3">
           <img src={tenant.logo_url || 'https://images.unsplash.com/photo-1585747860715-2ba37e788b70?w=150&auto=format&fit=crop&q=80'} alt="Logo" className="w-16 h-16 rounded-full border-2 border-gray-950 object-cover bg-gray-800 shadow-lg" />
           <div className="pt-4">
@@ -203,31 +269,9 @@ export default function AgendamentoCliente() {
       </div>
 
       <div className="mt-8 px-4 space-y-6">
+        {/* PASSO 1: SELEÇÃO DE SERVIÇOS PRIMEIRO */}
         <div className="space-y-2">
-          <label className="text-xs font-bold text-gray-300 block uppercase tracking-wider">1. Escolha o Profissional</label>
-          <div className="flex space-x-2 overflow-x-auto pb-1 scrollbar-none">
-            <button
-              onClick={() => setSelectedProf('ANY')}
-              style={{ backgroundColor: selectedProf === 'ANY' ? primaryColor : 'rgba(255,255,255,0.05)' }}
-              className="p-3 rounded-xl border border-white/10 flex flex-col items-center min-w-[100px] text-center">
-              <span className="text-xl mb-1">💈</span>
-              <span className="text-xs font-bold text-white">Qualquer um</span>
-            </button>
-            {professionals.map(p => (
-              <button
-                key={p.id}
-                onClick={() => setSelectedProf(p.id)}
-                style={{ backgroundColor: selectedProf === p.id ? primaryColor : 'rgba(255,255,255,0.05)' }}
-                className="p-3 rounded-xl border border-white/10 flex flex-col items-center min-w-[100px] text-center">
-                <img src={p.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80'} alt={p.name} className="w-9 h-9 rounded-full object-cover mb-1 border border-white/20" />
-                <span className="text-xs font-bold text-white truncate max-w-[80px]">{p.name}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <label className="text-xs font-bold text-gray-300 block uppercase tracking-wider">2. Selecione os Serviços</label>
+          <label className="text-xs font-bold text-gray-300 block uppercase tracking-wider">1. Escolha os Serviços</label>
           <div className="space-y-2">
             {services.map(srv => {
               const isSelected = selectedServices.some(s => s.id === srv.id);
@@ -252,7 +296,38 @@ export default function AgendamentoCliente() {
           </div>
         </div>
 
+        {/* PASSO 2: ESCOLHER PROFISSIONAL (FILTRADO) */}
         {selectedServices.length > 0 && (
+          <div className="space-y-2 pt-2 border-t border-white/10">
+            <label className="text-xs font-bold text-gray-300 block uppercase tracking-wider">2. Escolha o Profissional</label>
+            {filteredProfessionals.length === 0 ? (
+              <p className="text-xs text-red-400 bg-red-500/10 p-3 rounded-xl border border-red-500/20 text-center">Nenhum profissional realiza todos os serviços selecionados.</p>
+            ) : (
+              <div className="flex space-x-2 overflow-x-auto pb-1 scrollbar-none">
+                <button
+                  onClick={() => setSelectedProf('ANY')}
+                  style={{ backgroundColor: selectedProf === 'ANY' ? primaryColor : 'rgba(255,255,255,0.05)' }}
+                  className="p-3 rounded-xl border border-white/10 flex flex-col items-center min-w-[100px] text-center">
+                  <span className="text-xl mb-1">💈</span>
+                  <span className="text-xs font-bold text-white">Qualquer um</span>
+                </button>
+                {filteredProfessionals.map(p => (
+                  <button
+                    key={p.id}
+                    onClick={() => setSelectedProf(p.id)}
+                    style={{ backgroundColor: selectedProf === p.id ? primaryColor : 'rgba(255,255,255,0.05)' }}
+                    className="p-3 rounded-xl border border-white/10 flex flex-col items-center min-w-[100px] text-center">
+                    <img src={p.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80'} alt={p.name} className="w-9 h-9 rounded-full object-cover mb-1 border border-white/20" />
+                    <span className="text-xs font-bold text-white truncate max-w-[80px]">{p.name}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* PASSO 3: SELEÇÃO DE DATA E HORÁRIO */}
+        {selectedServices.length > 0 && filteredProfessionals.length > 0 && (
           <div className="space-y-4 pt-2 border-t border-white/10">
             <div className="space-y-1">
               <label className="text-xs font-bold text-gray-300 block uppercase tracking-wider">3. Escolha a Data</label>
@@ -268,7 +343,7 @@ export default function AgendamentoCliente() {
             <div className="space-y-1">
               <label className="text-xs font-bold text-gray-300 block uppercase tracking-wider">4. Horários Disponíveis ({availableSlots.length})</label>
               {availableSlots.length === 0 ? (
-                <p className="text-xs text-red-400 bg-red-500/10 p-3 rounded-xl border border-red-500/20 text-center">Nenhum horário livre para essa data/duração.</p>
+                <p className="text-xs text-red-400 bg-red-500/10 p-3 rounded-xl border border-red-500/20 text-center">Nenhum horário livre ou agenda fechada nesta data.</p>
               ) : (
                 <div className="grid grid-cols-4 gap-2 max-h-40 overflow-y-auto pt-1">
                   {availableSlots.map(slot => (
@@ -286,9 +361,10 @@ export default function AgendamentoCliente() {
           </div>
         )}
 
+        {/* PASSO 4: CONFIRMAÇÃO */}
         {selectedTime && (
           <form onSubmit={handleConfirmAppointment} className="space-y-3 pt-4 border-t border-white/10">
-            <h3 className="font-bold text-xs text-gray-300 uppercase tracking-wider">5. Seus Dados para Contato</h3>
+            <h3 className="font-bold text-xs text-gray-300 uppercase tracking-wider">5. Seus Dados</h3>
             <input
               type="text"
               required
@@ -332,6 +408,50 @@ export default function AgendamentoCliente() {
           </form>
         )}
       </div>
+
+      {/* MODAL MEUS AGENDAMENTOS POR WHATSAPP */}
+      {showMyAppsModal && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-900 border border-gray-800 w-full max-w-sm rounded-2xl p-5 space-y-4">
+            <div className="flex justify-between items-center border-b border-gray-800 pb-2">
+              <h3 className="font-bold text-sm text-orange-400">📋 Meus Agendamentos</h3>
+              <button onClick={() => setShowMyAppsModal(false)} className="text-gray-400 font-bold text-xs">✕ Fechar</button>
+            </div>
+
+            <form onSubmit={handleSearchMyAppointments} className="space-y-2">
+              <label className="text-[11px] text-gray-400 block">Digite seu WhatsApp para consultar:</label>
+              <div className="flex space-x-2">
+                <input
+                  type="text"
+                  placeholder="DDD + WhatsApp"
+                  value={searchPhone}
+                  onChange={(e) => setSearchPhone(e.target.value)}
+                  className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none"
+                />
+                <button type="submit" disabled={isSearchingApps} className="bg-orange-500 hover:bg-orange-600 px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap">
+                  {isSearchingApps ? '...' : 'Buscar'}
+                </button>
+              </div>
+            </form>
+
+            <div className="space-y-2 max-h-60 overflow-y-auto">
+              {myAppointments.length === 0 ? (
+                <p className="text-xs text-gray-500 text-center py-4">Nenhum agendamento encontrado.</p>
+              ) : (
+                myAppointments.map(app => (
+                  <div key={app.id} className="bg-gray-800 p-3 rounded-xl border border-gray-700 text-xs space-y-1">
+                    <div className="flex justify-between font-bold">
+                      <span className="text-orange-400">📅 {app.appointment_date.split('-').reverse().join('/')} às {app.start_time}</span>
+                      <span className={`text-[10px] uppercase ${app.status === 'cancelado' ? 'text-red-400' : 'text-green-400'}`}>{app.status}</span>
+                    </div>
+                    <p className="text-gray-300"><b>Valor:</b> R$ {Number(app.total_price).toFixed(2)} ({app.payment_method})</p>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

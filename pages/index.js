@@ -87,7 +87,7 @@ export default function HomeApp() {
     <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center p-4 font-sans">
       <div className="bg-gray-900 border border-gray-800 p-6 rounded-2xl w-full max-w-sm space-y-5 shadow-2xl">
         {step === 'login' ? (
-          /* TELA 1: LOGIN E AUTENTICAÇÃO */
+          /* TELA 1: LOGIN E AUTENTICAÇÃO DO ESTABELECIMENTO */
           <>
             <div className="text-center space-y-1">
               <div className="w-12 h-12 bg-orange-500/20 text-orange-400 rounded-2xl flex items-center justify-center mx-auto text-2xl font-bold border border-orange-500/30">
@@ -164,9 +164,9 @@ export default function HomeApp() {
                 <span>➔</span>
               </button>
 
-              {/* Ajuste o destino caso o seu arquivo no GitHub se chame agenda.js em vez de equipe.js */}
+              {/* ROTA CORRIGIDA PARA AGENDA.JS */}
               <button
-                onClick={() => router.push(`/${tenant.slug}/equipe`)}
+                onClick={() => router.push(`/${tenant.slug}/agenda`)}
                 className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold p-3.5 rounded-xl text-xs flex items-center justify-between transition shadow-md">
                 <span className="flex items-center space-x-2">
                   <span>💈</span>

@@ -62,8 +62,18 @@ export default function AgendaTenant() {
     fetchAppointments();
   };
 
-  if (loading) return <div className="p-4 text-white text-center font-sans">Carregando Agenda...</div>;
-  if (!tenant) return <div className="p-4 text-white text-center font-sans">Estabelecimento não encontrado.</div>;
+  if (loading) return (
+    <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans">
+      <p className="text-xs text-gray-400">Carregando Agenda...</p>
+    </div>
+  );
+
+  if (!tenant) return (
+    <div className="min-h-screen bg-gray-950 text-white flex flex-col items-center justify-center font-sans p-4 text-center">
+      <h1 className="text-xl font-bold text-orange-500 mb-2">Estabelecimento não encontrado</h1>
+      <p className="text-xs text-gray-400">Verifique se o link/slug digitado está correto no painel Master.</p>
+    </div>
+  );
 
   return (
     <div className="min-h-screen bg-gray-950 text-white p-4 font-sans max-w-6xl mx-auto pb-12">

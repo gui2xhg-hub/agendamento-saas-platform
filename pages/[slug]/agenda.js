@@ -21,13 +21,22 @@ export default function AgendaTenant() {
   const [newTime, setNewTime] = useState('');
   const [isSavingReschedule, setIsSavingReschedule] = useState(false);
 
+  // SOLICITA PERMISSÃO DE NOTIFICAÇÃO AO ABRIR O APP NO CELULAR / PC
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      if (Notification.permission !== 'granted' && Notification.permission !== 'denied') {
+        Notification.requestPermission();
+      }
+    }
+  }, []);
+
   useEffect(() => {
     if (router.isReady && slug) {
       fetchTenantData();
     }
   }, [router.isReady, slug]);
 
-  // BUSCA DADOS E MANTÉM CONEXÃO TEMPO REAL (REALTIME)
+  // BUSCA DADOS E MANTÉM CONEXÃO TEMPO REAL (REALTIME) COM NOTIFICAÇÕES
   useEffect(() => {
     if (!tenant?.id) return;
 
@@ -44,8 +53,39 @@ export default function AgendaTenant() {
           table: 'appointments',
           filter: `tenant_id=eq.${tenant.id}`
         },
-        () => {
+        (payload) => {
           fetchAppointmentsAndBlocks();
+
+          // SE FOR UM NOVO AGENDAMENTO (INSERT), EMITE SOM E NOTIFICAÇÃO PUSH
+          if (payload.eventType === 'INSERT') {
+            // 1. Toca som de alerta no dispositivo
+            try {
+              const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
+              audio.play().catch(() => {});
+            } catch (e) {}
+
+            // 2. Dispara notificação nativa no celular (Android / iOS / PC)
+            if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+              const clientName = payload.new?.customer_name || payload.new?.client_name || 'Novo cliente';
+              const appTime = payload.new?.start_time || '';
+
+              if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+                navigator.serviceWorker.ready.then((registration) => {
+                  registration.showNotification('🚨 Novo Agendamento!', {
+                    body: `${clientName} agendou para às ${appTime}`,
+                    icon: '/icon-192.png',
+                    badge: '/icon-192.png',
+                    vibrate: [300, 100, 300]
+                  });
+                });
+              } else {
+                new Notification('🚨 Novo Agendamento!', {
+                  body: `${clientName} agendou para às ${appTime}`,
+                  icon: '/icon-192.png'
+                });
+              }
+            }
+          }
         }
       )
       .subscribe();

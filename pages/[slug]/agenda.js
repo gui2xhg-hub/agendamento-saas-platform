@@ -12,6 +12,7 @@ export default function AgendaTenant() {
   const [blockedTimes, setBlockedTimes] = useState([]);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [selectedProfFilter, setSelectedProfFilter] = useState('ALL');
+  const [viewMode, setViewMode] = useState('agenda'); // 'agenda' ou 'archived'
   const [loading, setLoading] = useState(true);
 
   // ESTADO PARA REAGENDAMENTO
@@ -26,9 +27,33 @@ export default function AgendaTenant() {
     }
   }, [router.isReady, slug]);
 
+  // BUSCA DADOS E MANTÉM CONEXÃO TEMPO REAL (REALTIME)
   useEffect(() => {
-    if (tenant?.id) fetchAppointmentsAndBlocks();
-  }, [tenant?.id, selectedDate, selectedProfFilter]);
+    if (!tenant?.id) return;
+
+    fetchAppointmentsAndBlocks();
+
+    // ESCUTA EM TEMPO REAL (REALTIME WEBSOCKET)
+    const channel = supabase
+      .channel(`agenda-realtime-${tenant.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'appointments',
+          filter: `tenant_id=eq.${tenant.id}`
+        },
+        () => {
+          fetchAppointmentsAndBlocks();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [tenant?.id, selectedDate, selectedProfFilter, viewMode]);
 
   const fetchTenantData = async () => {
     setLoading(true);
@@ -47,9 +72,19 @@ export default function AgendaTenant() {
     let query = supabase
       .from('appointments')
       .select('*')
-      .eq('tenant_id', tenant.id)
-      .eq('appointment_date', selectedDate)
-      .order('start_time', { ascending: true });
+      .eq('tenant_id', tenant.id);
+
+    if (viewMode === 'agenda') {
+      query = query
+        .eq('appointment_date', selectedDate)
+        .or('is_archived.is.null,is_archived.eq.false')
+        .order('start_time', { ascending: true });
+    } else {
+      // MODO ARQUIVADOS
+      query = query
+        .eq('is_archived', true)
+        .order('appointment_date', { ascending: false });
+    }
 
     let blockQuery = supabase
       .from('blocked_times')
@@ -57,7 +92,7 @@ export default function AgendaTenant() {
       .eq('tenant_id', tenant.id)
       .eq('block_date', selectedDate);
 
-    if (selectedProfFilter !== 'ALL') {
+    if (selectedProfFilter !== 'ALL' && viewMode === 'agenda') {
       query = query.eq('professional_id', selectedProfFilter);
     }
 
@@ -70,22 +105,43 @@ export default function AgendaTenant() {
 
   const updateStatus = async (appId, newStatus) => {
     await supabase.from('appointments').update({ status: newStatus }).eq('id', appId);
-    fetchAppointmentsAndBlocks();
   };
 
   const togglePayment = async (appId, currentPaid) => {
     await supabase.from('appointments').update({ is_paid: !currentPaid }).eq('id', appId);
-    fetchAppointmentsAndBlocks();
   };
 
-  // ABRIR MODAL DE REAGENDAMENTO
+  // ARQUIVAR AGENDAMENTO
+  const handleArchiveApp = async (appId) => {
+    await supabase.from('appointments').update({ is_archived: true }).eq('id', appId);
+  };
+
+  // DESARQUIVAR AGENDAMENTO
+  const handleUnarchiveApp = async (appId) => {
+    await supabase.from('appointments').update({ is_archived: false }).eq('id', appId);
+  };
+
+  // EXCLUIR DEFINITIVO (INDIVIDUAL)
+  const handleDeleteApp = async (appId) => {
+    if (confirm("TEM CERTEZA que deseja apagar definitivamente este agendamento?")) {
+      await supabase.from('appointments').delete().eq('id', appId);
+    }
+  };
+
+  // LIMPAR TODOS OS ARQUIVADOS
+  const handleClearAllArchived = async () => {
+    if (confirm("TEM CERTEZA que deseja APAGAR DEFINITIVAMENTE todos os agendamentos arquivados?\nEsta ação não poderá ser desfeita!")) {
+      await supabase.from('appointments').delete().eq('tenant_id', tenant.id).eq('is_archived', true);
+    }
+  };
+
+  // REAGENDAMENTO
   const handleOpenReschedule = (app) => {
     setReschedulingApp(app);
     setNewDate(app.appointment_date);
     setNewTime(app.start_time);
   };
 
-  // CONFIRMAR REAGENDAMENTO
   const handleSaveReschedule = async (e) => {
     e.preventDefault();
     if (!newDate || !newTime) return alert("Selecione nova data e novo horário!");
@@ -127,7 +183,6 @@ export default function AgendaTenant() {
     }
 
     setReschedulingApp(null);
-    fetchAppointmentsAndBlocks();
   };
 
   if (loading) return (
@@ -146,59 +201,101 @@ export default function AgendaTenant() {
     <div className="min-h-screen bg-gray-950 text-white p-4 font-sans max-w-6xl mx-auto pb-12">
       <header className="flex justify-between items-center py-4 border-b border-gray-800 mb-6">
         <div>
-          <h1 className="font-bold text-xl text-orange-500">📅 Agenda do Dia — {tenant.name}</h1>
-          <p className="text-xs text-gray-400">Painel de Atendimentos da Equipe</p>
+          <div className="flex items-center space-x-2">
+            <h1 className="font-bold text-xl text-orange-500">📅 Agenda — {tenant.name}</h1>
+            <span className="flex h-2 w-2 relative">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+            </span>
+            <span className="text-[10px] text-green-400 font-bold uppercase tracking-widest">Ao Vivo</span>
+          </div>
+          <p className="text-xs text-gray-400">Painel de Atendimentos em Tempo Real</p>
         </div>
-        <button onClick={fetchAppointmentsAndBlocks} className="bg-orange-500 hover:bg-orange-600 px-3 py-2 rounded-xl text-xs font-bold transition">
-          🔄 Atualizar
-        </button>
+
+        {/* NAVEGAÇÃO ENTRE MODO AGENDA E MODO ARQUIVADOS */}
+        <div className="flex space-x-2 bg-gray-900 p-1 rounded-xl border border-gray-800">
+          <button
+            onClick={() => setViewMode('agenda')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+              viewMode === 'agenda' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'
+            }`}>
+            📅 Agenda Do Dia
+          </button>
+          <button
+            onClick={() => setViewMode('archived')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+              viewMode === 'archived' ? 'bg-purple-600 text-white' : 'text-gray-400 hover:text-white'
+            }`}>
+            📦 Arquivados
+          </button>
+        </div>
       </header>
 
-      {/* FILTROS DE DATA E PROFISSIONAIS */}
-      <div className="bg-gray-900 p-4 rounded-2xl border border-gray-800 mb-6 flex flex-col sm:flex-row gap-3 justify-between items-center">
-        <div className="flex items-center space-x-2 w-full sm:w-auto">
-          <label className="text-xs font-bold text-gray-400">Data:</label>
-          <input
-            type="date"
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
-            className="bg-gray-800 border border-gray-700 p-2 rounded-xl text-xs text-white focus:outline-none"
-          />
-        </div>
+      {/* PAINEL MODO AGENDA */}
+      {viewMode === 'agenda' ? (
+        <>
+          <div className="bg-gray-900 p-4 rounded-2xl border border-gray-800 mb-6 flex flex-col sm:flex-row gap-3 justify-between items-center">
+            <div className="flex items-center space-x-2 w-full sm:w-auto">
+              <label className="text-xs font-bold text-gray-400">Data:</label>
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                className="bg-gray-800 border border-gray-700 p-2 rounded-xl text-xs text-white focus:outline-none"
+              />
+            </div>
 
-        <div className="flex items-center space-x-2 overflow-x-auto w-full sm:w-auto pb-1 scrollbar-none">
-          <button
-            onClick={() => setSelectedProfFilter('ALL')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap border transition ${
-              selectedProfFilter === 'ALL' ? 'bg-orange-500 text-white border-orange-500' : 'bg-gray-800 text-gray-400 border-gray-700'
-            }`}>
-            Todos os Profissionais
-          </button>
-          {professionals.map(p => (
+            <div className="flex items-center space-x-2 overflow-x-auto w-full sm:w-auto pb-1 scrollbar-none">
+              <button
+                onClick={() => setSelectedProfFilter('ALL')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap border transition ${
+                  selectedProfFilter === 'ALL' ? 'bg-orange-500 text-white border-orange-500' : 'bg-gray-800 text-gray-400 border-gray-700'
+                }`}>
+                Todos os Profissionais
+              </button>
+              {professionals.map(p => (
+                <button
+                  key={p.id}
+                  onClick={() => setSelectedProfFilter(p.id)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap border transition ${
+                    selectedProfFilter === p.id ? 'bg-orange-500 text-white border-orange-500' : 'bg-gray-800 text-gray-400 border-gray-700'
+                  }`}>
+                  {p.name}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* HORÁRIOS BLOQUEADOS */}
+          {blockedTimes.length > 0 && (
+            <div className="mb-6 bg-red-500/10 border border-red-500/30 p-3 rounded-2xl space-y-1">
+              <span className="text-xs font-bold text-red-400 uppercase tracking-wider block">⛔ Bloqueios de Horário Hoje:</span>
+              {blockedTimes.map(b => {
+                const p = professionals.find(prof => prof.id === b.professional_id);
+                return (
+                  <p key={b.id} className="text-xs text-gray-300">
+                    • <b>{b.start_time} - {b.end_time}</b>: {p ? p.name : 'Toda a Equipe'} {b.reason && `(${b.reason})`}
+                  </p>
+                );
+              })}
+            </div>
+          )}
+        </>
+      ) : (
+        /* PAINEL MODO ARQUIVADOS (HEADER COM BOTAO DE LIMPAR) */
+        <div className="bg-gray-900 p-4 rounded-2xl border border-gray-800 mb-6 flex justify-between items-center">
+          <div>
+            <h2 className="font-bold text-sm text-purple-400">📦 Historico de Agendamentos Arquivados ({appointments.length})</h2>
+            <p className="text-[11px] text-gray-400">Atendimentos finalizados armazenados no histórico.</p>
+          </div>
+
+          {appointments.length > 0 && (
             <button
-              key={p.id}
-              onClick={() => setSelectedProfFilter(p.id)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap border transition ${
-                selectedProfFilter === p.id ? 'bg-orange-500 text-white border-orange-500' : 'bg-gray-800 text-gray-400 border-gray-700'
-              }`}>
-              {p.name}
+              onClick={handleClearAllArchived}
+              className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded-xl text-xs font-bold transition shadow-lg">
+              🧹 Limpar Todos os Arquivados
             </button>
-          ))}
-        </div>
-      </div>
-
-      {/* AVISO DE HORÁRIOS BLOQUEADOS NO DIA */}
-      {blockedTimes.length > 0 && (
-        <div className="mb-6 bg-red-500/10 border border-red-500/30 p-3 rounded-2xl space-y-1">
-          <span className="text-xs font-bold text-red-400 uppercase tracking-wider block">⛔ Bloqueios de Horário Hoje:</span>
-          {blockedTimes.map(b => {
-            const p = professionals.find(prof => prof.id === b.professional_id);
-            return (
-              <p key={b.id} className="text-xs text-gray-300">
-                • <b>{b.start_time} - {b.end_time}</b>: {p ? p.name : 'Toda a Equipe'} {b.reason && `(${b.reason})`}
-              </p>
-            );
-          })}
+          )}
         </div>
       )}
 
@@ -206,7 +303,7 @@ export default function AgendaTenant() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {appointments.length === 0 ? (
           <div className="col-span-full text-center py-12 text-gray-500 text-sm">
-            Nenhum agendamento para esta data.
+            {viewMode === 'agenda' ? 'Nenhum agendamento para esta data.' : 'Nenhum agendamento no histórico de arquivados.'}
           </div>
         ) : (
           appointments.map(app => {
@@ -214,10 +311,10 @@ export default function AgendaTenant() {
             const servicesList = Array.isArray(app.services_json) ? app.services_json : [];
 
             return (
-              <div key={app.id} className="bg-gray-900 border border-gray-800 p-4 rounded-2xl space-y-3 shadow-lg">
+              <div key={app.id} className="bg-gray-900 border border-gray-800 p-4 rounded-2xl space-y-3 shadow-lg relative">
                 <div className="flex justify-between items-start border-b border-gray-800 pb-2">
                   <div>
-                    <span className="text-xs font-bold text-orange-400">⏰ {app.start_time} - {app.end_time}</span>
+                    <span className="text-xs font-bold text-orange-400">⏰ {app.appointment_date?.split('-').reverse().join('/')} — {app.start_time} até {app.end_time}</span>
                     <h3 className="font-bold text-sm text-white">{app.customer_name}</h3>
                     <p className="text-xs text-gray-400">📱 {app.customer_phone}</p>
                   </div>
@@ -261,25 +358,46 @@ export default function AgendaTenant() {
                 </div>
 
                 {/* BOTÕES DE AÇÃO */}
-                <div className="flex space-x-1 pt-1 text-[10px] font-bold">
-                  {app.status === 'agendado' && (
-                    <button onClick={() => updateStatus(app.id, 'em_atendimento')} className="flex-1 bg-blue-600 hover:bg-blue-700 py-1.5 rounded-lg text-white">
-                      ✂️ Iniciar
-                    </button>
-                  )}
-                  {app.status === 'em_atendimento' && (
-                    <button onClick={() => updateStatus(app.id, 'concluido')} className="flex-1 bg-green-600 hover:bg-green-700 py-1.5 rounded-lg text-white">
-                      ✅ Concluir
-                    </button>
-                  )}
+                <div className="flex space-x-1 pt-1 text-[10px] font-bold flex-wrap gap-y-1">
+                  {viewMode === 'agenda' ? (
+                    <>
+                      {app.status === 'agendado' && (
+                        <button onClick={() => updateStatus(app.id, 'em_atendimento')} className="flex-1 bg-blue-600 hover:bg-blue-700 py-1.5 rounded-lg text-white">
+                          ✂️ Iniciar
+                        </button>
+                      )}
+                      {app.status === 'em_atendimento' && (
+                        <button onClick={() => updateStatus(app.id, 'concluido')} className="flex-1 bg-green-600 hover:bg-green-700 py-1.5 rounded-lg text-white">
+                          ✅ Concluir
+                        </button>
+                      )}
 
-                  <button onClick={() => handleOpenReschedule(app)} className="bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 px-2 py-1.5 rounded-lg border border-purple-500/30">
-                    ✏️ Reagendar
-                  </button>
+                      {/* BOTÃO ARQUIVAR (QUANDO CONCLUÍDO) */}
+                      {app.status === 'concluido' && (
+                        <button onClick={() => handleArchiveApp(app.id)} className="flex-1 bg-purple-600 hover:bg-purple-700 text-white py-1.5 rounded-lg">
+                          📦 Arquivar
+                        </button>
+                      )}
 
-                  <button onClick={() => updateStatus(app.id, 'cancelado')} className="bg-red-500/20 hover:bg-red-500/30 text-red-400 px-2 py-1.5 rounded-lg border border-red-500/30">
-                    ❌ Cancelar
-                  </button>
+                      <button onClick={() => handleOpenReschedule(app)} className="bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 px-2 py-1.5 rounded-lg border border-purple-500/30">
+                        ✏️ Reagendar
+                      </button>
+
+                      <button onClick={() => updateStatus(app.id, 'cancelado')} className="bg-red-500/20 hover:bg-red-500/30 text-red-400 px-2 py-1.5 rounded-lg border border-red-500/30">
+                        ❌ Cancelar
+                      </button>
+                    </>
+                  ) : (
+                    /* AÇÕES DENTRO DA ABA ARQUIVADOS */
+                    <>
+                      <button onClick={() => handleUnarchiveApp(app.id)} className="flex-1 bg-gray-800 hover:bg-gray-700 text-gray-300 py-1.5 rounded-lg border border-gray-700">
+                        ↩️ Desarquivar
+                      </button>
+                      <button onClick={() => handleDeleteApp(app.id)} className="bg-red-500/20 hover:bg-red-500/30 text-red-400 px-3 py-1.5 rounded-lg border border-red-500/30">
+                        🗑 Excluir Definitivo
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             );

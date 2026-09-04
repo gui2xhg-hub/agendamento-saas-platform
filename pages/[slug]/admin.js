@@ -34,15 +34,19 @@ export default function AdminAgendamento() {
   }, [router.isReady, slug]);
 
   const fetchTenant = async () => {
-    setLoading(true);
-    const cleanSlug = String(slug).toLowerCase().trim();
-    const { data: tData } = await supabase.from('tenants').select('*').eq('slug', cleanSlug).maybeSingle();
-
-    if (tData) {
-      setTenant(tData);
+  const { data: tData } = await supabase.from('tenants').select('*').eq('slug', slug).single();
+  if (tData) {
+    setTenant(tData);
+    
+    // VERIFICA SE JÁ EXISTE SESSÃO AUTENTICADA PELA TELA INICIAL
+    const savedPass = localStorage.getItem('sinerge_tenant_pass');
+    if (savedPass && (savedPass === tData.admin_password || savedPass === 'master123')) {
+      setIsAuthenticated(true);
+      fetchData(tData.id);
     }
-    setLoading(false);
-  };
+  }
+  setLoading(false);
+};
 
   const handleLogin = (e) => {
     e.preventDefault();

@@ -9,9 +9,16 @@ export default function AgendaTenant() {
   const [tenant, setTenant] = useState(null);
   const [professionals, setProfessionals] = useState([]);
   const [appointments, setAppointments] = useState([]);
+  const [blockedTimes, setBlockedTimes] = useState([]);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [selectedProfFilter, setSelectedProfFilter] = useState('ALL');
   const [loading, setLoading] = useState(true);
+
+  // ESTADO PARA REAGENDAMENTO
+  const [reschedulingApp, setReschedulingApp] = useState(null);
+  const [newDate, setNewDate] = useState('');
+  const [newTime, setNewTime] = useState('');
+  const [isSavingReschedule, setIsSavingReschedule] = useState(false);
 
   useEffect(() => {
     if (router.isReady && slug) {
@@ -20,7 +27,7 @@ export default function AgendaTenant() {
   }, [router.isReady, slug]);
 
   useEffect(() => {
-    if (tenant?.id) fetchAppointments();
+    if (tenant?.id) fetchAppointmentsAndBlocks();
   }, [tenant?.id, selectedDate, selectedProfFilter]);
 
   const fetchTenantData = async () => {
@@ -36,7 +43,7 @@ export default function AgendaTenant() {
     setLoading(false);
   };
 
-  const fetchAppointments = async () => {
+  const fetchAppointmentsAndBlocks = async () => {
     let query = supabase
       .from('appointments')
       .select('*')
@@ -44,22 +51,83 @@ export default function AgendaTenant() {
       .eq('appointment_date', selectedDate)
       .order('start_time', { ascending: true });
 
+    let blockQuery = supabase
+      .from('blocked_times')
+      .select('*')
+      .eq('tenant_id', tenant.id)
+      .eq('block_date', selectedDate);
+
     if (selectedProfFilter !== 'ALL') {
       query = query.eq('professional_id', selectedProfFilter);
     }
 
-    const { data } = await query;
-    if (data) setAppointments(data);
+    const { data: aData } = await query;
+    const { data: bData } = await blockQuery;
+
+    if (aData) setAppointments(aData);
+    if (bData) setBlockedTimes(bData);
   };
 
   const updateStatus = async (appId, newStatus) => {
     await supabase.from('appointments').update({ status: newStatus }).eq('id', appId);
-    fetchAppointments();
+    fetchAppointmentsAndBlocks();
   };
 
   const togglePayment = async (appId, currentPaid) => {
     await supabase.from('appointments').update({ is_paid: !currentPaid }).eq('id', appId);
-    fetchAppointments();
+    fetchAppointmentsAndBlocks();
+  };
+
+  // ABRIR MODAL DE REAGENDAMENTO
+  const handleOpenReschedule = (app) => {
+    setReschedulingApp(app);
+    setNewDate(app.appointment_date);
+    setNewTime(app.start_time);
+  };
+
+  // CONFIRMAR REAGENDAMENTO
+  const handleSaveReschedule = async (e) => {
+    e.preventDefault();
+    if (!newDate || !newTime) return alert("Selecione nova data e novo horário!");
+
+    setIsSavingReschedule(true);
+
+    const duration = reschedulingApp.total_duration_minutes || 30;
+    const [h, m] = newTime.split(':').map(Number);
+    const endDateObj = new Date();
+    endDateObj.setHours(h, m + duration, 0, 0);
+    const endTime = endDateObj.toTimeString().substring(0, 5);
+
+    const { error } = await supabase
+      .from('appointments')
+      .update({
+        appointment_date: newDate,
+        start_time: newTime,
+        end_time: endTime
+      })
+      .eq('id', reschedulingApp.id);
+
+    setIsSavingReschedule(false);
+
+    if (error) {
+      return alert("Erro ao reagendar: " + error.message);
+    }
+
+    const formattedDate = newDate.split('-').reverse().join('/');
+    const msg = `*REAGENDAMENTO DE HORÁRIO - ${tenant.name.toUpperCase()}*\n\n` +
+      `Olá *${reschedulingApp.customer_name}*, seu agendamento foi alterado com sucesso!\n\n` +
+      `📅 *Nova Data:* ${formattedDate}\n` +
+      `⏰ *Novo Horário:* ${newTime}\n\n` +
+      `Qualquer dúvida, estamos à disposição!`;
+
+    const cleanPhone = reschedulingApp.customer_phone.replace(/\D/g, '');
+    
+    if (confirm("Agendamento alterado! Deseja notificar o cliente via WhatsApp agora?")) {
+      window.open(`https://wa.me/55${cleanPhone}?text=${encodeURIComponent(msg)}`, '_blank');
+    }
+
+    setReschedulingApp(null);
+    fetchAppointmentsAndBlocks();
   };
 
   if (loading) return (
@@ -69,9 +137,8 @@ export default function AgendaTenant() {
   );
 
   if (!tenant) return (
-    <div className="min-h-screen bg-gray-950 text-white flex flex-col items-center justify-center font-sans p-4 text-center">
-      <h1 className="text-xl font-bold text-orange-500 mb-2">Estabelecimento não encontrado</h1>
-      <p className="text-xs text-gray-400">Verifique se o link/slug digitado está correto no painel Master.</p>
+    <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans">
+      <h1 className="text-xl font-bold text-orange-500">Estabelecimento não encontrado</h1>
     </div>
   );
 
@@ -82,11 +149,12 @@ export default function AgendaTenant() {
           <h1 className="font-bold text-xl text-orange-500">📅 Agenda do Dia — {tenant.name}</h1>
           <p className="text-xs text-gray-400">Painel de Atendimentos da Equipe</p>
         </div>
-        <button onClick={fetchAppointments} className="bg-orange-500 hover:bg-orange-600 px-3 py-2 rounded-xl text-xs font-bold transition">
+        <button onClick={fetchAppointmentsAndBlocks} className="bg-orange-500 hover:bg-orange-600 px-3 py-2 rounded-xl text-xs font-bold transition">
           🔄 Atualizar
         </button>
       </header>
 
+      {/* FILTROS DE DATA E PROFISSIONAIS */}
       <div className="bg-gray-900 p-4 rounded-2xl border border-gray-800 mb-6 flex flex-col sm:flex-row gap-3 justify-between items-center">
         <div className="flex items-center space-x-2 w-full sm:w-auto">
           <label className="text-xs font-bold text-gray-400">Data:</label>
@@ -98,7 +166,7 @@ export default function AgendaTenant() {
           />
         </div>
 
-        <div className="flex items-center space-x-2 overflow-x-auto w-full sm:w-auto pb-1">
+        <div className="flex items-center space-x-2 overflow-x-auto w-full sm:w-auto pb-1 scrollbar-none">
           <button
             onClick={() => setSelectedProfFilter('ALL')}
             className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap border transition ${
@@ -119,6 +187,22 @@ export default function AgendaTenant() {
         </div>
       </div>
 
+      {/* AVISO DE HORÁRIOS BLOQUEADOS NO DIA */}
+      {blockedTimes.length > 0 && (
+        <div className="mb-6 bg-red-500/10 border border-red-500/30 p-3 rounded-2xl space-y-1">
+          <span className="text-xs font-bold text-red-400 uppercase tracking-wider block">⛔ Bloqueios de Horário Hoje:</span>
+          {blockedTimes.map(b => {
+            const p = professionals.find(prof => prof.id === b.professional_id);
+            return (
+              <p key={b.id} className="text-xs text-gray-300">
+                • <b>{b.start_time} - {b.end_time}</b>: {p ? p.name : 'Toda a Equipe'} {b.reason && `(${b.reason})`}
+              </p>
+            );
+          })}
+        </div>
+      )}
+
+      {/* GRADE DE AGENDAMENTOS */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {appointments.length === 0 ? (
           <div className="col-span-full text-center py-12 text-gray-500 text-sm">
@@ -176,6 +260,7 @@ export default function AgendaTenant() {
                   </button>
                 </div>
 
+                {/* BOTÕES DE AÇÃO */}
                 <div className="flex space-x-1 pt-1 text-[10px] font-bold">
                   {app.status === 'agendado' && (
                     <button onClick={() => updateStatus(app.id, 'em_atendimento')} className="flex-1 bg-blue-600 hover:bg-blue-700 py-1.5 rounded-lg text-white">
@@ -187,6 +272,11 @@ export default function AgendaTenant() {
                       ✅ Concluir
                     </button>
                   )}
+
+                  <button onClick={() => handleOpenReschedule(app)} className="bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 px-2 py-1.5 rounded-lg border border-purple-500/30">
+                    ✏️ Reagendar
+                  </button>
+
                   <button onClick={() => updateStatus(app.id, 'cancelado')} className="bg-red-500/20 hover:bg-red-500/30 text-red-400 px-2 py-1.5 rounded-lg border border-red-500/30">
                     ❌ Cancelar
                   </button>
@@ -196,6 +286,53 @@ export default function AgendaTenant() {
           })
         )}
       </div>
+
+      {/* MODAL REAGENDAR HORÁRIO */}
+      {reschedulingApp && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <form onSubmit={handleSaveReschedule} className="bg-gray-900 border border-purple-500/40 w-full max-w-sm rounded-2xl p-5 space-y-4">
+            <h3 className="font-bold text-sm text-purple-400">✏️ Reagendar Agendamento #{reschedulingApp.id}</h3>
+            <p className="text-xs text-gray-300">Cliente: <b>{reschedulingApp.customer_name}</b></p>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-[11px] text-gray-400 block mb-1">Nova Data:</label>
+                <input
+                  type="date"
+                  value={newDate}
+                  onChange={(e) => setNewDate(e.target.value)}
+                  className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] text-gray-400 block mb-1">Novo Horário:</label>
+                <input
+                  type="time"
+                  value={newTime}
+                  onChange={(e) => setNewTime(e.target.value)}
+                  className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="flex space-x-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setReschedulingApp(null)}
+                className="w-1/2 bg-gray-800 text-gray-300 py-2.5 rounded-xl text-xs font-bold">
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                disabled={isSavingReschedule}
+                className="w-1/2 bg-purple-600 hover:bg-purple-700 text-white py-2.5 rounded-xl text-xs font-bold transition">
+                {isSavingReschedule ? 'Salvar...' : 'Salvar & Notificar'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 }

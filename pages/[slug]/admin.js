@@ -17,7 +17,6 @@ export default function AdminAgendamento() {
   const [appointments, setAppointments] = useState([]);
   const [reportFilter, setReportFilter] = useState('all');
 
-  // FORMULÁRIOS
   const [newProf, setNewProf] = useState({ name: '', phone: '', avatar_url: '', commission_percentage: '50' });
   const [newService, setNewService] = useState({ name: '', price: '', duration_minutes: '30', category: 'Geral' });
 
@@ -25,12 +24,19 @@ export default function AdminAgendamento() {
   const [editingService, setEditingService] = useState(null);
 
   useEffect(() => {
-    if (slug) fetchTenant();
-  }, [slug]);
+    if (router.isReady && slug) {
+      fetchTenant();
+    }
+  }, [router.isReady, slug]);
 
   const fetchTenant = async () => {
-    const { data: tData } = await supabase.from('tenants').select('*').eq('slug', slug).single();
-    if (tData) setTenant(tData);
+    setLoading(true);
+    const cleanSlug = String(slug).toLowerCase().trim();
+    const { data: tData } = await supabase.from('tenants').select('*').eq('slug', cleanSlug).maybeSingle();
+
+    if (tData) {
+      setTenant(tData);
+    }
     setLoading(false);
   };
 
@@ -57,7 +63,6 @@ export default function AdminAgendamento() {
     if (aData) setAppointments(aData);
   };
 
-  // HANDLERS PROFISSIONAIS
   const handleAddProf = async (e) => {
     e.preventDefault();
     if (!newProf.name) return alert("Preencha o nome!");
@@ -85,7 +90,6 @@ export default function AdminAgendamento() {
     fetchData();
   };
 
-  // HANDLERS SERVIÇOS
   const handleAddService = async (e) => {
     e.preventDefault();
     if (!newService.name || !newService.price) return alert("Preencha nome e preço!");
@@ -135,7 +139,6 @@ export default function AdminAgendamento() {
     else { alert("Configurações salvas!"); fetchData(); }
   };
 
-  // CÁLCULO DE RELATÓRIO E COMISSÕES
   const getFilteredAppointments = () => {
     const now = new Date();
     return appointments.filter(a => {
@@ -154,7 +157,6 @@ export default function AdminAgendamento() {
   const filteredApps = getFilteredAppointments();
   const totalRevenue = filteredApps.reduce((sum, a) => sum + Number(a.total_price || 0), 0);
 
-  // CÁLCULO DE COMISSÃO POR PROFISSIONAL
   const profCommissionsMap = {};
   filteredApps.forEach(a => {
     const prof = professionals.find(p => p.id === a.professional_id);
@@ -191,7 +193,6 @@ export default function AdminAgendamento() {
         <button onClick={() => setIsAuthenticated(false)} className="text-xs bg-gray-800 px-3 py-1.5 rounded-lg text-red-400 font-bold">Sair</button>
       </header>
 
-      {/* ABAS */}
       <div className="flex space-x-1 bg-gray-900 p-1 rounded-xl border border-gray-800 mb-6 text-[11px] font-bold overflow-x-auto">
         <button onClick={() => setActiveTab('services')} className={`flex-1 py-2 px-2 rounded-lg whitespace-nowrap ${activeTab === 'services' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>💈 Serviços</button>
         <button onClick={() => setActiveTab('professionals')} className={`flex-1 py-2 px-2 rounded-lg whitespace-nowrap ${activeTab === 'professionals' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>👨‍🔬 Equipe</button>
@@ -199,7 +200,6 @@ export default function AdminAgendamento() {
         <button onClick={() => setActiveTab('settings')} className={`flex-1 py-2 px-2 rounded-lg whitespace-nowrap ${activeTab === 'settings' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>⚙️ Config</button>
       </div>
 
-      {/* ABA SERVIÇOS */}
       {activeTab === 'services' && (
         <div className="space-y-6">
           <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
@@ -233,7 +233,6 @@ export default function AdminAgendamento() {
         </div>
       )}
 
-      {/* ABA PROFISSIONAIS */}
       {activeTab === 'professionals' && (
         <div className="space-y-6">
           <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
@@ -271,7 +270,6 @@ export default function AdminAgendamento() {
         </div>
       )}
 
-      {/* ABA FINANCEIRO */}
       {activeTab === 'reports' && (
         <div className="space-y-4">
           <div className="flex flex-col space-y-2 bg-gray-900 p-3 rounded-xl border border-gray-800 text-xs">
@@ -313,7 +311,6 @@ export default function AdminAgendamento() {
         </div>
       )}
 
-      {/* ABA CONFIGURAÇÕES */}
       {activeTab === 'settings' && (
         <div className="space-y-6">
           <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
@@ -351,7 +348,6 @@ export default function AdminAgendamento() {
         </div>
       )}
 
-      {/* MODAL EDITAR SERVIÇO */}
       {editingService && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
           <form onSubmit={handleUpdateService} className="bg-gray-900 w-full max-w-sm rounded-2xl p-5 border border-blue-500/40 space-y-3">
@@ -364,7 +360,6 @@ export default function AdminAgendamento() {
         </div>
       )}
 
-      {/* MODAL EDITAR PROFISSIONAL */}
       {editingProf && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
           <form onSubmit={handleUpdateProf} className="bg-gray-900 w-full max-w-sm rounded-2xl p-5 border border-blue-500/40 space-y-3">

@@ -32,6 +32,12 @@ export default function AgendamentoCliente() {
   const [myAppointments, setMyAppointments] = useState([]);
   const [isSearchingApps, setIsSearchingApps] = useState(false);
 
+  // ESTADOS DE REAGENDAMENTO DO CLIENTE
+  const [editingUserApp, setEditingUserApp] = useState(null);
+  const [userNewDate, setUserNewDate] = useState('');
+  const [userNewTime, setUserNewTime] = useState('');
+  const [isSavingUserReschedule, setIsSavingUserReschedule] = useState(false);
+
   useEffect(() => {
     if (router.isReady && slug) {
       fetchTenantData();
@@ -89,7 +95,7 @@ export default function AgendamentoCliente() {
 
   // BUSCA DE AGENDAMENTOS DO CLIENTE
   const handleSearchMyAppointments = async (e) => {
-    e.preventDefault();
+    if (e) e.preventDefault();
     const clean = searchPhone.replace(/\D/g, '');
     if (!clean) return alert("Digite um número de telefone válido!");
 
@@ -105,6 +111,81 @@ export default function AgendamentoCliente() {
     setIsSearchingApps(false);
   };
 
+  // CLIENTE CANCELA PRÓPRIO AGENDAMENTO
+  const handleUserCancelApp = async (app) => {
+    const formattedDate = app.appointment_date.split('-').reverse().join('/');
+    if (!confirm(`Deseja realmente cancelar seu agendamento do dia ${formattedDate} às ${app.start_time}?`)) return;
+
+    const { error } = await supabase
+      .from('appointments')
+      .update({ status: 'cancelado' })
+      .eq('id', app.id);
+
+    if (error) {
+      alert("Erro ao cancelar: " + error.message);
+    } else {
+      alert("Agendamento cancelado com sucesso!");
+      
+      const cleanWhatsapp = tenant.whatsapp.replace(/\D/g, '');
+      const msg = `*CANCELAMENTO DE AGENDAMENTO #${app.id} - ${tenant.name.toUpperCase()}*\n\n` +
+        `Olá, o cliente *${app.customer_name}* cancelou o agendamento do dia *${formattedDate}* às *${app.start_time}*.`;
+      
+      window.open(`https://wa.me/${cleanWhatsapp}?text=${encodeURIComponent(msg)}`, '_blank');
+      
+      handleSearchMyAppointments();
+    }
+  };
+
+  // CLIENTE REAGENDA PRÓPRIO AGENDAMENTO
+  const handleOpenUserReschedule = (app) => {
+    setEditingUserApp(app);
+    setUserNewDate(app.appointment_date);
+    setUserNewTime(app.start_time);
+  };
+
+  const handleSaveUserReschedule = async (e) => {
+    e.preventDefault();
+    if (!userNewDate || !userNewTime) return alert("Selecione nova data e horário!");
+
+    setIsSavingUserReschedule(true);
+
+    const duration = editingUserApp.total_duration_minutes || 30;
+    const [h, m] = userNewTime.split(':').map(Number);
+    const endDateObj = new Date();
+    endDateObj.setHours(h, m + duration, 0, 0);
+    const endTime = endDateObj.toTimeString().substring(0, 5);
+
+    const { error } = await supabase
+      .from('appointments')
+      .update({
+        appointment_date: userNewDate,
+        start_time: userNewTime,
+        end_time: endTime,
+        status: 'agendado'
+      })
+      .eq('id', editingUserApp.id);
+
+    setIsSavingUserReschedule(false);
+
+    if (error) {
+      return alert("Erro ao reagendar: " + error.message);
+    }
+
+    const formattedDate = userNewDate.split('-').reverse().join('/');
+    alert("Agendamento reagendado com sucesso!");
+
+    const cleanWhatsapp = tenant.whatsapp.replace(/\D/g, '');
+    const msg = `*SOLICITAÇÃO DE REAGENDAMENTO #${editingUserApp.id} - ${tenant.name.toUpperCase()}*\n\n` +
+      `Cliente: *${editingUserApp.customer_name}*\n` +
+      `Nova Data: *${formattedDate}*\n` +
+      `Novo Horário: *${userNewTime}*`;
+
+    window.open(`https://wa.me/${cleanWhatsapp}?text=${encodeURIComponent(msg)}`, '_blank');
+
+    setEditingUserApp(null);
+    handleSearchMyAppointments();
+  };
+
   if (loading) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><p className="text-xs text-gray-400">Carregando...</p></div>;
   if (!tenant) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><h1 className="text-xl font-bold text-orange-500">Estabelecimento não encontrado</h1></div>;
 
@@ -114,10 +195,9 @@ export default function AgendamentoCliente() {
   const totalDuration = selectedServices.reduce((acc, s) => acc + (s.duration_minutes || 30), 0);
   const totalPrice = selectedServices.reduce((acc, s) => acc + Number(s.price || 0), 0);
 
-  // FILTRO: PROFISSIONAIS QUE ATENDEM OS SERVIÇOS SELECIONADOS
   const filteredProfessionals = professionals.filter(p => {
     if (selectedServices.length === 0) return true;
-    if (profServices.length === 0) return true; // Se ainda não foram vinculados serviços, mostra todos por padrão
+    if (profServices.length === 0) return true;
     const pServiceIds = profServices.filter(ps => ps.professional_id === p.id).map(ps => ps.service_id);
     return selectedServices.every(srv => pServiceIds.includes(srv.id));
   });
@@ -153,7 +233,6 @@ export default function AgendamentoCliente() {
       const slotStartMin = h * 60 + m;
       const slotEndMin = slotStartMin + totalDuration;
 
-      // 1. Verifica se conflita com agendamentos existentes
       const isOccupied = existingAppointments.some(app => {
         const [appStartH, appStartM] = app.start_time.split(':').map(Number);
         const appStartMin = appStartH * 60 + appStartM;
@@ -161,7 +240,6 @@ export default function AgendamentoCliente() {
         return (slotStartMin < appEndMin && slotEndMin > appStartMin);
       });
 
-      // 2. Verifica se conflita com agenda fechada / horários bloqueados
       const isBlocked = blockedTimes.some(b => {
         if (b.professional_id !== null && selectedProf !== 'ANY' && b.professional_id !== parseInt(selectedProf)) {
           return false;
@@ -269,7 +347,7 @@ export default function AgendamentoCliente() {
       </div>
 
       <div className="mt-8 px-4 space-y-6">
-        {/* PASSO 1: SELEÇÃO DE SERVIÇOS PRIMEIRO */}
+        {/* PASSO 1: SELEÇÃO DE SERVIÇOS */}
         <div className="space-y-2">
           <label className="text-xs font-bold text-gray-300 block uppercase tracking-wider">1. Escolha os Serviços</label>
           <div className="space-y-2">
@@ -296,7 +374,7 @@ export default function AgendamentoCliente() {
           </div>
         </div>
 
-        {/* PASSO 2: ESCOLHER PROFISSIONAL (FILTRADO) */}
+        {/* PASSO 2: PROFISSIONAIS */}
         {selectedServices.length > 0 && (
           <div className="space-y-2 pt-2 border-t border-white/10">
             <label className="text-xs font-bold text-gray-300 block uppercase tracking-wider">2. Escolha o Profissional</label>
@@ -326,7 +404,7 @@ export default function AgendamentoCliente() {
           </div>
         )}
 
-        {/* PASSO 3: SELEÇÃO DE DATA E HORÁRIO */}
+        {/* PASSO 3: DATA E HORÁRIO */}
         {selectedServices.length > 0 && filteredProfessionals.length > 0 && (
           <div className="space-y-4 pt-2 border-t border-white/10">
             <div className="space-y-1">
@@ -409,46 +487,121 @@ export default function AgendamentoCliente() {
         )}
       </div>
 
-      {/* MODAL MEUS AGENDAMENTOS POR WHATSAPP */}
+      {/* MODAL MEUS AGENDAMENTOS COM OPÇÕES DE CANCELAR E REAGENDAR */}
       {showMyAppsModal && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-900 border border-gray-800 w-full max-w-sm rounded-2xl p-5 space-y-4">
+          <div className="bg-gray-900 border border-gray-800 w-full max-w-sm rounded-2xl p-5 space-y-4 shadow-2xl">
             <div className="flex justify-between items-center border-b border-gray-800 pb-2">
               <h3 className="font-bold text-sm text-orange-400">📋 Meus Agendamentos</h3>
-              <button onClick={() => setShowMyAppsModal(false)} className="text-gray-400 font-bold text-xs">✕ Fechar</button>
+              <button onClick={() => { setShowMyAppsModal(false); setEditingUserApp(null); }} className="text-gray-400 font-bold text-xs">✕ Fechar</button>
             </div>
 
-            <form onSubmit={handleSearchMyAppointments} className="space-y-2">
-              <label className="text-[11px] text-gray-400 block">Digite seu WhatsApp para consultar:</label>
-              <div className="flex space-x-2">
-                <input
-                  type="text"
-                  placeholder="DDD + WhatsApp"
-                  value={searchPhone}
-                  onChange={(e) => setSearchPhone(e.target.value)}
-                  className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none"
-                />
-                <button type="submit" disabled={isSearchingApps} className="bg-orange-500 hover:bg-orange-600 px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap">
-                  {isSearchingApps ? '...' : 'Buscar'}
-                </button>
-              </div>
-            </form>
-
-            <div className="space-y-2 max-h-60 overflow-y-auto">
-              {myAppointments.length === 0 ? (
-                <p className="text-xs text-gray-500 text-center py-4">Nenhum agendamento encontrado.</p>
-              ) : (
-                myAppointments.map(app => (
-                  <div key={app.id} className="bg-gray-800 p-3 rounded-xl border border-gray-700 text-xs space-y-1">
-                    <div className="flex justify-between font-bold">
-                      <span className="text-orange-400">📅 {app.appointment_date.split('-').reverse().join('/')} às {app.start_time}</span>
-                      <span className={`text-[10px] uppercase ${app.status === 'cancelado' ? 'text-red-400' : 'text-green-400'}`}>{app.status}</span>
-                    </div>
-                    <p className="text-gray-300"><b>Valor:</b> R$ {Number(app.total_price).toFixed(2)} ({app.payment_method})</p>
+            {!editingUserApp ? (
+              <>
+                <form onSubmit={handleSearchMyAppointments} className="space-y-2">
+                  <label className="text-[11px] text-gray-400 block">Digite seu WhatsApp para consultar:</label>
+                  <div className="flex space-x-2">
+                    <input
+                      type="text"
+                      placeholder="DDD + WhatsApp"
+                      value={searchPhone}
+                      onChange={(e) => setSearchPhone(e.target.value)}
+                      className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none"
+                    />
+                    <button type="submit" disabled={isSearchingApps} className="bg-orange-500 hover:bg-orange-600 px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap">
+                      {isSearchingApps ? '...' : 'Buscar'}
+                    </button>
                   </div>
-                ))
-              )}
-            </div>
+                </form>
+
+                <div className="space-y-2 max-h-72 overflow-y-auto">
+                  {myAppointments.length === 0 ? (
+                    <p className="text-xs text-gray-500 text-center py-4">Nenhum agendamento encontrado.</p>
+                  ) : (
+                    myAppointments.map(app => {
+                      const canManage = app.status === 'agendado';
+
+                      return (
+                        <div key={app.id} className="bg-gray-800 p-3 rounded-xl border border-gray-700 text-xs space-y-2">
+                          <div className="flex justify-between font-bold">
+                            <span className="text-orange-400">📅 {app.appointment_date.split('-').reverse().join('/')} às {app.start_time}</span>
+                            <span className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded ${
+                              app.status === 'agendado' ? 'bg-yellow-500/20 text-yellow-400' :
+                              app.status === 'concluido' ? 'bg-green-500/20 text-green-400' :
+                              'bg-red-500/20 text-red-400'
+                            }`}>
+                              {app.status}
+                            </span>
+                          </div>
+
+                          <p className="text-gray-300"><b>Valor:</b> R$ {Number(app.total_price).toFixed(2)} ({app.payment_method})</p>
+
+                          {/* BOTOES DE CANCELAR E REAGENDAR (Apenas se status for 'agendado') */}
+                          {canManage && (
+                            <div className="flex space-x-2 pt-1 border-t border-gray-700/60">
+                              <button
+                                onClick={() => handleOpenUserReschedule(app)}
+                                className="flex-1 bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 py-1.5 rounded-lg font-bold text-[10px] border border-purple-500/30">
+                                ✏️ Reagendar
+                              </button>
+                              <button
+                                onClick={() => handleUserCancelApp(app)}
+                                className="flex-1 bg-red-500/20 hover:bg-red-500/30 text-red-400 py-1.5 rounded-lg font-bold text-[10px] border border-red-500/30">
+                                ❌ Cancelar
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </>
+            ) : (
+              /* FORMULÁRIO DE REAGENDAMENTO DENTRO DO MODAL */
+              <form onSubmit={handleSaveUserReschedule} className="space-y-3">
+                <div className="bg-purple-500/10 border border-purple-500/30 p-2.5 rounded-xl text-xs">
+                  <span className="text-purple-300 font-bold block">Reagendando Atendimento #{editingUserApp.id}</span>
+                  <span className="text-gray-400 text-[10px]">Data Atual: {editingUserApp.appointment_date.split('-').reverse().join('/')} às {editingUserApp.start_time}</span>
+                </div>
+
+                <div>
+                  <label className="text-[11px] text-gray-400 block mb-1">Nova Data:</label>
+                  <input
+                    type="date"
+                    min={new Date().toISOString().split('T')[0]}
+                    value={userNewDate}
+                    onChange={(e) => setUserNewDate(e.target.value)}
+                    className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[11px] text-gray-400 block mb-1">Novo Horário:</label>
+                  <input
+                    type="time"
+                    value={userNewTime}
+                    onChange={(e) => setUserNewTime(e.target.value)}
+                    className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none"
+                  />
+                </div>
+
+                <div className="flex space-x-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditingUserApp(null)}
+                    className="w-1/2 bg-gray-800 text-gray-300 py-2.5 rounded-xl text-xs font-bold">
+                    Voltar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSavingUserReschedule}
+                    className="w-1/2 bg-orange-500 hover:bg-orange-600 text-white py-2.5 rounded-xl text-xs font-bold transition">
+                    {isSavingUserReschedule ? 'Salvando...' : 'Confirmar Novo Horário'}
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}

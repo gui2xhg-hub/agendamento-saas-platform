@@ -1,5 +1,5 @@
 {
-  "name": "Agendamento Online",
+  "name": "Sinerge Agendamento",
   "short_name": "Agendamentos",
   "description": "Sistema de Agendamento Online e Gestão de Agenda",
   "start_url": "/",
@@ -9,14 +9,9 @@
   "orientation": "portrait",
   "icons": [
     {
-      "src": "https://images.unsplash.com/photo-1585747860715-2ba37e788b70?w=192&auto=format&fit=crop&q=80",
-      "sizes": "192x192",
-      "type": "image/png"
-    },
-    {
-      "src": "https://images.unsplash.com/photo-1585747860715-2ba37e788b70?w=512&auto=format&fit=crop&q=80",
-      "sizes": "512x512",
-      "type": "image/png"
+      "src": "/favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
     }
   ]
 }

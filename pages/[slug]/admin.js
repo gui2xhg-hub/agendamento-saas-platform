@@ -134,7 +134,6 @@ export default function AdminAgendamento() {
 
     if (error) return alert("Erro ao criar serviço: " + error.message);
 
-    // Se nenhum profissional for marcado explicitamente, vincula a todos
     const profsToBind = (newService.selectedProfs && newService.selectedProfs.length > 0)
       ? newService.selectedProfs
       : professionals.map(p => p.id);
@@ -169,7 +168,6 @@ export default function AdminAgendamento() {
       category: editingService.category
     }).eq('id', editingService.id);
 
-    // Atualiza vínculos de profissionais
     await supabase.from('professional_services').delete().eq('service_id', editingService.id);
     
     if (editingService.selectedProfs && editingService.selectedProfs.length > 0) {
@@ -217,6 +215,7 @@ export default function AdminAgendamento() {
     }
   };
 
+  // SALVAR CONFIGURAÇÕES DA LOJA E CREDENCIAIS DO WHATSAPP
   const handleSaveTenantSettings = async (e) => {
     e.preventDefault();
     const cleanWhatsapp = tenant.whatsapp.replace(/\D/g, '');
@@ -230,11 +229,13 @@ export default function AdminAgendamento() {
       opening_time: tenant.opening_time || '08:00',
       closing_time: tenant.closing_time || '20:00',
       custom_message: tenant.custom_message || '',
-      admin_password: tenant.admin_password
+      admin_password: tenant.admin_password,
+      instance_id: tenant.instance_id || '',
+      api_key: tenant.api_key || ''
     }).eq('id', tenant.id);
 
     if (error) alert("Erro ao salvar: " + error.message);
-    else { alert("Configurações salvas!"); fetchData(); }
+    else { alert("Configurações salvas com sucesso!"); fetchData(); }
   };
 
   // RELATÓRIO E COMISSÕES
@@ -313,7 +314,6 @@ export default function AdminAgendamento() {
                 <input type="number" placeholder="Duração (min)" value={newService.duration_minutes} className="w-1/2 bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewService({ ...newService, duration_minutes: e.target.value })} />
               </div>
 
-              {/* SELEÇÃO DE PROFISSIONAIS HABILITADOS */}
               <div className="space-y-1.5 pt-1">
                 <label className="text-[11px] text-gray-400 font-bold block">Profissionais que realizam este serviço:</label>
                 <div className="flex flex-wrap gap-1.5">
@@ -359,7 +359,6 @@ export default function AdminAgendamento() {
                     </div>
                   </div>
 
-                  {/* PROFISSIONAIS VINCULADOS */}
                   <div className="pt-2 border-t border-gray-800/80 flex items-center space-x-1.5 flex-wrap">
                     <span className="text-[10px] text-gray-500 font-bold">Realizado por:</span>
                     {assignedProfs.length === 0 ? (
@@ -417,7 +416,7 @@ export default function AdminAgendamento() {
         </div>
       )}
 
-      {/* ABA FECHAR AGENDA (BLOQUEIO DE HORÁRIOS) */}
+      {/* ABA FECHAR AGENDA */}
       {activeTab === 'blocked' && (
         <div className="space-y-6">
           <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
@@ -431,7 +430,7 @@ export default function AdminAgendamento() {
                   className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none">
                   <option value="ALL">🚨 Toda a Equipe (Fechar Estabelecimento)</option>
                   {professionals.map(p => (
-                    <option key={p.id} value={p.id}>💈 Apensas {p.name}</option>
+                    <option key={p.id} value={p.id}>💈 Apenas {p.name}</option>
                   ))}
                 </select>
               </div>
@@ -589,7 +588,36 @@ export default function AdminAgendamento() {
                 <input type="text" value={tenant.whatsapp || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, whatsapp: e.target.value })} />
               </div>
 
-              <button type="submit" className="w-full bg-green-600 font-bold py-2.5 rounded-lg text-xs">Salvar Configurações</button>
+              {/* CAMPOS NOVOS PARA API DE WHATSAPP AUTOMÁTICO */}
+              <div className="pt-2 border-t border-gray-800 space-y-3">
+                <h4 className="font-bold text-xs text-green-400">🤖 Integração API de WhatsApp (Disparo de Lembretes)</h4>
+                
+                <div>
+                  <label className="text-[11px] text-gray-400 block mb-1">ID da Instância (Evolution API / Z-API):</label>
+                  <input
+                    type="text"
+                    placeholder="Ex: barbearia-silva-01"
+                    value={tenant.instance_id || ''}
+                    className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none"
+                    onChange={(e) => setTenant({ ...tenant, instance_id: e.target.value })}
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[11px] text-gray-400 block mb-1">Chave da API (Token / apikey):</label>
+                  <input
+                    type="password"
+                    placeholder="Ex: 42A6B7C8D9..."
+                    value={tenant.api_key || ''}
+                    className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none"
+                    onChange={(e) => setTenant({ ...tenant, api_key: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <button type="submit" className="w-full bg-green-600 font-bold py-2.5 rounded-lg text-xs transition hover:bg-green-700">
+                Salvar Configurações
+              </button>
             </form>
           </section>
         </div>

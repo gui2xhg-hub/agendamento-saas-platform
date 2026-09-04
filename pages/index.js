@@ -75,7 +75,10 @@ export default function HomeApp() {
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans">
-        <p className="text-xs text-gray-400">Verificando acesso...</p>
+        <div className="text-center space-y-2">
+          <div className="w-8 h-8 border-2 border-orange-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
+          <p className="text-xs text-gray-400">Verificando acesso do aplicativo...</p>
+        </div>
       </div>
     );
   }
@@ -84,14 +87,14 @@ export default function HomeApp() {
     <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center p-4 font-sans">
       <div className="bg-gray-900 border border-gray-800 p-6 rounded-2xl w-full max-w-sm space-y-5 shadow-2xl">
         {step === 'login' ? (
-          /* TELA 1: LOGIN E AUTENTICAÇÃO DO ESTABELECIMENTO */
+          /* TELA 1: LOGIN E AUTENTICAÇÃO */
           <>
             <div className="text-center space-y-1">
               <div className="w-12 h-12 bg-orange-500/20 text-orange-400 rounded-2xl flex items-center justify-center mx-auto text-2xl font-bold border border-orange-500/30">
                 🔐
               </div>
               <h1 className="text-lg font-bold text-white pt-2">Sinerge Agendamento</h1>
-              <p className="text-xs text-gray-400">Digite seu Slug e Senha de Admin para acessar</p>
+              <p className="text-xs text-gray-400">Digite seu Slug e Senha para acessar</p>
             </div>
 
             <form onSubmit={handleLoginSubmit} className="space-y-4">
@@ -122,13 +125,17 @@ export default function HomeApp() {
               <button
                 type="submit"
                 disabled={authenticating}
-                className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-3.5 rounded-xl text-xs transition shadow-lg">
-                {authenticating ? 'Autenticando...' : 'Entrar no Aplicativo 🚀'}
+                className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-3.5 rounded-xl text-xs transition shadow-lg flex items-center justify-center space-x-2">
+                {authenticating ? (
+                  <span>Autenticando...</span>
+                ) : (
+                  <span>Entrar no Aplicativo 🚀</span>
+                )}
               </button>
             </form>
           </>
         ) : (
-          /* TELA 2: OPÇÕES DE GERENCIAMENTO (APÓS AUTENTICADO) */
+          /* TELA 2: PAINEL DE OPÇÕES (APÓS LOGIN) */
           <>
             <div className="flex items-center space-x-3 pb-3 border-b border-gray-800">
               <img
@@ -145,7 +152,7 @@ export default function HomeApp() {
             </div>
 
             <div className="space-y-2.5 pt-1">
-              <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">O que deseja gerenciar?</p>
+              <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Selecione uma opção:</p>
 
               <button
                 onClick={() => router.push(`/${tenant.slug}/admin`)}
@@ -157,6 +164,7 @@ export default function HomeApp() {
                 <span>➔</span>
               </button>
 
+              {/* Ajuste o destino caso o seu arquivo no GitHub se chame agenda.js em vez de equipe.js */}
               <button
                 onClick={() => router.push(`/${tenant.slug}/equipe`)}
                 className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold p-3.5 rounded-xl text-xs flex items-center justify-between transition shadow-md">
@@ -172,7 +180,7 @@ export default function HomeApp() {
                 className="w-full bg-gray-800 hover:bg-gray-700 text-white font-bold p-3.5 rounded-xl text-xs flex items-center justify-between transition border border-gray-700">
                 <span className="flex items-center space-x-2">
                   <span>👁️</span>
-                  <span>Ver Página do Cliente</span>
+                  <span>Página do Cliente</span>
                 </span>
                 <span>➔</span>
               </button>

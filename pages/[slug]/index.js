@@ -12,7 +12,7 @@ export default function AgendamentoCliente() {
   const [loading, setLoading] = useState(true);
 
   // ESTADOS DO AGENDAMENTO
-  const [selectedProf, setSelectedProf] = useState('ANY'); // 'ANY' ou ID
+  const [selectedProf, setSelectedProf] = useState('ANY');
   const [selectedServices, setSelectedServices] = useState([]);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [selectedTime, setSelectedTime] = useState('');
@@ -25,8 +25,10 @@ export default function AgendamentoCliente() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    if (slug) fetchTenantData();
-  }, [slug]);
+    if (router.isReady && slug) {
+      fetchTenantData();
+    }
+  }, [router.isReady, slug]);
 
   useEffect(() => {
     if (tenant?.id && selectedDate) {
@@ -36,7 +38,8 @@ export default function AgendamentoCliente() {
 
   const fetchTenantData = async () => {
     setLoading(true);
-    const { data: tData } = await supabase.from('tenants').select('*').eq('slug', slug).single();
+    const cleanSlug = String(slug).toLowerCase().trim();
+    const { data: tData } = await supabase.from('tenants').select('*').eq('slug', cleanSlug).maybeSingle();
 
     if (tData) {
       setTenant(tData);
@@ -71,7 +74,6 @@ export default function AgendamentoCliente() {
   const primaryColor = tenant.primary_color || '#FF8C00';
   const secondaryColor = tenant.secondary_color || '#111827';
 
-  // CÁLCULOS DE TEMPO E PREÇO DOS SERVIÇOS SELECIONADOS
   const totalDuration = selectedServices.reduce((acc, s) => acc + (s.duration_minutes || 30), 0);
   const totalPrice = selectedServices.reduce((acc, s) => acc + Number(s.price || 0), 0);
 
@@ -82,10 +84,9 @@ export default function AgendamentoCliente() {
     } else {
       setSelectedServices([...selectedServices, srv]);
     }
-    setSelectedTime(''); // Reseta horário ao alterar serviços
+    setSelectedTime('');
   };
 
-  // GERADOR DE SLOTS DE HORÁRIOS LIVRES
   const generateAvailableTimeSlots = () => {
     if (selectedServices.length === 0) return [];
 
@@ -102,12 +103,10 @@ export default function AgendamentoCliente() {
     while (current < endDay) {
       const timeString = current.toTimeString().substring(0, 5);
       
-      // Converte horário do slot em minutos do dia
       const [h, m] = timeString.split(':').map(Number);
       const slotStartMin = h * 60 + m;
       const slotEndMin = slotStartMin + totalDuration;
 
-      // Verifica se conflita com agendamentos existentes
       const isOccupied = existingAppointments.some(app => {
         const [appStartH, appStartM] = app.start_time.split(':').map(Number);
         const appStartMin = appStartH * 60 + appStartM;
@@ -120,7 +119,7 @@ export default function AgendamentoCliente() {
         slots.push(timeString);
       }
 
-      current.setMinutes(current.getMinutes() + 30); // Incremento de 30 em 30 min
+      current.setMinutes(current.getMinutes() + 30);
     }
 
     return slots;
@@ -136,7 +135,6 @@ export default function AgendamentoCliente() {
 
     setIsSubmitting(true);
 
-    // Calcula horário final
     const [h, m] = selectedTime.split(':').map(Number);
     const endDateObj = new Date();
     endDateObj.setHours(h, m + totalDuration, 0, 0);
@@ -168,7 +166,6 @@ export default function AgendamentoCliente() {
       return alert("Erro ao agendar: " + error.message);
     }
 
-    // FORMATAR MENSAGEM PARA O WHATSAPP
     const servicesListText = selectedServices.map(s => `• ${s.name} (R$ ${Number(s.price).toFixed(2)})`).join('\n');
     const formattedDate = selectedDate.split('-').reverse().join('/');
 
@@ -194,7 +191,6 @@ export default function AgendamentoCliente() {
 
   return (
     <div className="min-h-screen text-white font-sans pb-12 max-w-md mx-auto" style={{ backgroundColor: secondaryColor }}>
-      {/* CAPA & PERFIL */}
       <div className="relative h-36 bg-gray-900 border-b border-gray-800">
         <img src={tenant.banner_url || 'https://images.unsplash.com/photo-1503951914875-452162b0f3f1?w=800&auto=format&fit=crop&q=80'} alt="Capa" className="w-full h-full object-cover opacity-50" />
         <div className="absolute -bottom-5 left-4 flex items-center space-x-3">
@@ -207,7 +203,6 @@ export default function AgendamentoCliente() {
       </div>
 
       <div className="mt-8 px-4 space-y-6">
-        {/* PASSO 1: ESCOLHER PROFISSIONAL */}
         <div className="space-y-2">
           <label className="text-xs font-bold text-gray-300 block uppercase tracking-wider">1. Escolha o Profissional</label>
           <div className="flex space-x-2 overflow-x-auto pb-1 scrollbar-none">
@@ -231,7 +226,6 @@ export default function AgendamentoCliente() {
           </div>
         </div>
 
-        {/* PASSO 2: SELEÇÃO DE SERVIÇOS */}
         <div className="space-y-2">
           <label className="text-xs font-bold text-gray-300 block uppercase tracking-wider">2. Selecione os Serviços</label>
           <div className="space-y-2">
@@ -258,7 +252,6 @@ export default function AgendamentoCliente() {
           </div>
         </div>
 
-        {/* PASSO 3: SELEÇÃO DE DATA E HORÁRIO */}
         {selectedServices.length > 0 && (
           <div className="space-y-4 pt-2 border-t border-white/10">
             <div className="space-y-1">
@@ -293,7 +286,6 @@ export default function AgendamentoCliente() {
           </div>
         )}
 
-        {/* PASSO 4: DADOS E CONFIRMAÇÃO */}
         {selectedTime && (
           <form onSubmit={handleConfirmAppointment} className="space-y-3 pt-4 border-t border-white/10">
             <h3 className="font-bold text-xs text-gray-300 uppercase tracking-wider">5. Seus Dados para Contato</h3>
@@ -322,7 +314,6 @@ export default function AgendamentoCliente() {
               <option value="PIX Antecipado">PIX Antecipado</option>
             </select>
 
-            {/* RESUMO DO VALOR */}
             <div className="bg-black/50 p-3 rounded-xl border border-white/10 flex justify-between items-center text-xs">
               <div>
                 <span className="text-gray-400 block text-[10px]">Duração: {totalDuration} min</span>

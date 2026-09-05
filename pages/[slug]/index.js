@@ -126,7 +126,7 @@ export default function AgendamentoCliente() {
     } else {
       alert("Agendamento cancelado com sucesso!");
 
-      // DISPARO DE NOTIFICAÇÃO DE CANCELAMENTO PUSH 🔔
+      // DISPARO DE NOTIFICAÇÃO PUSH AUTOMÁTICA
       try {
         await fetch('/api/notify', {
           method: 'POST',
@@ -189,7 +189,7 @@ export default function AgendamentoCliente() {
     const formattedDate = userNewDate.split('-').reverse().join('/');
     alert("Agendamento reagendado com sucesso!");
 
-    // DISPARO DE NOTIFICAÇÃO DE REAGENDAMENTO PUSH 🔔
+    // DISPARO DE NOTIFICAÇÃO PUSH AUTOMÁTICA
     try {
       await fetch('/api/notify', {
         method: 'POST',
@@ -225,11 +225,32 @@ export default function AgendamentoCliente() {
   const totalDuration = selectedServices.reduce((acc, s) => acc + (s.duration_minutes || 30), 0);
   const totalPrice = selectedServices.reduce((acc, s) => acc + Number(s.price || 0), 0);
 
+  // FILTRAGEM INTELIGENTE DE PROFISSIONAIS HABILITADOS
   const filteredProfessionals = professionals.filter(p => {
     if (selectedServices.length === 0) return true;
-    if (profServices.length === 0) return true;
-    const pServiceIds = profServices.filter(ps => ps.professional_id === p.id).map(ps => ps.service_id);
-    return selectedServices.every(srv => pServiceIds.includes(srv.id));
+
+    // O profissional precisa estar habilitado para TODOS os serviços selecionados na sessão
+    return selectedServices.every(srv => {
+      let allowedProfIds = srv.professional_ids;
+
+      if (typeof allowedProfIds === 'string') {
+        try { allowedProfIds = JSON.parse(allowedProfIds); } catch (e) { allowedProfIds = []; }
+      }
+
+      // 1. Se o serviço possui a coluna professional_ids preenchida
+      if (Array.isArray(allowedProfIds) && allowedProfIds.length > 0) {
+        return allowedProfIds.some(id => String(id) === String(p.id));
+      }
+
+      // 2. Fallback: Checa na tabela relacional 'professional_services'
+      const hasTableRel = profServices.some(ps => String(ps.service_id) === String(srv.id));
+      if (hasTableRel) {
+        return profServices.some(ps => String(ps.service_id) === String(srv.id) && String(ps.professional_id) === String(p.id));
+      }
+
+      // Se não há nenhuma restrição marcada, toda a equipe pode realizar
+      return true;
+    });
   });
 
   const handleToggleService = (srv) => {
@@ -536,7 +557,7 @@ export default function AgendamentoCliente() {
         )}
       </div>
 
-      {/* MODAL MEUS AGENDAMENTOS COM OPÇÕES DE CANCELAR E REAGENDAR */}
+      {/* MODAL MEUS AGENDAMENTOS */}
       {showMyAppsModal && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
           <div className="bg-gray-900 border border-gray-800 w-full max-w-sm rounded-2xl p-5 space-y-4 shadow-2xl">

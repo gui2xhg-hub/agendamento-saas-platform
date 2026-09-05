@@ -12,7 +12,7 @@ export default function AgendaTenant() {
   const [blockedTimes, setBlockedTimes] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // FILTROS
+  // FILTROS DE DATA E PROFISSIONAL
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [selectedProf, setSelectedProf] = useState('ALL');
 
@@ -55,7 +55,7 @@ export default function AgendaTenant() {
   const fetchAppointmentsAndBlocks = async (tenantId = tenant?.id) => {
     if (!tenantId) return;
 
-    // Buscar todos os agendamentos da data selecionada
+    // Buscar agendamentos da data
     const { data: apps } = await supabase
       .from('appointments')
       .select('*')
@@ -64,7 +64,7 @@ export default function AgendaTenant() {
       .neq('status', 'cancelado')
       .order('start_time', { ascending: true });
 
-    // Buscar bloqueios da data selecionada
+    // Buscar bloqueios da data
     const { data: blocks } = await supabase
       .from('blocked_times')
       .select('*')
@@ -74,6 +74,35 @@ export default function AgendaTenant() {
     if (apps) setAppointments(apps);
     if (blocks) setBlockedTimes(blocks);
   };
+
+  // GERAR DIAS DA SEMANA PARA A BARRA DE NAVEGAÇÃO RÁPIDA
+  const getWeekDays = (baseDateStr) => {
+    const baseDate = new Date(baseDateStr + 'T00:00:00');
+    const dayOfWeek = baseDate.getDay(); // 0 (Dom) a 6 (Sáb)
+    const distanceToMon = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+    
+    const monday = new Date(baseDate);
+    monday.setDate(baseDate.getDate() + distanceToMon);
+
+    const week = [];
+    const dayNames = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
+
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(monday);
+      d.setDate(monday.getDate() + i);
+      const isoDate = d.toISOString().split('T')[0];
+      const dayNum = String(d.getDate()).padStart(2, '0');
+      
+      week.push({
+        name: dayNames[i],
+        dayNum: dayNum,
+        dateStr: isoDate
+      });
+    }
+    return week;
+  };
+
+  const currentWeekDays = getWeekDays(selectedDate);
 
   // CRIAR BLOQUEIO DE AGENDA
   const handleCreateBlock = async (e) => {
@@ -132,8 +161,6 @@ export default function AgendaTenant() {
   if (loading) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><p className="text-xs text-gray-400">Carregando Agenda...</p></div>;
   if (!tenant) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><h1 className="text-xl font-bold text-orange-500">Estabelecimento não encontrado</h1></div>;
 
-  const primaryColor = tenant.primary_color || '#FF8C00';
-
   // FILTRAGEM DOS AGENDAMENTOS E BLOQUEIOS
   const displayedAppointments = appointments.filter(app => {
     if (selectedProf === 'ALL') return true;
@@ -153,11 +180,11 @@ export default function AgendaTenant() {
   return (
     <div className="min-h-screen bg-gray-950 text-white p-4 max-w-5xl mx-auto font-sans pb-20">
       
-      {/* topo: CABEÇALHO & SELETOR DE DATA */}
-      <header className="flex flex-col md:flex-row justify-between items-start md:items-center py-4 border-b border-gray-800 mb-6 gap-4">
+      {/* CABEÇALHO */}
+      <header className="flex flex-col md:flex-row justify-between items-start md:items-center py-4 border-b border-gray-800 mb-4 gap-4">
         <div>
           <h1 className="font-bold text-xl text-orange-500">📅 Gestão da Agenda — {tenant.name}</h1>
-          <p className="text-xs text-gray-400">Clique no profissional para visualizar os horários ocupados.</p>
+          <p className="text-xs text-gray-400">Acompanhe seus compromissos e alterne facilmente os dias da semana.</p>
         </div>
 
         <div className="flex items-center space-x-2 w-full md:w-auto">
@@ -184,10 +211,37 @@ export default function AgendaTenant() {
         </div>
       </header>
 
-      {/* SELEÇÃO DA EQUIPE COM CARDS VISUAIS E AVATARES */}
+      {/* ATALHO RÁPIDO: CARROSSEL DE DIAS DA SEMANA */}
       <div className="mb-6">
-        <label className="text-xs font-bold text-gray-400 block uppercase tracking-wider mb-2.5">
-          👥 Selecione a Agenda do Profissional ({professionals.length})
+        <label className="text-[11px] font-bold text-gray-400 block uppercase tracking-wider mb-2">
+          📆 Dias da Semana
+        </label>
+
+        <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
+          {currentWeekDays.map((item) => {
+            const isSelected = item.dateStr === selectedDate;
+
+            return (
+              <button
+                key={item.dateStr}
+                onClick={() => setSelectedDate(item.dateStr)}
+                className={`py-2.5 px-1 rounded-xl border flex flex-col items-center justify-center transition ${
+                  isSelected
+                    ? 'border-orange-500 bg-orange-500 text-white font-bold shadow-lg shadow-orange-500/20'
+                    : 'border-gray-800 bg-gray-900/80 hover:bg-gray-800 text-gray-300'
+                }`}>
+                <span className="text-[10px] uppercase">{item.name}</span>
+                <span className="text-sm font-bold mt-0.5">{item.dayNum}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* SELEÇÃO DA EQUIPE COM CARDS VISUAIS */}
+      <div className="mb-6">
+        <label className="text-[11px] font-bold text-gray-400 block uppercase tracking-wider mb-2">
+          👥 Agenda do Profissional
         </label>
 
         <div className="flex space-x-3 overflow-x-auto pb-2 scrollbar-none">
@@ -296,7 +350,7 @@ export default function AgendaTenant() {
         </div>
       )}
 
-      {/* LISTA DE AGENDAMENTOS (DETALHADO) */}
+      {/* LISTA DE AGENDAMENTOS DO DIA */}
       <div className="space-y-3">
         <div className="flex justify-between items-center mb-2">
           <h2 className="text-xs font-bold text-gray-400 uppercase tracking-wider">

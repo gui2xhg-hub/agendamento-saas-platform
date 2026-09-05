@@ -48,7 +48,7 @@ export default function AgendaTenant() {
       
       if (pData && pData.length > 0) {
         setProfessionals(pData);
-        setSelectedProf(pData[0].id); // SELECIONA O PRIMEIRO PROFISSIONAL POR PADRÃO
+        setSelectedProf(pData[0].id);
         setBlockProfId(pData[0].id);
       }
       
@@ -60,7 +60,7 @@ export default function AgendaTenant() {
   const fetchAppointmentsAndBlocks = async (tenantId = tenant?.id) => {
     if (!tenantId) return;
 
-    // Buscar agendamentos
+    // Buscar agendamentos da data
     const { data: apps } = await supabase
       .from('appointments')
       .select('*')
@@ -69,7 +69,7 @@ export default function AgendaTenant() {
       .neq('status', 'cancelado')
       .order('start_time', { ascending: true });
 
-    // Buscar bloqueios
+    // Buscar bloqueios da data
     const { data: blocks } = await supabase
       .from('blocked_times')
       .select('*')
@@ -80,7 +80,7 @@ export default function AgendaTenant() {
     if (blocks) setBlockedTimes(blocks);
   };
 
-  // GERAR DIAS DA SEMANA PARA NAVEGAÇÃO RÁPIDA
+  // NAVEGAÇÃO DE DIAS DA SEMANA
   const getWeekDays = (baseDateStr) => {
     const baseDate = new Date(baseDateStr + 'T00:00:00');
     const dayOfWeek = baseDate.getDay();
@@ -109,7 +109,7 @@ export default function AgendaTenant() {
 
   const currentWeekDays = getWeekDays(selectedDate);
 
-  // CRIAR BLOQUEIO DE AGENDA
+  // BLOQUEAR HORÁRIO
   const handleCreateBlock = async (e) => {
     e.preventDefault();
     if (!blockDate || !blockStartTime || !blockEndTime) {
@@ -128,7 +128,6 @@ export default function AgendaTenant() {
     };
 
     const { error } = await supabase.from('blocked_times').insert([payload]);
-
     setIsSavingBlock(false);
 
     if (error) {
@@ -139,7 +138,7 @@ export default function AgendaTenant() {
     }
   };
 
-  // REMOVER BLOQUEIO
+  // DESBLOQUEAR HORÁRIO
   const handleDeleteBlock = async (blockId) => {
     if (!confirm("Deseja desmarcar este bloqueio e liberar o horário novamente?")) return;
 
@@ -152,17 +151,47 @@ export default function AgendaTenant() {
     }
   };
 
-  // ATUALIZAR STATUS DO AGENDAMENTO
-  const handleUpdateAppStatus = async (appId, newStatus) => {
-    const { error } = await supabase.from('appointments').update({ status: newStatus }).eq('id', appId);
+  // ATUALIZAR STATUS COM NOTIFICAÇÃO PUSH
+  const handleUpdateAppStatus = async (app, newStatus) => {
+    const { error } = await supabase.from('appointments').update({ status: newStatus }).eq('id', app.id);
+    
     if (error) {
       alert("Erro ao atualizar status: " + error.message);
     } else {
+      // 🔔 DISPARO DE NOTIFICAÇÃO PUSH CAPRICHADA
+      try {
+        let pushTitle = '';
+        let pushMessage = '';
+        const formattedDate = selectedDate.split('-').reverse().join('/');
+
+        if (newStatus === 'concluido') {
+          pushTitle = '✅ Atendimento Concluído!';
+          pushMessage = `O atendimento de ${app.customer_name} (${app.start_time}) foi finalizado com sucesso.`;
+        } else if (newStatus === 'cancelado') {
+          pushTitle = '❌ Agendamento Cancelado';
+          pushMessage = `O agendamento de ${app.customer_name} para ${formattedDate} às ${app.start_time} foi cancelado.`;
+        }
+
+        if (pushTitle) {
+          await fetch('/api/notify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              title: pushTitle,
+              message: pushMessage,
+              url: `https://agendamento.sinergemkt.com/${tenant.slug}/agenda`
+            })
+          });
+        }
+      } catch (err) {
+        console.error("Erro ao enviar push:", err);
+      }
+
       fetchAppointmentsAndBlocks();
     }
   };
 
-  // BLOQUEAR HORÁRIO LIVRE DIRETO PELA LINHA DO TEMPO
+  // BLOQUEAR HORÁRIO DIRETO PELA TIMELINE
   const handleQuickBlockSlot = (timeSlot) => {
     const [h, m] = timeSlot.split(':').map(Number);
     const endMin = h * 60 + m + 30;
@@ -178,7 +207,7 @@ export default function AgendaTenant() {
     setShowBlockModal(true);
   };
 
-  // GERAR LINHA DO TEMPO COMPLETA (HORÁRIOS OCUPADOS, BLOQUEADOS E LIVRES)
+  // GERAÇÃO DA LINHA DO TEMPO (CORRIGIDA E DEDUPLICADA)
   const generateTimeline = () => {
     if (!selectedProf) return [];
 
@@ -198,40 +227,49 @@ export default function AgendaTenant() {
       const m = currentMin % 60;
       const timeStr = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 
-      // Verificar se há agendamento cobrindo este minuto
-      const app = profApps.find(a => {
+      // Agendamentos que começam exatamente nesta hora
+      const appsStarting = profApps.filter(a => {
         const [aStartH, aStartM] = a.start_time.split(':').map(Number);
-        const aStart = aStartH * 60 + aStartM;
-        const aEnd = aStart + (a.total_duration_minutes || 30);
-        return currentMin >= aStart && currentMin < aEnd;
+        return (aStartH * 60 + aStartM) === currentMin;
       });
 
-      // Verificar se há bloqueio cobrindo este minuto
-      const block = profBlocks.find(b => {
+      // Bloqueios que começam exatamente nesta hora
+      const blocksStarting = profBlocks.filter(b => {
         const [bStartH, bStartM] = b.start_time.split(':').map(Number);
-        const [bEndH, bEndM] = b.end_time.split(':').map(Number);
-        const bStart = bStartH * 60 + bStartM;
-        const bEnd = bEndH * 60 + bEndM;
-        return currentMin >= bStart && currentMin < bEnd;
+        return (bStartH * 60 + bStartM) === currentMin;
       });
 
-      if (app) {
-        const [aStartH, aStartM] = app.start_time.split(':').map(Number);
-        const isStart = (aStartH * 60 + aStartM) === currentMin;
-        if (isStart) {
+      if (appsStarting.length > 0) {
+        appsStarting.forEach(app => {
           timeline.push({ time: timeStr, type: 'appointment', data: app });
-        }
-      } else if (block) {
-        const [bStartH, bStartM] = block.start_time.split(':').map(Number);
-        const isStart = (bStartH * 60 + bStartM) === currentMin;
-        if (isStart) {
+        });
+      } else if (blocksStarting.length > 0) {
+        blocksStarting.forEach(block => {
           timeline.push({ time: timeStr, type: 'blocked', data: block });
-        }
+        });
       } else {
-        timeline.push({ time: timeStr, type: 'free' });
+        // Verificar se este minuto está coberto pelo decorrer de algum agendamento ou bloqueio prévio
+        const isInsideApp = profApps.some(a => {
+          const [aStartH, aStartM] = a.start_time.split(':').map(Number);
+          const aStart = aStartH * 60 + aStartM;
+          const aEnd = aStart + (a.total_duration_minutes || 30);
+          return currentMin > aStart && currentMin < aEnd;
+        });
+
+        const isInsideBlock = profBlocks.some(b => {
+          const [bStartH, bStartM] = b.start_time.split(':').map(Number);
+          const [bEndH, bEndM] = b.end_time.split(':').map(Number);
+          const bStart = bStartH * 60 + bStartM;
+          const bEnd = bEndH * 60 + bEndM;
+          return currentMin > bStart && currentMin < bEnd;
+        });
+
+        if (!isInsideApp && !isInsideBlock) {
+          timeline.push({ time: timeStr, type: 'free' });
+        }
       }
 
-      currentMin += 30; // Intervalo de 30 minutos
+      currentMin += 30;
     }
 
     return timeline;
@@ -255,7 +293,7 @@ export default function AgendaTenant() {
       <header className="flex flex-col md:flex-row justify-between items-start md:items-center py-4 border-b border-gray-800 mb-4 gap-4">
         <div>
           <h1 className="font-bold text-xl text-orange-500">📅 Gestão da Agenda — {tenant.name}</h1>
-          <p className="text-xs text-gray-400">Selecione o profissional e navegue pelos horários livres e ocupados.</p>
+          <p className="text-xs text-gray-400">Navegue pelos horários livres e compromissos marcados.</p>
         </div>
 
         <div className="flex items-center space-x-2 w-full md:w-auto">
@@ -283,7 +321,7 @@ export default function AgendaTenant() {
         </div>
       </header>
 
-      {/* NAVEGAÇÃO DE DIAS DA SEMANA */}
+      {/* DIAS DA SEMANA */}
       <div className="mb-6">
         <label className="text-[11px] font-bold text-gray-400 block uppercase tracking-wider mb-2">
           📆 Dias da Semana
@@ -310,7 +348,7 @@ export default function AgendaTenant() {
         </div>
       </div>
 
-      {/* SELEÇÃO APENAS DOS PROFISSIONAIS DA EQUIPE */}
+      {/* SELEÇÃO DA EQUIPE */}
       <div className="mb-6">
         <label className="text-[11px] font-bold text-gray-400 block uppercase tracking-wider mb-2">
           💈 Selecione a Agenda do Profissional
@@ -353,7 +391,7 @@ export default function AgendaTenant() {
         </div>
       </div>
 
-      {/* MÉTRICAS RÁPIDAS DO PROFISSIONAL */}
+      {/* MÉTRICAS */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
         <div className="bg-gray-900 border border-gray-800 p-3 rounded-2xl">
           <span className="text-[10px] font-bold text-gray-400 uppercase block">Atendimentos</span>
@@ -373,20 +411,20 @@ export default function AgendaTenant() {
         </div>
       </div>
 
-      {/* LINHA DO TEMPO COM HORÁRIOS LIVRES, AGENDADOS E BLOQUEADOS */}
+      {/* LINHA DO TEMPO */}
       <div className="space-y-3">
         <div className="flex justify-between items-center mb-2">
           <h2 className="text-xs font-bold text-gray-400 uppercase tracking-wider">
             📋 Agenda do Dia — {currentProf?.name || 'Profissional'}
           </h2>
-          <span className="text-[10px] text-gray-500">Horários de funcionamento</span>
+          <span className="text-[10px] text-gray-500">Horários organizados</span>
         </div>
 
         {timelineItems.map((item, idx) => {
-          // 1. CARD DE HORÁRIO LIVRE
+          // HORÁRIO LIVRE
           if (item.type === 'free') {
             return (
-              <div key={idx} className="bg-gray-900/40 border border-dashed border-gray-800/80 p-3 rounded-2xl flex justify-between items-center transition hover:border-gray-700">
+              <div key={`free-${selectedProf}-${item.time}`} className="bg-gray-900/40 border border-dashed border-gray-800/80 p-3 rounded-2xl flex justify-between items-center transition hover:border-gray-700">
                 <div className="flex items-center space-x-3">
                   <span className="text-xs font-bold text-gray-400 bg-gray-800 px-2.5 py-1 rounded-lg">
                     ⏰ {item.time}
@@ -405,14 +443,14 @@ export default function AgendaTenant() {
             );
           }
 
-          // 2. CARD DE AGENDAMENTO OCUPADO
+          // AGENDAMENTO
           if (item.type === 'appointment') {
             const app = item.data;
             const servicesList = Array.isArray(app.services_json) ? app.services_json : [];
             const cleanPhone = (app.customer_phone || '').replace(/\D/g, '');
 
             return (
-              <div key={app.id} className="bg-gray-900 border border-gray-800 p-4 rounded-2xl space-y-3 shadow-lg border-l-4 border-l-orange-500">
+              <div key={`app-${app.id}-${idx}`} className="bg-gray-900 border border-gray-800 p-4 rounded-2xl space-y-3 shadow-lg border-l-4 border-l-orange-500">
                 <div className="flex justify-between items-start border-b border-gray-800 pb-2.5">
                   <div className="flex items-center space-x-3">
                     <span className="bg-orange-500/10 border border-orange-500/30 text-orange-400 px-3 py-1.5 rounded-xl font-bold text-xs">
@@ -462,12 +500,12 @@ export default function AgendaTenant() {
                   {app.status === 'agendado' && (
                     <>
                       <button
-                        onClick={() => handleUpdateAppStatus(app.id, 'concluido')}
+                        onClick={() => handleUpdateAppStatus(app, 'concluido')}
                         className="bg-green-600/20 hover:bg-green-600/40 text-green-300 border border-green-500/30 px-3.5 py-1.5 rounded-xl font-bold text-xs transition">
                         ✅ Concluir Atendimento
                       </button>
                       <button
-                        onClick={() => handleUpdateAppStatus(app.id, 'cancelado')}
+                        onClick={() => handleUpdateAppStatus(app, 'cancelado')}
                         className="bg-red-600/20 hover:bg-red-600/40 text-red-300 border border-red-500/30 px-3.5 py-1.5 rounded-xl font-bold text-xs transition">
                         ❌ Cancelar
                       </button>
@@ -478,12 +516,12 @@ export default function AgendaTenant() {
             );
           }
 
-          // 3. CARD DE HORÁRIO BLOQUEADO
+          // HORÁRIO BLOQUEADO
           if (item.type === 'blocked') {
             const block = item.data;
 
             return (
-              <div key={block.id} className="bg-red-950/20 border border-red-500/30 p-3.5 rounded-2xl flex justify-between items-center text-xs">
+              <div key={`block-${block.id}-${idx}`} className="bg-red-950/20 border border-red-500/30 p-3.5 rounded-2xl flex justify-between items-center text-xs">
                 <div>
                   <span className="text-red-400 font-bold block">🔒 Horário Fechado / Bloqueado</span>
                   <span className="text-red-300 text-xs font-bold">⏰ {block.start_time} às {block.end_time}</span>

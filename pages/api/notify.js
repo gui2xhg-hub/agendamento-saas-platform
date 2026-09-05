@@ -5,8 +5,9 @@ export default async function handler(req, res) {
 
   const { title, message, url, external_id } = req.body;
 
-  const API_KEY = "SUA_REST_API_KEY_DO_ONESIGNAL"; // Obtenha em Keys & IDs no painel do OneSignal
-  const APP_ID = "SEU_ONESIGNAL_APP_ID_AQUI";
+  // ⚠️ COLE A SUA REST API KEY DO ONESIGNAL AQUI:
+  const API_KEY = "SUA_REST_API_KEY_AQUI"; 
+  const APP_ID = "4459285b-e81c-458e-a6dc-ebc5e1d9baef";
 
   const payload = {
     app_id: APP_ID,
@@ -15,7 +16,6 @@ export default async function handler(req, res) {
     url: url || 'https://agendamento.sinergemkt.com',
   };
 
-  // Se passar um ID específico (ex: ID do profissional), envia só para ele. Se não, envia para todos.
   if (external_id) {
     payload.include_aliases = { external_id: [String(external_id)] };
     payload.target_channel = "push";

@@ -125,6 +125,21 @@ export default function AgendamentoCliente() {
       alert("Erro ao cancelar: " + error.message);
     } else {
       alert("Agendamento cancelado com sucesso!");
+
+      // DISPARO DE NOTIFICAÇÃO DE CANCELAMENTO PUSH 🔔
+      try {
+        await fetch('/api/notify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: '❌ Agendamento Cancelado',
+            message: `O cliente ${app.customer_name} cancelou o agendamento do dia ${formattedDate} às ${app.start_time}.`,
+            url: `https://agendamento.sinergemkt.com/${tenant.slug}/agenda`
+          })
+        });
+      } catch (err) {
+        console.error("Erro ao disparar notificação:", err);
+      }
       
       const cleanWhatsapp = tenant.whatsapp.replace(/\D/g, '');
       const msg = `*CANCELAMENTO DE AGENDAMENTO #${app.id} - ${tenant.name.toUpperCase()}*\n\n` +
@@ -173,6 +188,21 @@ export default function AgendamentoCliente() {
 
     const formattedDate = userNewDate.split('-').reverse().join('/');
     alert("Agendamento reagendado com sucesso!");
+
+    // DISPARO DE NOTIFICAÇÃO DE REAGENDAMENTO PUSH 🔔
+    try {
+      await fetch('/api/notify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: '🔄 Horário Reagendado!',
+          message: `${editingUserApp.customer_name} reagendou o atendimento para ${formattedDate} às ${userNewTime}.`,
+          url: `https://agendamento.sinergemkt.com/${tenant.slug}/agenda`
+        })
+      });
+    } catch (err) {
+      console.error("Erro ao disparar notificação:", err);
+    }
 
     const cleanWhatsapp = tenant.whatsapp.replace(/\D/g, '');
     const msg = `*SOLICITAÇÃO DE REAGENDAMENTO #${editingUserApp.id} - ${tenant.name.toUpperCase()}*\n\n` +
@@ -302,8 +332,23 @@ export default function AgendamentoCliente() {
       return alert("Erro ao agendar: " + error.message);
     }
 
-    const servicesListText = selectedServices.map(s => `• ${s.name} (R$ ${Number(s.price).toFixed(2)})`).join('\n');
     const formattedDate = selectedDate.split('-').reverse().join('/');
+    const servicesListText = selectedServices.map(s => `• ${s.name} (R$ ${Number(s.price).toFixed(2)})`).join('\n');
+
+    // 🔔 DISPARO DE NOTIFICAÇÃO PUSH AUTOMÁTICA
+    try {
+      await fetch('/api/notify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: '✂️ Novo Agendamento Recebido!',
+          message: `${customerName} agendou para ${formattedDate} às ${selectedTime} (${chosenProfName}).`,
+          url: `https://agendamento.sinergemkt.com/${tenant.slug}/agenda`
+        })
+      });
+    } catch (err) {
+      console.error("Erro ao disparar notificação:", err);
+    }
 
     let msg = `*NOVO AGENDAMENTO #${createdApp.id} - ${tenant.name.toUpperCase()}*\n\n`;
     msg += `*Cliente:* ${customerName}\n*Telefone:* ${customerPhone}\n`;
@@ -540,7 +585,6 @@ export default function AgendamentoCliente() {
 
                           <p className="text-gray-300"><b>Valor:</b> R$ {Number(app.total_price).toFixed(2)} ({app.payment_method})</p>
 
-                          {/* BOTOES DE CANCELAR E REAGENDAR */}
                           {canManage && (
                             <div className="flex space-x-2 pt-1 border-t border-gray-700/60">
                               <button
@@ -562,7 +606,6 @@ export default function AgendamentoCliente() {
                 </div>
               </>
             ) : (
-              /* FORMULÁRIO DE REAGENDAMENTO DENTRO DO MODAL */
               <form onSubmit={handleSaveUserReschedule} className="space-y-3">
                 <div className="bg-purple-500/10 border border-purple-500/30 p-2.5 rounded-xl text-xs">
                   <span className="text-purple-300 font-bold block">Reagendando Atendimento #{editingUserApp.id}</span>

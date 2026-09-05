@@ -6,7 +6,7 @@ export default async function handler(req, res) {
   const { title, message, url, external_id } = req.body;
 
   // ⚠️ COLE A SUA REST API KEY DO ONESIGNAL AQUI:
-  const API_KEY = "SUA_REST_API_KEY_AQUI"; 
+  const API_KEY = "os_v2_app_irmsqw7idrcy5jw45pc6dwn254imbbmmq64eru4w24kh4tgt572aqp54h2zmglggprsqmza23lg3u5mht2nj3lfysgo6ipq3bqoldla"; 
   const APP_ID = "4459285b-e81c-458e-a6dc-ebc5e1d9baef";
 
   const payload = {

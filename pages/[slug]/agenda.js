@@ -14,14 +14,14 @@ export default function AgendaTenant() {
 
   // FILTROS DE DATA E PROFISSIONAL
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
-  const [selectedProf, setSelectedProf] = useState('ALL');
+  const [selectedProf, setSelectedProf] = useState('');
 
   // MODAL DE BLOQUEIO DE HORÁRIO
   const [showBlockModal, setShowBlockModal] = useState(false);
   const [blockProfId, setBlockProfId] = useState('');
   const [blockDate, setBlockDate] = useState(new Date().toISOString().split('T')[0]);
   const [blockStartTime, setBlockStartTime] = useState('08:00');
-  const [blockEndTime, setBlockEndTime] = useState('09:00');
+  const [blockEndTime, setBlockEndTime] = useState('08:30');
   const [blockReason, setBlockReason] = useState('Compromisso Pessoal');
   const [isSavingBlock, setIsSavingBlock] = useState(false);
 
@@ -45,7 +45,12 @@ export default function AgendaTenant() {
     if (tData) {
       setTenant(tData);
       const { data: pData } = await supabase.from('professionals').select('*').eq('tenant_id', tData.id).eq('active', true);
-      if (pData) setProfessionals(pData);
+      
+      if (pData && pData.length > 0) {
+        setProfessionals(pData);
+        setSelectedProf(pData[0].id); // SELECIONA O PRIMEIRO PROFISSIONAL POR PADRÃO
+        setBlockProfId(pData[0].id);
+      }
       
       await fetchAppointmentsAndBlocks(tData.id);
     }
@@ -55,7 +60,7 @@ export default function AgendaTenant() {
   const fetchAppointmentsAndBlocks = async (tenantId = tenant?.id) => {
     if (!tenantId) return;
 
-    // Buscar agendamentos da data
+    // Buscar agendamentos
     const { data: apps } = await supabase
       .from('appointments')
       .select('*')
@@ -64,7 +69,7 @@ export default function AgendaTenant() {
       .neq('status', 'cancelado')
       .order('start_time', { ascending: true });
 
-    // Buscar bloqueios da data
+    // Buscar bloqueios
     const { data: blocks } = await supabase
       .from('blocked_times')
       .select('*')
@@ -75,10 +80,10 @@ export default function AgendaTenant() {
     if (blocks) setBlockedTimes(blocks);
   };
 
-  // GERAR DIAS DA SEMANA PARA A BARRA DE NAVEGAÇÃO RÁPIDA
+  // GERAR DIAS DA SEMANA PARA NAVEGAÇÃO RÁPIDA
   const getWeekDays = (baseDateStr) => {
     const baseDate = new Date(baseDateStr + 'T00:00:00');
-    const dayOfWeek = baseDate.getDay(); // 0 (Dom) a 6 (Sáb)
+    const dayOfWeek = baseDate.getDay();
     const distanceToMon = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
     
     const monday = new Date(baseDate);
@@ -129,7 +134,6 @@ export default function AgendaTenant() {
     if (error) {
       alert("Erro ao fechar horário: " + error.message);
     } else {
-      alert("Agenda fechada com sucesso!");
       setShowBlockModal(false);
       fetchAppointmentsAndBlocks();
     }
@@ -158,24 +162,91 @@ export default function AgendaTenant() {
     }
   };
 
+  // BLOQUEAR HORÁRIO LIVRE DIRETO PELA LINHA DO TEMPO
+  const handleQuickBlockSlot = (timeSlot) => {
+    const [h, m] = timeSlot.split(':').map(Number);
+    const endMin = h * 60 + m + 30;
+    const endH = Math.floor(endMin / 60);
+    const endM = endMin % 60;
+    const endTimeStr = `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`;
+
+    setBlockProfId(selectedProf);
+    setBlockDate(selectedDate);
+    setBlockStartTime(timeSlot);
+    setBlockEndTime(endTimeStr);
+    setBlockReason('Compromisso Pessoal');
+    setShowBlockModal(true);
+  };
+
+  // GERAR LINHA DO TEMPO COMPLETA (HORÁRIOS OCUPADOS, BLOQUEADOS E LIVRES)
+  const generateTimeline = () => {
+    if (!selectedProf) return [];
+
+    const openHour = parseInt((tenant?.opening_time || '08:00').split(':')[0]);
+    const closeHour = parseInt((tenant?.closing_time || '20:00').split(':')[0]);
+
+    let currentMin = openHour * 60;
+    const endMin = closeHour * 60;
+
+    const timeline = [];
+
+    const profApps = appointments.filter(a => String(a.professional_id) === String(selectedProf));
+    const profBlocks = blockedTimes.filter(b => b.professional_id === null || String(b.professional_id) === String(selectedProf));
+
+    while (currentMin < endMin) {
+      const h = Math.floor(currentMin / 60);
+      const m = currentMin % 60;
+      const timeStr = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+
+      // Verificar se há agendamento cobrindo este minuto
+      const app = profApps.find(a => {
+        const [aStartH, aStartM] = a.start_time.split(':').map(Number);
+        const aStart = aStartH * 60 + aStartM;
+        const aEnd = aStart + (a.total_duration_minutes || 30);
+        return currentMin >= aStart && currentMin < aEnd;
+      });
+
+      // Verificar se há bloqueio cobrindo este minuto
+      const block = profBlocks.find(b => {
+        const [bStartH, bStartM] = b.start_time.split(':').map(Number);
+        const [bEndH, bEndM] = b.end_time.split(':').map(Number);
+        const bStart = bStartH * 60 + bStartM;
+        const bEnd = bEndH * 60 + bEndM;
+        return currentMin >= bStart && currentMin < bEnd;
+      });
+
+      if (app) {
+        const [aStartH, aStartM] = app.start_time.split(':').map(Number);
+        const isStart = (aStartH * 60 + aStartM) === currentMin;
+        if (isStart) {
+          timeline.push({ time: timeStr, type: 'appointment', data: app });
+        }
+      } else if (block) {
+        const [bStartH, bStartM] = block.start_time.split(':').map(Number);
+        const isStart = (bStartH * 60 + bStartM) === currentMin;
+        if (isStart) {
+          timeline.push({ time: timeStr, type: 'blocked', data: block });
+        }
+      } else {
+        timeline.push({ time: timeStr, type: 'free' });
+      }
+
+      currentMin += 30; // Intervalo de 30 minutos
+    }
+
+    return timeline;
+  };
+
   if (loading) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><p className="text-xs text-gray-400">Carregando Agenda...</p></div>;
   if (!tenant) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><h1 className="text-xl font-bold text-orange-500">Estabelecimento não encontrado</h1></div>;
 
-  // FILTRAGEM DOS AGENDAMENTOS E BLOQUEIOS
-  const displayedAppointments = appointments.filter(app => {
-    if (selectedProf === 'ALL') return true;
-    return String(app.professional_id) === String(selectedProf);
-  });
-
-  const displayedBlocks = blockedTimes.filter(b => {
-    if (selectedProf === 'ALL') return true;
-    return b.professional_id === null || String(b.professional_id) === String(selectedProf);
-  });
-
-  // MÉTRICAS DO PROFISSIONAL/GERAL
+  const currentProf = professionals.find(p => String(p.id) === String(selectedProf));
+  const displayedAppointments = appointments.filter(a => String(a.professional_id) === String(selectedProf));
   const totalAmount = displayedAppointments.reduce((acc, app) => acc + Number(app.total_price || 0), 0);
   const completedCount = displayedAppointments.filter(app => app.status === 'concluido').length;
   const pendingCount = displayedAppointments.filter(app => app.status === 'agendado').length;
+
+  const timelineItems = generateTimeline();
 
   return (
     <div className="min-h-screen bg-gray-950 text-white p-4 max-w-5xl mx-auto font-sans pb-20">
@@ -184,7 +255,7 @@ export default function AgendaTenant() {
       <header className="flex flex-col md:flex-row justify-between items-start md:items-center py-4 border-b border-gray-800 mb-4 gap-4">
         <div>
           <h1 className="font-bold text-xl text-orange-500">📅 Gestão da Agenda — {tenant.name}</h1>
-          <p className="text-xs text-gray-400">Acompanhe seus compromissos e alterne facilmente os dias da semana.</p>
+          <p className="text-xs text-gray-400">Selecione o profissional e navegue pelos horários livres e ocupados.</p>
         </div>
 
         <div className="flex items-center space-x-2 w-full md:w-auto">
@@ -198,11 +269,12 @@ export default function AgendaTenant() {
 
           <button
             onClick={() => {
+              setBlockProfId(selectedProf);
               setBlockDate(selectedDate);
               setShowBlockModal(true);
             }}
             className="bg-purple-600 hover:bg-purple-700 text-white px-3.5 py-2.5 rounded-xl text-xs font-bold transition shadow-lg flex items-center space-x-1 whitespace-nowrap">
-            <span>🔒 Bloquear Horário</span>
+            <span>🔒 Fechar Horário</span>
           </button>
 
           <button onClick={() => fetchAppointmentsAndBlocks()} className="bg-gray-900 hover:bg-gray-800 border border-gray-800 p-2.5 rounded-xl text-xs font-bold transition">
@@ -211,7 +283,7 @@ export default function AgendaTenant() {
         </div>
       </header>
 
-      {/* ATALHO RÁPIDO: CARROSSEL DE DIAS DA SEMANA */}
+      {/* NAVEGAÇÃO DE DIAS DA SEMANA */}
       <div className="mb-6">
         <label className="text-[11px] font-bold text-gray-400 block uppercase tracking-wider mb-2">
           📆 Dias da Semana
@@ -238,36 +310,13 @@ export default function AgendaTenant() {
         </div>
       </div>
 
-      {/* SELEÇÃO DA EQUIPE COM CARDS VISUAIS */}
+      {/* SELEÇÃO APENAS DOS PROFISSIONAIS DA EQUIPE */}
       <div className="mb-6">
         <label className="text-[11px] font-bold text-gray-400 block uppercase tracking-wider mb-2">
-          👥 Agenda do Profissional
+          💈 Selecione a Agenda do Profissional
         </label>
 
         <div className="flex space-x-3 overflow-x-auto pb-2 scrollbar-none">
-          {/* CARD TODOS */}
-          <button
-            onClick={() => setSelectedProf('ALL')}
-            className={`p-3 rounded-2xl border flex items-center space-x-3 min-w-[140px] transition text-left relative ${
-              selectedProf === 'ALL'
-                ? 'border-orange-500 bg-orange-500/10 shadow-lg shadow-orange-500/10'
-                : 'border-gray-800 bg-gray-900/60 hover:bg-gray-900'
-            }`}>
-            <div className="w-10 h-10 rounded-full bg-gray-800 border border-gray-700 flex items-center justify-center text-lg font-bold">
-              👥
-            </div>
-            <div>
-              <span className="font-bold text-xs text-white block">Todos</span>
-              <span className="text-[10px] text-gray-400">Visão Geral</span>
-            </div>
-            {appointments.length > 0 && (
-              <span className="absolute -top-1.5 -right-1.5 bg-orange-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow">
-                {appointments.length}
-              </span>
-            )}
-          </button>
-
-          {/* CARDS DOS PROFISSIONAIS */}
           {professionals.map(prof => {
             const isSelected = String(selectedProf) === String(prof.id);
             const profAppsCount = appointments.filter(a => String(a.professional_id) === String(prof.id)).length;
@@ -275,8 +324,11 @@ export default function AgendaTenant() {
             return (
               <button
                 key={prof.id}
-                onClick={() => setSelectedProf(prof.id)}
-                className={`p-3 rounded-2xl border flex items-center space-x-3 min-w-[160px] transition text-left relative ${
+                onClick={() => {
+                  setSelectedProf(prof.id);
+                  setBlockProfId(prof.id);
+                }}
+                className={`p-3 rounded-2xl border flex items-center space-x-3 min-w-[170px] transition text-left relative ${
                   isSelected
                     ? 'border-orange-500 bg-orange-500/10 shadow-lg shadow-orange-500/10'
                     : 'border-gray-800 bg-gray-900/60 hover:bg-gray-900'
@@ -301,7 +353,7 @@ export default function AgendaTenant() {
         </div>
       </div>
 
-      {/* PAINEL DE RESUMO E MÉTRICAS DA SELEÇÃO */}
+      {/* MÉTRICAS RÁPIDAS DO PROFISSIONAL */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
         <div className="bg-gray-900 border border-gray-800 p-3 rounded-2xl">
           <span className="text-[10px] font-bold text-gray-400 uppercase block">Atendimentos</span>
@@ -316,64 +368,51 @@ export default function AgendaTenant() {
           <span className="text-base font-bold text-green-400">{completedCount}</span>
         </div>
         <div className="bg-gray-900 border border-gray-800 p-3 rounded-2xl">
-          <span className="text-[10px] font-bold text-gray-400 uppercase block">Total R$ Previsto</span>
+          <span className="text-[10px] font-bold text-gray-400 uppercase block">Total Previsto</span>
           <span className="text-base font-bold text-green-400">R$ {totalAmount.toFixed(2)}</span>
         </div>
       </div>
 
-      {/* PAINEL DE BLOQUEIOS DE HORÁRIO */}
-      {displayedBlocks.length > 0 && (
-        <div className="mb-6 bg-red-950/30 border border-red-500/30 p-4 rounded-2xl space-y-2">
-          <h3 className="text-xs font-bold text-red-400 uppercase tracking-wider flex items-center space-x-1">
-            <span>🔒 Horários Bloqueados / Indisponíveis ({displayedBlocks.length})</span>
-          </h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            {displayedBlocks.map(block => {
-              const profName = professionals.find(p => p.id === block.professional_id)?.name || 'Toda a Casa (Geral)';
-
-              return (
-                <div key={block.id} className="bg-gray-900/90 border border-red-500/20 p-3 rounded-xl flex justify-between items-center text-xs">
-                  <div>
-                    <span className="font-bold text-white block">{profName}</span>
-                    <span className="text-red-300 font-bold">⏰ {block.start_time} às {block.end_time}</span>
-                    {block.reason && <span className="text-gray-400 text-[10px] block italic">{block.reason}</span>}
-                  </div>
-                  <button
-                    onClick={() => handleDeleteBlock(block.id)}
-                    className="bg-red-500/20 hover:bg-red-500/40 text-red-300 border border-red-500/30 px-2.5 py-1 rounded-lg font-bold text-[10px] transition">
-                    🔓 Desbloquear
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* LISTA DE AGENDAMENTOS DO DIA */}
+      {/* LINHA DO TEMPO COM HORÁRIOS LIVRES, AGENDADOS E BLOQUEADOS */}
       <div className="space-y-3">
         <div className="flex justify-between items-center mb-2">
           <h2 className="text-xs font-bold text-gray-400 uppercase tracking-wider">
-            📋 Horários Agendados ({displayedAppointments.length})
+            📋 Agenda do Dia — {currentProf?.name || 'Profissional'}
           </h2>
-          <span className="text-[10px] text-gray-500">Ordenados por horário</span>
+          <span className="text-[10px] text-gray-500">Horários de funcionamento</span>
         </div>
 
-        {displayedAppointments.length === 0 ? (
-          <div className="bg-gray-900 border border-gray-800 rounded-2xl p-10 text-center space-y-2">
-            <span className="text-3xl block">☕</span>
-            <p className="text-xs text-gray-400 font-bold">Nenhum agendamento para este profissional nesta data.</p>
-            <p className="text-[11px] text-gray-500">A agenda está livre ou o profissional selecionado não possui horários marcados.</p>
-          </div>
-        ) : (
-          displayedAppointments.map(app => {
-            const prof = professionals.find(p => p.id === app.professional_id);
-            const profName = prof?.name || 'Profissional';
+        {timelineItems.map((item, idx) => {
+          // 1. CARD DE HORÁRIO LIVRE
+          if (item.type === 'free') {
+            return (
+              <div key={idx} className="bg-gray-900/40 border border-dashed border-gray-800/80 p-3 rounded-2xl flex justify-between items-center transition hover:border-gray-700">
+                <div className="flex items-center space-x-3">
+                  <span className="text-xs font-bold text-gray-400 bg-gray-800 px-2.5 py-1 rounded-lg">
+                    ⏰ {item.time}
+                  </span>
+                  <span className="text-xs font-bold text-emerald-400 flex items-center space-x-1">
+                    <span>🟢 Horário Livre / Disponível</span>
+                  </span>
+                </div>
+
+                <button
+                  onClick={() => handleQuickBlockSlot(item.time)}
+                  className="bg-purple-600/20 hover:bg-purple-600/40 text-purple-300 border border-purple-500/30 px-3 py-1 rounded-xl text-[11px] font-bold transition">
+                  🔒 Bloquear
+                </button>
+              </div>
+            );
+          }
+
+          // 2. CARD DE AGENDAMENTO OCUPADO
+          if (item.type === 'appointment') {
+            const app = item.data;
             const servicesList = Array.isArray(app.services_json) ? app.services_json : [];
             const cleanPhone = (app.customer_phone || '').replace(/\D/g, '');
 
             return (
-              <div key={app.id} className="bg-gray-900 border border-gray-800 p-4 rounded-2xl space-y-3 shadow-lg hover:border-gray-700 transition">
+              <div key={app.id} className="bg-gray-900 border border-gray-800 p-4 rounded-2xl space-y-3 shadow-lg border-l-4 border-l-orange-500">
                 <div className="flex justify-between items-start border-b border-gray-800 pb-2.5">
                   <div className="flex items-center space-x-3">
                     <span className="bg-orange-500/10 border border-orange-500/30 text-orange-400 px-3 py-1.5 rounded-xl font-bold text-xs">
@@ -405,18 +444,7 @@ export default function AgendaTenant() {
                   </span>
                 </div>
 
-                {/* CORPO DO CARD */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs bg-gray-950 p-3 rounded-xl border border-gray-800/80">
-                  <div>
-                    <span className="text-gray-400 block text-[10px]">Profissional Atendente:</span>
-                    <span className="font-bold text-white flex items-center space-x-1">
-                      {prof?.avatar_url && (
-                        <img src={prof.avatar_url} alt={profName} className="w-4 h-4 rounded-full object-cover inline mr-1" />
-                      )}
-                      <span>{profName}</span>
-                    </span>
-                  </div>
-
                   <div>
                     <span className="text-gray-400 block text-[10px]">Serviço(s) Solicitado(s):</span>
                     <span className="font-bold text-orange-300">
@@ -424,20 +452,12 @@ export default function AgendaTenant() {
                     </span>
                   </div>
 
-                  <div className="sm:col-span-2 border-t border-gray-800/60 pt-2 flex justify-between items-center">
-                    <div>
-                      <span className="text-gray-400 block text-[10px]">Forma de Pagamento:</span>
-                      <span className="font-bold text-gray-200">{app.payment_method || 'No Local'}</span>
-                    </div>
-
-                    <div className="text-right">
-                      <span className="text-gray-400 block text-[10px]">Valor Total:</span>
-                      <span className="font-bold text-green-400 text-sm">R$ {Number(app.total_price || 0).toFixed(2)}</span>
-                    </div>
+                  <div className="text-right">
+                    <span className="text-gray-400 block text-[10px]">Valor Total:</span>
+                    <span className="font-bold text-green-400 text-sm">R$ {Number(app.total_price || 0).toFixed(2)} ({app.payment_method || 'No Local'})</span>
                   </div>
                 </div>
 
-                {/* BOTÕES DE AÇÃO */}
                 <div className="flex justify-end space-x-2 pt-1">
                   {app.status === 'agendado' && (
                     <>
@@ -456,8 +476,30 @@ export default function AgendaTenant() {
                 </div>
               </div>
             );
-          })
-        )}
+          }
+
+          // 3. CARD DE HORÁRIO BLOQUEADO
+          if (item.type === 'blocked') {
+            const block = item.data;
+
+            return (
+              <div key={block.id} className="bg-red-950/20 border border-red-500/30 p-3.5 rounded-2xl flex justify-between items-center text-xs">
+                <div>
+                  <span className="text-red-400 font-bold block">🔒 Horário Fechado / Bloqueado</span>
+                  <span className="text-red-300 text-xs font-bold">⏰ {block.start_time} às {block.end_time}</span>
+                  {block.reason && <span className="text-gray-400 text-[10px] block italic">{block.reason}</span>}
+                </div>
+                <button
+                  onClick={() => handleDeleteBlock(block.id)}
+                  className="bg-red-500/20 hover:bg-red-500/40 text-red-300 border border-red-500/30 px-3 py-1.5 rounded-xl font-bold text-[11px] transition">
+                  🔓 Desbloquear
+                </button>
+              </div>
+            );
+          }
+
+          return null;
+        })}
       </div>
 
       {/* MODAL FECHAR AGENDA / BLOQUEAR HORÁRIO */}
@@ -478,7 +520,6 @@ export default function AgendaTenant() {
                   value={blockProfId}
                   onChange={(e) => setBlockProfId(e.target.value)}
                   className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-white focus:outline-none">
-                  <option value="">💈 Toda a Casa (Geral / Todos)</option>
                   {professionals.map(p => (
                     <option key={p.id} value={p.id}>{p.name}</option>
                   ))}

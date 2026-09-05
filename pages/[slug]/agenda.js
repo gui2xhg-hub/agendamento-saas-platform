@@ -25,6 +25,13 @@ export default function AgendaTenant() {
   const [blockReason, setBlockReason] = useState('Compromisso Pessoal');
   const [isSavingBlock, setIsSavingBlock] = useState(false);
 
+  // MODAL DE REAGENDAMENTO
+  const [editingApp, setEditingApp] = useState(null);
+  const [rescheduleDate, setRescheduleDate] = useState('');
+  const [rescheduleTime, setRescheduleTime] = useState('');
+  const [rescheduleProfId, setRescheduleProfId] = useState('');
+  const [isSavingReschedule, setIsSavingReschedule] = useState(false);
+
   useEffect(() => {
     if (router.isReady && slug) {
       fetchTenantAndData();
@@ -151,6 +158,71 @@ export default function AgendaTenant() {
     }
   };
 
+  // REAGENDAR ATENDIMENTO
+  const handleOpenReschedule = (app) => {
+    setEditingApp(app);
+    setRescheduleDate(app.appointment_date);
+    setRescheduleTime(app.start_time);
+    setRescheduleProfId(app.professional_id);
+  };
+
+  const handleSaveReschedule = async (e) => {
+    e.preventDefault();
+    if (!rescheduleDate || !rescheduleTime) return alert("Selecione nova data e horário!");
+
+    setIsSavingReschedule(true);
+
+    const duration = editingApp.total_duration_minutes || 30;
+    const [h, m] = rescheduleTime.split(':').map(Number);
+    const endDateObj = new Date();
+    endDateObj.setHours(h, m + duration, 0, 0);
+    const endTime = endDateObj.toTimeString().substring(0, 5);
+
+    const { error } = await supabase
+      .from('appointments')
+      .update({
+        appointment_date: rescheduleDate,
+        start_time: rescheduleTime,
+        end_time: endTime,
+        professional_id: parseInt(rescheduleProfId),
+        status: 'agendado'
+      })
+      .eq('id', editingApp.id);
+
+    setIsSavingReschedule(false);
+
+    if (error) {
+      alert("Erro ao reagendar: " + error.message);
+    } else {
+      const formattedDate = rescheduleDate.split('-').reverse().join('/');
+
+      // 🔔 PUSH NOTIFICATION
+      try {
+        await fetch('/api/notify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: '🔄 Horário Reagendado!',
+            message: `Olá ${editingApp.customer_name}, seu atendimento foi alterado para ${formattedDate} às ${rescheduleTime}.`,
+            url: `https://agendamento.sinergemkt.com/${tenant.slug}`
+          })
+        });
+      } catch (err) {
+        console.error("Erro ao enviar push:", err);
+      }
+
+      // WHATSAPP
+      const cleanPhone = (editingApp.customer_phone || '').replace(/\D/g, '');
+      if (cleanPhone) {
+        const msg = `Olá ${editingApp.customer_name}! 🔄 Seu agendamento no *${tenant.name}* foi reagendado para o dia *${formattedDate}* às *${rescheduleTime}*.`;
+        window.open(`https://wa.me/55${cleanPhone}?text=${encodeURIComponent(msg)}`, '_blank');
+      }
+
+      setEditingApp(null);
+      fetchAppointmentsAndBlocks();
+    }
+  };
+
   // ATUALIZAR STATUS COM NOTIFICAÇÃO PUSH
   const handleUpdateAppStatus = async (app, newStatus) => {
     const { error } = await supabase.from('appointments').update({ status: newStatus }).eq('id', app.id);
@@ -158,7 +230,6 @@ export default function AgendaTenant() {
     if (error) {
       alert("Erro ao atualizar status: " + error.message);
     } else {
-      // 🔔 DISPARO DE NOTIFICAÇÃO PUSH CAPRICHADA
       try {
         let pushTitle = '';
         let pushMessage = '';
@@ -207,7 +278,7 @@ export default function AgendaTenant() {
     setShowBlockModal(true);
   };
 
-  // GERAÇÃO DA LINHA DO TEMPO (CORRIGIDA E DEDUPLICADA)
+  // GERAÇÃO DA LINHA DO TEMPO
   const generateTimeline = () => {
     if (!selectedProf) return [];
 
@@ -227,13 +298,11 @@ export default function AgendaTenant() {
       const m = currentMin % 60;
       const timeStr = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 
-      // Agendamentos que começam exatamente nesta hora
       const appsStarting = profApps.filter(a => {
         const [aStartH, aStartM] = a.start_time.split(':').map(Number);
         return (aStartH * 60 + aStartM) === currentMin;
       });
 
-      // Bloqueios que começam exatamente nesta hora
       const blocksStarting = profBlocks.filter(b => {
         const [bStartH, bStartM] = b.start_time.split(':').map(Number);
         return (bStartH * 60 + bStartM) === currentMin;
@@ -248,7 +317,6 @@ export default function AgendaTenant() {
           timeline.push({ time: timeStr, type: 'blocked', data: block });
         });
       } else {
-        // Verificar se este minuto está coberto pelo decorrer de algum agendamento ou bloqueio prévio
         const isInsideApp = profApps.some(a => {
           const [aStartH, aStartM] = a.start_time.split(':').map(Number);
           const aStart = aStartH * 60 + aStartM;
@@ -496,13 +564,19 @@ export default function AgendaTenant() {
                   </div>
                 </div>
 
+                {/* BOTÕES DE AÇÃO COM OPÇÃO DE REAGENDAMENTO */}
                 <div className="flex justify-end space-x-2 pt-1">
                   {app.status === 'agendado' && (
                     <>
                       <button
+                        onClick={() => handleOpenReschedule(app)}
+                        className="bg-purple-600/20 hover:bg-purple-600/40 text-purple-300 border border-purple-500/30 px-3 py-1.5 rounded-xl font-bold text-xs transition">
+                        ✏️ Reagendar
+                      </button>
+                      <button
                         onClick={() => handleUpdateAppStatus(app, 'concluido')}
                         className="bg-green-600/20 hover:bg-green-600/40 text-green-300 border border-green-500/30 px-3.5 py-1.5 rounded-xl font-bold text-xs transition">
-                        ✅ Concluir Atendimento
+                        ✅ Concluir
                       </button>
                       <button
                         onClick={() => handleUpdateAppStatus(app, 'cancelado')}
@@ -539,6 +613,75 @@ export default function AgendaTenant() {
           return null;
         })}
       </div>
+
+      {/* MODAL REAGENDAR ATENDIMENTO */}
+      {editingApp && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-900 border border-gray-800 w-full max-w-md rounded-2xl p-5 space-y-4 shadow-2xl">
+            <div className="flex justify-between items-center border-b border-gray-800 pb-2">
+              <h3 className="font-bold text-sm text-purple-400">✏️ Reagendar Atendimento #{editingApp.id}</h3>
+              <button onClick={() => setEditingApp(null)} className="text-gray-400 font-bold text-xs">✕ Fechar</button>
+            </div>
+
+            <form onSubmit={handleSaveReschedule} className="space-y-3 text-xs">
+              <div className="bg-gray-950 p-2.5 rounded-xl border border-gray-800">
+                <span className="text-gray-300 font-bold block">Cliente: {editingApp.customer_name}</span>
+                <span className="text-gray-400 text-[10px]">Horário Atual: {editingApp.appointment_date.split('-').reverse().join('/')} às {editingApp.start_time}</span>
+              </div>
+
+              <div>
+                <label className="text-gray-400 block mb-1">Profissional Atendente:</label>
+                <select
+                  value={rescheduleProfId}
+                  onChange={(e) => setRescheduleProfId(e.target.value)}
+                  className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-white focus:outline-none">
+                  {professionals.map(p => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-gray-400 block mb-1">Nova Data:</label>
+                <input
+                  type="date"
+                  required
+                  value={rescheduleDate}
+                  onChange={(e) => setRescheduleDate(e.target.value)}
+                  className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-white focus:outline-none cursor-pointer"
+                  style={{ colorScheme: 'dark' }}
+                />
+              </div>
+
+              <div>
+                <label className="text-gray-400 block mb-1">Novo Horário de Início:</label>
+                <input
+                  type="time"
+                  required
+                  value={rescheduleTime}
+                  onChange={(e) => setRescheduleTime(e.target.value)}
+                  className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-white focus:outline-none"
+                />
+              </div>
+
+              <div className="flex space-x-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingApp(null)}
+                  className="w-1/2 bg-gray-800 text-gray-300 py-3 rounded-xl font-bold">
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingReschedule}
+                  className="w-1/2 bg-purple-600 hover:bg-purple-700 text-white py-3 rounded-xl font-bold transition">
+                  {isSavingReschedule ? 'Salvando...' : 'Confirmar Reagendamento'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* MODAL FECHAR AGENDA / BLOQUEAR HORÁRIO */}
       {showBlockModal && (

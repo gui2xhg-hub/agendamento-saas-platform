@@ -23,6 +23,8 @@ export default function AgendaTenant() {
   const [blockStartTime, setBlockStartTime] = useState('08:00');
   const [blockEndTime, setBlockEndTime] = useState('08:30');
   const [blockReason, setBlockReason] = useState('Compromisso Pessoal');
+  const [isFullDayBlock, setIsFullDayBlock] = useState(false);
+  const [isRecurringBlock, setIsRecurringBlock] = useState(false);
   const [isSavingBlock, setIsSavingBlock] = useState(false);
 
   // MODAL DE REAGENDAMENTO
@@ -76,15 +78,24 @@ export default function AgendaTenant() {
       .neq('status', 'cancelado')
       .order('start_time', { ascending: true });
 
-    // Buscar bloqueios da data
+    // Buscar bloqueios (Pontuais + Recorrentes)
     const { data: blocks } = await supabase
       .from('blocked_times')
       .select('*')
-      .eq('tenant_id', tenantId)
-      .eq('block_date', selectedDate);
+      .eq('tenant_id', tenantId);
 
     if (apps) setAppointments(apps);
-    if (blocks) setBlockedTimes(blocks);
+
+    if (blocks) {
+      const selectedDayOfWeek = new Date(selectedDate + 'T00:00:00').getDay();
+      const filteredBlocks = blocks.filter(b => {
+        if (b.block_date === selectedDate) return true;
+        if (b.is_recurring && b.recurring_day === selectedDayOfWeek) return true;
+        if (b.reason && b.reason.includes('[RECORRENTE]') && b.recurring_day === selectedDayOfWeek) return true;
+        return false;
+      });
+      setBlockedTimes(filteredBlocks);
+    }
   };
 
   // NAVEGAÇÃO DE DIAS DA SEMANA
@@ -116,22 +127,32 @@ export default function AgendaTenant() {
 
   const currentWeekDays = getWeekDays(selectedDate);
 
-  // BLOQUEAR HORÁRIO
+  // BLOQUEAR HORÁRIO / DIA INTEIRO RECORRENTE
   const handleCreateBlock = async (e) => {
     e.preventDefault();
-    if (!blockDate || !blockStartTime || !blockEndTime) {
-      return alert("Preencha data, horário de início e fim!");
-    }
+    if (!blockDate) return alert("Preencha a data!");
 
     setIsSavingBlock(true);
+
+    const openTime = tenant?.opening_time || '08:00';
+    const closeTime = tenant?.closing_time || '20:00';
+
+    const finalStartTime = isFullDayBlock ? openTime : blockStartTime;
+    const finalEndTime = isFullDayBlock ? closeTime : blockEndTime;
+    const blockDayOfWeek = new Date(blockDate + 'T00:00:00').getDay();
+
+    let finalReason = blockReason || 'Horário Bloqueado';
+    if (isRecurringBlock) finalReason += ' [RECORRENTE]';
 
     const payload = {
       tenant_id: tenant.id,
       professional_id: blockProfId ? parseInt(blockProfId) : null,
       block_date: blockDate,
-      start_time: blockStartTime,
-      end_time: blockEndTime,
-      reason: blockReason || 'Horário Bloqueado'
+      start_time: finalStartTime,
+      end_time: finalEndTime,
+      reason: finalReason,
+      is_recurring: isRecurringBlock,
+      recurring_day: blockDayOfWeek
     };
 
     const { error } = await supabase.from('blocked_times').insert([payload]);
@@ -141,6 +162,8 @@ export default function AgendaTenant() {
       alert("Erro ao fechar horário: " + error.message);
     } else {
       setShowBlockModal(false);
+      setIsFullDayBlock(false);
+      setIsRecurringBlock(false);
       fetchAppointmentsAndBlocks();
     }
   };
@@ -196,7 +219,6 @@ export default function AgendaTenant() {
     } else {
       const formattedDate = rescheduleDate.split('-').reverse().join('/');
 
-      // 🔔 PUSH NOTIFICATION
       try {
         await fetch('/api/notify', {
           method: 'POST',
@@ -211,7 +233,6 @@ export default function AgendaTenant() {
         console.error("Erro ao enviar push:", err);
       }
 
-      // WHATSAPP
       const cleanPhone = (editingApp.customer_phone || '').replace(/\D/g, '');
       if (cleanPhone) {
         const msg = `Olá ${editingApp.customer_name}! 🔄 Seu agendamento no *${tenant.name}* foi reagendado para o dia *${formattedDate}* às *${rescheduleTime}*.`;
@@ -275,12 +296,27 @@ export default function AgendaTenant() {
     setBlockStartTime(timeSlot);
     setBlockEndTime(endTimeStr);
     setBlockReason('Compromisso Pessoal');
+    setIsFullDayBlock(false);
+    setIsRecurringBlock(false);
     setShowBlockModal(true);
   };
 
   // GERAÇÃO DA LINHA DO TEMPO
   const generateTimeline = () => {
     if (!selectedProf) return [];
+
+    const selectedDayOfWeek = new Date(selectedDate + 'T00:00:00').getDay();
+    const tenantWorkDays = tenant?.work_days || [1, 2, 3, 4, 5, 6];
+    const currentProf = professionals.find(p => String(p.id) === String(selectedProf));
+    const profWorkDays = currentProf?.work_days || [1, 2, 3, 4, 5, 6];
+
+    // VERIFICA SE A LOJA OU O PROFISSIONAL ESTÁ DE FOLGA NESTE DIA
+    if (!tenantWorkDays.includes(selectedDayOfWeek)) {
+      return [{ type: 'day_closed', reason: 'Estabelecimento Fechado neste dia da semana.' }];
+    }
+    if (!profWorkDays.includes(selectedDayOfWeek)) {
+      return [{ type: 'prof_off', reason: `${currentProf?.name || 'Profissional'} não atende neste dia da semana (Folga Recorrente).` }];
+    }
 
     const openHour = parseInt((tenant?.opening_time || '08:00').split(':')[0]);
     const closeHour = parseInt((tenant?.closing_time || '20:00').split(':')[0]);
@@ -377,6 +413,8 @@ export default function AgendaTenant() {
             onClick={() => {
               setBlockProfId(selectedProf);
               setBlockDate(selectedDate);
+              setIsFullDayBlock(false);
+              setIsRecurringBlock(false);
               setShowBlockModal(true);
             }}
             className="bg-purple-600 hover:bg-purple-700 text-white px-3.5 py-2.5 rounded-xl text-xs font-bold transition shadow-lg flex items-center space-x-1 whitespace-nowrap">
@@ -489,6 +527,19 @@ export default function AgendaTenant() {
         </div>
 
         {timelineItems.map((item, idx) => {
+
+          // BLOQUEIO AUTOMÁTICO DE DIA FECHADO / FOLGA RECORRENTE
+          if (item.type === 'day_closed' || item.type === 'prof_off') {
+            return (
+              <div key={`off-${idx}`} className="bg-red-950/20 border border-red-500/40 p-6 rounded-3xl text-center space-y-2 my-4">
+                <span className="text-2xl block">🛑</span>
+                <h3 className="font-bold text-sm text-red-400">Agenda Indisponível neste dia</h3>
+                <p className="text-xs text-gray-300">{item.reason}</p>
+                <p className="text-[10px] text-gray-500">Você pode ajustar os dias de atendimento na aba Config/Equipe do Admin.</p>
+              </div>
+            );
+          }
+
           // HORÁRIO LIVRE
           if (item.type === 'free') {
             return (
@@ -564,7 +615,6 @@ export default function AgendaTenant() {
                   </div>
                 </div>
 
-                {/* BOTÕES DE AÇÃO COM OPÇÃO DE REAGENDAMENTO */}
                 <div className="flex justify-end space-x-2 pt-1">
                   {app.status === 'agendado' && (
                     <>
@@ -593,13 +643,21 @@ export default function AgendaTenant() {
           // HORÁRIO BLOQUEADO
           if (item.type === 'blocked') {
             const block = item.data;
+            const isRecurring = block.is_recurring || (block.reason && block.reason.includes('[RECORRENTE]'));
 
             return (
               <div key={`block-${block.id}-${idx}`} className="bg-red-950/20 border border-red-500/30 p-3.5 rounded-2xl flex justify-between items-center text-xs">
                 <div>
-                  <span className="text-red-400 font-bold block">🔒 Horário Fechado / Bloqueado</span>
+                  <div className="flex items-center space-x-1.5">
+                    <span className="text-red-400 font-bold block">🔒 Horário Bloqueado</span>
+                    {isRecurring && (
+                      <span className="bg-purple-500/20 text-purple-300 border border-purple-500/30 text-[9px] font-bold px-2 py-0.5 rounded-full">
+                        🔁 Recorrente
+                      </span>
+                    )}
+                  </div>
                   <span className="text-red-300 text-xs font-bold">⏰ {block.start_time} às {block.end_time}</span>
-                  {block.reason && <span className="text-gray-400 text-[10px] block italic">{block.reason}</span>}
+                  {block.reason && <span className="text-gray-400 text-[10px] block italic">{block.reason.replace(' [RECORRENTE]', '')}</span>}
                 </div>
                 <button
                   onClick={() => handleDeleteBlock(block.id)}
@@ -708,7 +766,7 @@ export default function AgendaTenant() {
               </div>
 
               <div>
-                <label className="text-gray-400 block mb-1">Data do Bloqueio:</label>
+                <label className="text-gray-400 block mb-1">Data de Referência do Bloqueio:</label>
                 <input
                   type="date"
                   required
@@ -719,35 +777,65 @@ export default function AgendaTenant() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
+              {/* OPÇÃO DE DIA INTEIRO */}
+              <div className="flex items-center justify-between bg-gray-950 p-3 rounded-xl border border-gray-800">
                 <div>
-                  <label className="text-gray-400 block mb-1">Hora de Início:</label>
-                  <input
-                    type="time"
-                    required
-                    value={blockStartTime}
-                    onChange={(e) => setBlockStartTime(e.target.value)}
-                    className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-white focus:outline-none"
-                  />
+                  <span className="font-bold text-white block">📅 Bloquear o Dia Inteiro</span>
+                  <span className="text-[10px] text-gray-400">Bloqueia do horário de abertura ao fechamento</span>
                 </div>
-
-                <div>
-                  <label className="text-gray-400 block mb-1">Hora de Fim:</label>
-                  <input
-                    type="time"
-                    required
-                    value={blockEndTime}
-                    onChange={(e) => setBlockEndTime(e.target.value)}
-                    className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-white focus:outline-none"
-                  />
-                </div>
+                <input
+                  type="checkbox"
+                  checked={isFullDayBlock}
+                  onChange={(e) => setIsFullDayBlock(e.target.checked)}
+                  className="w-4 h-4 accent-purple-500 cursor-pointer"
+                />
               </div>
+
+              {/* OPÇÃO DE RECORRÊNCIA */}
+              <div className="flex items-center justify-between bg-purple-950/20 p-3 rounded-xl border border-purple-500/30">
+                <div>
+                  <span className="font-bold text-purple-300 block">🔁 Bloqueio Recorrente Semanal</span>
+                  <span className="text-[10px] text-purple-200/70">Repetir automaticamente toda semana neste dia</span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={isRecurringBlock}
+                  onChange={(e) => setIsRecurringBlock(e.target.checked)}
+                  className="w-4 h-4 accent-purple-500 cursor-pointer"
+                />
+              </div>
+
+              {!isFullDayBlock && (
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-gray-400 block mb-1">Hora de Início:</label>
+                    <input
+                      type="time"
+                      required={!isFullDayBlock}
+                      value={blockStartTime}
+                      onChange={(e) => setBlockStartTime(e.target.value)}
+                      className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-white focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-gray-400 block mb-1">Hora de Fim:</label>
+                    <input
+                      type="time"
+                      required={!isFullDayBlock}
+                      value={blockEndTime}
+                      onChange={(e) => setBlockEndTime(e.target.value)}
+                      className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-white focus:outline-none"
+                    />
+                  </div>
+                </div>
+              )}
 
               <div>
                 <label className="text-gray-400 block mb-1">Motivo do Bloqueio (Opcional):</label>
                 <input
                   type="text"
-                  placeholder="Ex: Almoço, Médico, Folga, Manutenção..."
+                  placeholder="Ex: Folga, Almoço, Curso, Manutenção..."
                   value={blockReason}
                   onChange={(e) => setBlockReason(e.target.value)}
                   className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-white focus:outline-none"

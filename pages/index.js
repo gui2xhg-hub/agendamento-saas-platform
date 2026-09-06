@@ -14,11 +14,28 @@ export default function HomePortalAgendamento() {
   // DOMÍNIO OFICIAL DO AGENDAMENTO
   const DOMAIN_URL = 'https://agendamento.sinergemkt.com';
 
+  // CARREGA E RE-ATUALIZA OS DADOS DIRETO DO SUPABASE (EVITA CACHE ANTIGO)
   useEffect(() => {
-    const savedTenant = localStorage.getItem('sinerge_authenticated_tenant');
-    if (savedTenant) {
+    const savedTenantStr = localStorage.getItem('sinerge_authenticated_tenant');
+    if (savedTenantStr) {
       try {
-        setTenant(JSON.parse(savedTenant));
+        const saved = JSON.parse(savedTenantStr);
+        setTenant(saved); // Define estado inicial rápido
+        
+        // Busca versão mais recente e atualizada do banco
+        if (saved && saved.id) {
+          supabase
+            .from('tenants')
+            .select('*')
+            .eq('id', saved.id)
+            .single()
+            .then(({ data }) => {
+              if (data) {
+                setTenant(data);
+                localStorage.setItem('sinerge_authenticated_tenant', JSON.stringify(data));
+              }
+            });
+        }
       } catch (e) {
         localStorage.removeItem('sinerge_authenticated_tenant');
       }
@@ -68,12 +85,13 @@ export default function HomePortalAgendamento() {
   // 🎨 CORES E TEMAS DINÂMICOS DO CLIENTE
   const primaryColor = tenant?.primary_color || '#A855F7';
   const buttonTextColor = tenant?.button_text_color || '#FFFFFF';
-  const secondaryColor = tenant?.secondary_color || '#090D16';
-  const cardBgColor = tenant?.card_bg_color || '#111827';
-  const textColor = tenant?.text_color || '#FFFFFF';
+  const secondaryColor = tenant?.secondary_color || '#090D16'; // Fundo da página
+  const cardBgColor = tenant?.card_bg_color || '#111827';       // Fundo dos cards
+  const textColor = tenant?.text_color || '#FFFFFF';             // Cor do texto
 
-  // TRATAMENTO DA LOGO
-  const logoUrl = (tenant?.logo_url && tenant.logo_url.trim() !== '')
+  // TRATAMENTO DA LOGO (FILTRA FOTOS ANTIGAS DE HAMBÚRGUER OU COMIDA)
+  const isFoodLogo = tenant?.logo_url && (tenant.logo_url.includes('photo-1550547660') || tenant.logo_url.includes('photo-1555396273'));
+  const logoUrl = (tenant?.logo_url && !isFoodLogo && tenant.logo_url.trim() !== '')
     ? tenant.logo_url
     : 'https://images.unsplash.com/photo-1585747860715-2ba37e788b70?w=150&auto=format&fit=crop&q=80';
 
@@ -109,7 +127,7 @@ export default function HomePortalAgendamento() {
       {/* CONTEÚDO PRINCIPAL */}
       <main className="max-w-5xl mx-auto w-full my-auto py-8">
         {!tenant ? (
-          /* LOGIN */
+          /* TELA DE LOGIN */
           <div className="max-w-md mx-auto bg-gray-900 border border-gray-800 rounded-3xl p-6 md:p-8 space-y-6 shadow-2xl relative overflow-hidden">
             <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-purple-500 via-pink-500 to-purple-500"></div>
 
@@ -155,10 +173,10 @@ export default function HomePortalAgendamento() {
             </form>
           </div>
         ) : (
-          /* PAINEL AUTENTICADO */
+          /* PAINEL AUTENTICADO DO CLIENTE */
           <div className="space-y-6">
             
-            {/* HERO BANNER */}
+            {/* HERO BANNER DO ESTABELECIMENTO */}
             <div 
               className="border rounded-3xl p-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 relative overflow-hidden shadow-xl"
               style={{ backgroundColor: cardBgColor, borderColor: 'rgba(255,255,255,0.1)' }}>
@@ -191,7 +209,7 @@ export default function HomePortalAgendamento() {
               </div>
             </div>
 
-            {/* ATALHOS DE NAVEGAÇÃO */}
+            {/* ATALHOS DE MÓDULOS DE TRABALHO */}
             <div>
               <h3 className="text-xs font-bold uppercase tracking-wider mb-3 opacity-75">
                 📌 O que você deseja acessar agora?
@@ -199,7 +217,7 @@ export default function HomePortalAgendamento() {
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 
-                {/* ADMIN */}
+                {/* PAINEL ADMIN */}
                 <div
                   onClick={() => router.push(`/${tenant.slug}/admin`)}
                   style={{ backgroundColor: cardBgColor, borderColor: 'rgba(255,255,255,0.1)' }}
@@ -216,7 +234,7 @@ export default function HomePortalAgendamento() {
                   <span className="text-xs font-bold block pt-2" style={{ color: primaryColor }}>Acessar Admin ➔</span>
                 </div>
 
-                {/* AGENDA */}
+                {/* GESTÃO DA AGENDA */}
                 <div
                   onClick={() => router.push(`/${tenant.slug}/agenda`)}
                   style={{ backgroundColor: cardBgColor, borderColor: 'rgba(255,255,255,0.1)' }}
@@ -253,7 +271,7 @@ export default function HomePortalAgendamento() {
               </div>
             </div>
 
-            {/* SEÇÃO DO LINK */}
+            {/* BLOCO DE COMPARTILHAMENTO DO LINK */}
             <div 
               className="border rounded-3xl p-6 space-y-3 shadow-xl"
               style={{ backgroundColor: cardBgColor, borderColor: 'rgba(255,255,255,0.1)' }}>

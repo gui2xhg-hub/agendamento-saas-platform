@@ -17,6 +17,17 @@ export default function AdminTenant() {
   const [appointments, setAppointments] = useState([]);
   const [reportFilter, setReportFilter] = useState('all');
 
+  // NORMAS DE DIAS DA SEMANA (0 = Domingo, 1 = Segunda, ..., 6 = Sábado)
+  const ALL_DAYS = [
+    { id: 1, label: 'Seg' },
+    { id: 2, label: 'Ter' },
+    { id: 3, label: 'Qua' },
+    { id: 4, label: 'Qui' },
+    { id: 5, label: 'Sex' },
+    { id: 6, label: 'Sáb' },
+    { id: 0, label: 'Dom' }
+  ];
+
   const [newService, setNewService] = useState({ 
     name: '', 
     price: '', 
@@ -30,7 +41,8 @@ export default function AdminTenant() {
     name: '', 
     phone: '', 
     avatar_url: '', 
-    commission_percentage: '50' 
+    commission_percentage: '50',
+    work_days: [1, 2, 3, 4, 5, 6] // Padrão Seg a Sáb
   });
   const [editingProf, setEditingProf] = useState(null);
 
@@ -46,7 +58,10 @@ export default function AdminTenant() {
     const { data: tData } = await supabase.from('tenants').select('*').eq('slug', cleanSlug).maybeSingle();
 
     if (tData) {
-      setTenant(tData);
+      setTenant({
+        ...tData,
+        work_days: tData.work_days || [1, 2, 3, 4, 5, 6]
+      });
 
       const savedPass = localStorage.getItem('sinerge_tenant_pass');
       if (savedPass && (savedPass === tData.admin_password || savedPass === 'master123')) {
@@ -76,7 +91,12 @@ export default function AdminTenant() {
     const { data: pData } = await supabase.from('professionals').select('*').eq('tenant_id', tenantId).order('id', { ascending: true });
     const { data: aData } = await supabase.from('appointments').select('*').eq('tenant_id', tenantId).order('created_at', { ascending: false });
 
-    if (tData) setTenant(tData);
+    if (tData) {
+      setTenant({
+        ...tData,
+        work_days: tData.work_days || [1, 2, 3, 4, 5, 6]
+      });
+    }
     if (sData) setServices(sData);
     if (pData) setProfessionals(pData);
     if (aData) setAppointments(aData);
@@ -94,6 +114,7 @@ export default function AdminTenant() {
       secondary_color: tenant.secondary_color || '#111827',
       opening_time: tenant.opening_time || '08:00',
       closing_time: tenant.closing_time || '20:00',
+      work_days: tenant.work_days || [1, 2, 3, 4, 5, 6],
       custom_message: tenant.custom_message || '',
       admin_password: tenant.admin_password,
       pix_enabled: tenant.pix_enabled || false,
@@ -159,13 +180,14 @@ export default function AdminTenant() {
       phone: newProf.phone ? newProf.phone.replace(/\D/g, '') : '',
       avatar_url: newProf.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80',
       commission_percentage: parseFloat(newProf.commission_percentage || 50),
+      work_days: newProf.work_days || [1, 2, 3, 4, 5, 6],
       active: true
     }]);
 
     if (error) {
       alert("Erro ao cadastrar profissional: " + error.message);
     } else {
-      setNewProf({ name: '', phone: '', avatar_url: '', commission_percentage: '50' });
+      setNewProf({ name: '', phone: '', avatar_url: '', commission_percentage: '50', work_days: [1, 2, 3, 4, 5, 6] });
       fetchData();
     }
   };
@@ -176,7 +198,8 @@ export default function AdminTenant() {
       name: editingProf.name.trim(),
       phone: editingProf.phone ? editingProf.phone.replace(/\D/g, '') : '',
       avatar_url: editingProf.avatar_url,
-      commission_percentage: parseFloat(editingProf.commission_percentage || 50)
+      commission_percentage: parseFloat(editingProf.commission_percentage || 50),
+      work_days: editingProf.work_days || [1, 2, 3, 4, 5, 6]
     }).eq('id', editingProf.id);
 
     if (error) {
@@ -184,6 +207,15 @@ export default function AdminTenant() {
     } else {
       setEditingProf(null);
       fetchData();
+    }
+  };
+
+  const toggleDaySelection = (currentDays, dayId) => {
+    const arr = [...(currentDays || [])];
+    if (arr.includes(dayId)) {
+      return arr.filter(d => d !== dayId);
+    } else {
+      return [...arr, dayId].sort();
     }
   };
 
@@ -352,31 +384,66 @@ export default function AdminTenant() {
               <input type="text" placeholder="Nome Completo" value={newProf.name} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProf({ ...newProf, name: e.target.value })} />
               <input type="text" placeholder="WhatsApp" value={newProf.phone} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProf({ ...newProf, phone: e.target.value })} />
               <input type="text" placeholder="URL da Foto de Perfil (Avatar)" value={newProf.avatar_url} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProf({ ...newProf, avatar_url: e.target.value })} />
+              
               <div>
                 <label className="text-[10px] text-gray-400 block mb-1">Porcentagem de Comissão (%):</label>
                 <input type="number" value={newProf.commission_percentage} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProf({ ...newProf, commission_percentage: e.target.value })} />
               </div>
+
+              {/* DIAS DE ATENDIMENTO DO PROFISSIONAL */}
+              <div className="bg-gray-950 p-3 rounded-xl border border-gray-800 space-y-2">
+                <label className="text-[11px] font-bold text-purple-400 block">📅 Dias de Atendimento / Trabalho:</label>
+                <p className="text-[10px] text-gray-500">*(Desmarque os dias em que o profissional NÃO trabalha)*</p>
+
+                <div className="grid grid-cols-7 gap-1">
+                  {ALL_DAYS.map(day => {
+                    const isSelected = (newProf.work_days || []).includes(day.id);
+                    return (
+                      <button
+                        key={day.id}
+                        type="button"
+                        onClick={() => setNewProf({ ...newProf, work_days: toggleDaySelection(newProf.work_days, day.id) })}
+                        className={`py-1.5 rounded-lg text-[10px] font-bold border transition ${isSelected ? 'bg-purple-600 text-white border-purple-500' : 'bg-gray-900 text-gray-500 border-gray-800'}`}>
+                        {day.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
               <button type="submit" className="w-full bg-green-600 font-bold py-2.5 rounded-lg text-xs">Cadastrar Profissional</button>
             </form>
           </section>
 
           <section className="space-y-2">
             <h3 className="font-bold text-sm text-gray-300">💈 Equipe ({professionals.length})</h3>
-            {professionals.map((p) => (
-              <div key={p.id} className="bg-gray-900 p-3 rounded-xl border border-gray-800 flex justify-between items-center text-xs">
-                <div className="flex items-center space-x-3">
-                  <img src={p.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80'} alt={p.name} className="w-9 h-9 rounded-full object-cover border border-gray-700" />
-                  <div>
-                    <span className="font-bold block text-white">{p.name}</span>
-                    <span className="text-gray-400 text-[10px]">Comissão: <b className="text-green-400">{p.commission_percentage}%</b> {p.phone && `• 📱 ${p.phone}`}</span>
+            {professionals.map((p) => {
+              const pWorkDays = p.work_days || [1, 2, 3, 4, 5, 6];
+              const pWorkDaysLabels = ALL_DAYS.filter(d => pWorkDays.includes(d.id)).map(d => d.label).join(', ');
+
+              return (
+                <div key={p.id} className="bg-gray-900 p-3 rounded-xl border border-gray-800 space-y-2 text-xs">
+                  <div className="flex justify-between items-center">
+                    <div className="flex items-center space-x-3">
+                      <img src={p.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80'} alt={p.name} className="w-9 h-9 rounded-full object-cover border border-gray-700" />
+                      <div>
+                        <span className="font-bold block text-white">{p.name}</span>
+                        <span className="text-gray-400 text-[10px]">Comissão: <b className="text-green-400">{p.commission_percentage}%</b> {p.phone && `• 📱 ${p.phone}`}</span>
+                      </div>
+                    </div>
+                    <div className="flex space-x-1.5">
+                      <button onClick={() => setEditingProf({ ...p, work_days: p.work_days || [1, 2, 3, 4, 5, 6] })} className="bg-blue-600/20 text-blue-400 p-1.5 rounded-lg font-bold border border-blue-500/30">✏️ Editar</button>
+                      <button onClick={async () => { if (confirm("Excluir profissional?")) { await supabase.from('professionals').delete().eq('id', p.id); fetchData(); } }} className="text-red-400 font-bold p-1.5">🗑</button>
+                    </div>
+                  </div>
+
+                  <div className="text-[10px] text-gray-400 border-t border-gray-800/60 pt-1.5">
+                    <span className="font-semibold text-gray-500">Dias que trabalha: </span>
+                    <span className="text-purple-300 font-medium">{pWorkDaysLabels || 'Nenhum dia selecionado'}</span>
                   </div>
                 </div>
-                <div className="flex space-x-1.5">
-                  <button onClick={() => setEditingProf(p)} className="bg-blue-600/20 text-blue-400 p-1.5 rounded-lg font-bold border border-blue-500/30">✏️ Editar</button>
-                  <button onClick={async () => { if (confirm("Excluir profissional?")) { await supabase.from('professionals').delete().eq('id', p.id); fetchData(); } }} className="text-red-400 font-bold p-1.5">🗑</button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </section>
         </div>
       )}
@@ -432,14 +499,41 @@ export default function AdminTenant() {
                 <input type="text" value={tenant.name || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, name: e.target.value })} />
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="text-[11px] text-gray-400 block mb-1">Abertura:</label>
-                  <input type="time" value={tenant.opening_time || '08:00'} className="w-full bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, opening_time: e.target.value })} />
+              {/* HORÁRIOS E DIAS DA SEMANA */}
+              <div className="bg-gray-950 p-3 rounded-xl border border-gray-800 space-y-3">
+                <div className="flex justify-between items-center flex-wrap gap-1">
+                  <label className="text-[11px] font-bold text-orange-400 block">📆 Dias de Funcionamento da Loja:</label>
+                  <div className="flex space-x-1 text-[10px]">
+                    <button type="button" onClick={() => setTenant({ ...tenant, work_days: [1, 2, 3, 4, 5] })} className="bg-gray-800 hover:bg-gray-700 text-gray-300 px-2 py-0.5 rounded font-bold">Seg-Sex</button>
+                    <button type="button" onClick={() => setTenant({ ...tenant, work_days: [1, 2, 3, 4, 5, 6] })} className="bg-gray-800 hover:bg-gray-700 text-gray-300 px-2 py-0.5 rounded font-bold">Seg-Sáb</button>
+                    <button type="button" onClick={() => setTenant({ ...tenant, work_days: [0, 1, 2, 3, 4, 5, 6] })} className="bg-gray-800 hover:bg-gray-700 text-gray-300 px-2 py-0.5 rounded font-bold">Todos</button>
+                  </div>
                 </div>
-                <div>
-                  <label className="text-[11px] text-gray-400 block mb-1">Fechamento:</label>
-                  <input type="time" value={tenant.closing_time || '20:00'} className="w-full bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, closing_time: e.target.value })} />
+
+                <div className="grid grid-cols-7 gap-1">
+                  {ALL_DAYS.map(day => {
+                    const isSelected = (tenant.work_days || []).includes(day.id);
+                    return (
+                      <button
+                        key={day.id}
+                        type="button"
+                        onClick={() => setTenant({ ...tenant, work_days: toggleDaySelection(tenant.work_days, day.id) })}
+                        className={`py-1.5 rounded-lg text-[10px] font-bold border transition ${isSelected ? 'bg-orange-500 text-white border-orange-500' : 'bg-gray-900 text-gray-500 border-gray-800'}`}>
+                        {day.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 pt-1 border-t border-gray-800/80">
+                  <div>
+                    <label className="text-[11px] text-gray-400 block mb-1">Horário de Abertura:</label>
+                    <input type="time" value={tenant.opening_time || '08:00'} className="w-full bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, opening_time: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="text-[11px] text-gray-400 block mb-1">Horário de Fechamento:</label>
+                    <input type="time" value={tenant.closing_time || '20:00'} className="w-full bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, closing_time: e.target.value })} />
+                  </div>
                 </div>
               </div>
 
@@ -462,7 +556,7 @@ export default function AdminTenant() {
                 <div className="flex justify-between items-center">
                   <div>
                     <h4 className="font-bold text-xs text-green-400">⚡ Pagamento via PIX Automático</h4>
-                    <p className="text-[10px] text-gray-400">Confirma agendamentos com sinal/pré-pagamento.</p>
+                    <p className="text-[10px] text-gray-400">Confirms agendamentos com sinal/pré-pagamento.</p>
                   </div>
                   <input type="checkbox" checked={tenant.pix_enabled || false} onChange={(e) => setTenant({ ...tenant, pix_enabled: e.target.checked })} className="w-4 h-4 accent-green-500 cursor-pointer" />
                 </div>
@@ -548,6 +642,26 @@ export default function AdminTenant() {
             <input type="text" value={editingProf.phone || ''} onChange={(e) => setEditingProf({ ...editingProf, phone: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" placeholder="WhatsApp" />
             <input type="text" value={editingProf.avatar_url || ''} onChange={(e) => setEditingProf({ ...editingProf, avatar_url: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" placeholder="URL Avatar" />
             <input type="number" value={editingProf.commission_percentage || ''} onChange={(e) => setEditingProf({ ...editingProf, commission_percentage: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" placeholder="% Comissão" />
+
+            {/* DIAS DE ATENDIMENTO DO PROFISSIONAL */}
+            <div className="bg-gray-950 p-3 rounded-xl border border-gray-800 space-y-2">
+              <label className="text-[11px] font-bold text-purple-400 block">📅 Dias de Atendimento / Trabalho:</label>
+              <div className="grid grid-cols-7 gap-1">
+                {ALL_DAYS.map(day => {
+                  const isSelected = (editingProf.work_days || []).includes(day.id);
+                  return (
+                    <button
+                      key={day.id}
+                      type="button"
+                      onClick={() => setEditingProf({ ...editingProf, work_days: toggleDaySelection(editingProf.work_days, day.id) })}
+                      className={`py-1.5 rounded-lg text-[10px] font-bold border transition ${isSelected ? 'bg-purple-600 text-white border-purple-500' : 'bg-gray-900 text-gray-500 border-gray-800'}`}>
+                      {day.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
             <div className="flex space-x-2">
               <button type="button" onClick={() => setEditingProf(null)} className="w-1/2 bg-gray-800 py-2 rounded-lg text-xs">Cancelar</button>
               <button type="submit" className="w-1/2 bg-blue-600 py-2 rounded-lg text-xs font-bold text-white">Atualizar</button>

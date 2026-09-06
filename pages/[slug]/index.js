@@ -56,7 +56,11 @@ export default function AgendamentoCliente() {
     const { data: tData } = await supabase.from('tenants').select('*').eq('slug', cleanSlug).maybeSingle();
 
     if (tData) {
-      setTenant(tData);
+      setTenant({
+        ...tData,
+        work_days: tData.work_days || [1, 2, 3, 4, 5, 6]
+      });
+
       const { data: pData } = await supabase.from('professionals').select('*').eq('tenant_id', tData.id).eq('active', true);
       const { data: sData } = await supabase.from('services').select('*').eq('tenant_id', tData.id).eq('active', true);
       const { data: psData } = await supabase.from('professional_services').select('*');
@@ -69,6 +73,9 @@ export default function AgendamentoCliente() {
   };
 
   const fetchExistingAppointmentsAndBlocks = async () => {
+    if (!tenant?.id) return;
+
+    // Buscar agendamentos da data
     let appQuery = supabase
       .from('appointments')
       .select('*')
@@ -76,15 +83,15 @@ export default function AgendamentoCliente() {
       .eq('appointment_date', selectedDate)
       .neq('status', 'cancelado');
 
-    let blockQuery = supabase
-      .from('blocked_times')
-      .select('*')
-      .eq('tenant_id', tenant.id)
-      .eq('block_date', selectedDate);
-
     if (selectedProf !== 'ANY') {
       appQuery = appQuery.eq('professional_id', selectedProf);
     }
+
+    // Buscar TODOS os bloqueios do estabelecimento (pontuais e recorrentes)
+    let blockQuery = supabase
+      .from('blocked_times')
+      .select('*')
+      .eq('tenant_id', tenant.id);
 
     const { data: apps } = await appQuery;
     const { data: blocks } = await blockQuery;
@@ -140,13 +147,15 @@ export default function AgendamentoCliente() {
       } catch (err) {
         console.error("Erro ao disparar notificação:", err);
       }
-      
-      const cleanWhatsapp = tenant.whatsapp.replace(/\D/g, '');
-      const msg = `*CANCELAMENTO DE AGENDAMENTO #${app.id} - ${tenant.name.toUpperCase()}*\n\n` +
-        `Olá, o cliente *${app.customer_name}* cancelou o agendamento do dia *${formattedDate}* às *${app.start_time}*.`;
-      
-      window.open(`https://wa.me/${cleanWhatsapp}?text=${encodeURIComponent(msg)}`, '_blank');
-      
+
+      const cleanWhatsapp = tenant.whatsapp ? tenant.whatsapp.replace(/\D/g, '') : '';
+      if (cleanWhatsapp) {
+        const msg = `*CANCELAMENTO DE AGENDAMENTO #${app.id} - ${tenant.name.toUpperCase()}*\n\n` +
+          `Olá, o cliente *${app.customer_name}* cancelou o agendamento do dia *${formattedDate}* às *${app.start_time}*.`;
+
+        window.open(`https://wa.me/${cleanWhatsapp}?text=${encodeURIComponent(msg)}`, '_blank');
+      }
+
       handleSearchMyAppointments();
     }
   };
@@ -204,13 +213,15 @@ export default function AgendamentoCliente() {
       console.error("Erro ao disparar notificação:", err);
     }
 
-    const cleanWhatsapp = tenant.whatsapp.replace(/\D/g, '');
-    const msg = `*SOLICITAÇÃO DE REAGENDAMENTO #${editingUserApp.id} - ${tenant.name.toUpperCase()}*\n\n` +
-      `Cliente: *${editingUserApp.customer_name}*\n` +
-      `Nova Data: *${formattedDate}*\n` +
-      `Novo Horário: *${userNewTime}*`;
+    const cleanWhatsapp = tenant.whatsapp ? tenant.whatsapp.replace(/\D/g, '') : '';
+    if (cleanWhatsapp) {
+      const msg = `*SOLICITAÇÃO DE REAGENDAMENTO #${editingUserApp.id} - ${tenant.name.toUpperCase()}*\n\n` +
+        `Cliente: *${editingUserApp.customer_name}*\n` +
+        `Nova Data: *${formattedDate}*\n` +
+        `Novo Horário: *${userNewTime}*`;
 
-    window.open(`https://wa.me/${cleanWhatsapp}?text=${encodeURIComponent(msg)}`, '_blank');
+      window.open(`https://wa.me/${cleanWhatsapp}?text=${encodeURIComponent(msg)}`, '_blank');
+    }
 
     setEditingUserApp(null);
     handleSearchMyAppointments();
@@ -229,7 +240,6 @@ export default function AgendamentoCliente() {
   const filteredProfessionals = professionals.filter(p => {
     if (selectedServices.length === 0) return true;
 
-    // O profissional precisa estar habilitado para TODOS os serviços selecionados na sessão
     return selectedServices.every(srv => {
       let allowedProfIds = srv.professional_ids;
 
@@ -264,55 +274,99 @@ export default function AgendamentoCliente() {
     setSelectedProf('ANY');
   };
 
-  const generateAvailableTimeSlots = () => {
-    if (selectedServices.length === 0) return [];
+  // CÁLCULO DE HORÁRIOS DISPONÍVEIS COM VALIDAÇÕES DE DIAS FECHADOS E RECORRÊNCIA
+  const getSlotAvailability = () => {
+    if (selectedServices.length === 0 || !selectedDate) {
+      return { slots: [], status: 'select_service', message: 'Selecione ao menos um serviço.' };
+    }
 
-    const slots = [];
+    const dateObj = new Date(selectedDate + 'T00:00:00');
+    const dayOfWeek = dateObj.getDay(); // 0 = Domingo, 1 = Segunda, ..., 6 = Sábado
+
+    // 1. VERIFICA SE A LOJA FUNCIONA NESTE DIA DA SEMANA
+    const tenantWorkDays = tenant?.work_days || [1, 2, 3, 4, 5, 6];
+    if (!tenantWorkDays.includes(dayOfWeek)) {
+      return { slots: [], status: 'store_closed', message: '🚪 O estabelecimento não funciona neste dia da semana.' };
+    }
+
+    // 2. FILTRA PROFISSIONAIS QUE TRABALHAM NESTE DIA DA SEMANA
+    let eligibleProfs = filteredProfessionals.filter(p => {
+      const pDays = p.work_days || [1, 2, 3, 4, 5, 6];
+      return pDays.includes(dayOfWeek);
+    });
+
+    if (selectedProf !== 'ANY') {
+      eligibleProfs = eligibleProfs.filter(p => String(p.id) === String(selectedProf));
+    }
+
+    if (eligibleProfs.length === 0) {
+      return { slots: [], status: 'prof_off', message: '💈 O profissional selecionado (ou equipe) não atende neste dia da semana.' };
+    }
+
+    // 3. BLOQUEIOS ATIVOS NO DIA (PONTUAIS E RECORRENTES)
+    const dayBlocks = blockedTimes.filter(b => {
+      if (b.block_date === selectedDate) return true;
+      if (b.is_recurring && b.recurring_day === dayOfWeek) return true;
+      if (b.reason && b.reason.includes('[RECORRENTE]') && b.recurring_day === dayOfWeek) return true;
+      return false;
+    });
+
+    // 4. CÁLCULO DOS SLOTS DE HORÁRIO
     const openHour = parseInt((tenant.opening_time || '08:00').split(':')[0]);
+    const openMin = parseInt((tenant.opening_time || '08:00').split(':')[1] || '0');
     const closeHour = parseInt((tenant.closing_time || '20:00').split(':')[0]);
+    const closeMin = parseInt((tenant.closing_time || '20:00').split(':')[1] || '0');
 
-    let current = new Date();
-    current.setHours(openHour, 0, 0, 0);
+    let currentMin = openHour * 60 + openMin;
+    const endMin = closeHour * 60 + closeMin;
+    const slots = [];
 
-    const endDay = new Date();
-    endDay.setHours(closeHour, 0, 0, 0);
+    while (currentMin + totalDuration <= endMin) {
+      const h = Math.floor(currentMin / 60);
+      const m = currentMin % 60;
+      const timeString = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 
-    while (current < endDay) {
-      const timeString = current.toTimeString().substring(0, 5);
-      
-      const [h, m] = timeString.split(':').map(Number);
-      const slotStartMin = h * 60 + m;
-      const slotEndMin = slotStartMin + totalDuration;
+      const slotStartMin = currentMin;
+      const slotEndMin = currentMin + totalDuration;
 
-      const isOccupied = existingAppointments.some(app => {
-        const [appStartH, appStartM] = app.start_time.split(':').map(Number);
-        const appStartMin = appStartH * 60 + appStartM;
-        const appEndMin = appStartMin + (app.total_duration_minutes || 30);
-        return (slotStartMin < appEndMin && slotEndMin > appStartMin);
+      // Verificar se pelo menos UM profissional candidato está livre neste intervalo
+      const isAnyProfFree = eligibleProfs.some(p => {
+        // Conflito com agendamentos do profissional
+        const profApps = existingAppointments.filter(app => String(app.professional_id) === String(p.id));
+        const hasAppConflict = profApps.some(app => {
+          const [aStartH, aStartM] = app.start_time.split(':').map(Number);
+          const aStartMin = aStartH * 60 + aStartM;
+          const aEndMin = aStartMin + (app.total_duration_minutes || 30);
+          return Math.max(slotStartMin, aStartMin) < Math.min(slotEndMin, aEndMin);
+        });
+
+        if (hasAppConflict) return false;
+
+        // Conflito com bloqueios do profissional ou bloqueios gerais (null)
+        const profBlocks = dayBlocks.filter(b => b.professional_id === null || String(b.professional_id) === String(p.id));
+        const hasBlockConflict = profBlocks.some(b => {
+          const [bStartH, bStartM] = b.start_time.split(':').map(Number);
+          const [bEndH, bEndM] = b.end_time.split(':').map(Number);
+          const bStartMin = bStartH * 60 + bStartM;
+          const bEndMin = bEndH * 60 + bEndM;
+          return Math.max(slotStartMin, bStartMin) < Math.min(slotEndMin, bEndMin);
+        });
+
+        return !hasBlockConflict;
       });
 
-      const isBlocked = blockedTimes.some(b => {
-        if (b.professional_id !== null && selectedProf !== 'ANY' && b.professional_id !== parseInt(selectedProf)) {
-          return false;
-        }
-        const [bStartH, bStartM] = b.start_time.split(':').map(Number);
-        const [bEndH, bEndM] = b.end_time.split(':').map(Number);
-        const bStartMin = bStartH * 60 + bStartM;
-        const bEndMin = bEndH * 60 + bEndM;
-        return (slotStartMin < bEndMin && slotEndMin > bStartMin);
-      });
-
-      if (!isOccupied && !isBlocked) {
+      if (isAnyProfFree) {
         slots.push(timeString);
       }
 
-      current.setMinutes(current.getMinutes() + 30);
+      currentMin += 30;
     }
 
-    return slots;
+    return { slots, status: 'ok' };
   };
 
-  const availableSlots = generateAvailableTimeSlots();
+  const slotData = getSlotAvailability();
+  const availableSlots = slotData.slots;
 
   const handleConfirmAppointment = async (e) => {
     e.preventDefault();
@@ -322,12 +376,20 @@ export default function AgendamentoCliente() {
 
     setIsSubmitting(true);
 
+    const dateObj = new Date(selectedDate + 'T00:00:00');
+    const dayOfWeek = dateObj.getDay();
+
+    const candidateProfs = filteredProfessionals.filter(p => {
+      const pDays = p.work_days || [1, 2, 3, 4, 5, 6];
+      return pDays.includes(dayOfWeek);
+    });
+
     const [h, m] = selectedTime.split(':').map(Number);
     const endDateObj = new Date();
     endDateObj.setHours(h, m + totalDuration, 0, 0);
     const endTime = endDateObj.toTimeString().substring(0, 5);
 
-    const chosenProfId = selectedProf === 'ANY' ? (filteredProfessionals[0]?.id || null) : parseInt(selectedProf);
+    const chosenProfId = selectedProf === 'ANY' ? (candidateProfs[0]?.id || null) : parseInt(selectedProf);
     const chosenProfName = professionals.find(p => p.id === chosenProfId)?.name || 'Qualquer Profissional';
 
     const appointmentData = {
@@ -383,9 +445,11 @@ export default function AgendamentoCliente() {
       msg += `\n\n📌 _${tenant.custom_message}_`;
     }
 
-    const cleanWhatsapp = tenant.whatsapp.replace(/\D/g, '');
-    window.open(`https://wa.me/${cleanWhatsapp}?text=${encodeURIComponent(msg)}`, '_blank');
-    
+    const cleanWhatsapp = tenant.whatsapp ? tenant.whatsapp.replace(/\D/g, '') : '';
+    if (cleanWhatsapp) {
+      window.open(`https://wa.me/${cleanWhatsapp}?text=${encodeURIComponent(msg)}`, '_blank');
+    }
+
     setIsSubmitting(false);
     alert("Agendamento realizado com sucesso!");
     router.reload();
@@ -396,7 +460,7 @@ export default function AgendamentoCliente() {
       {/* CAPA & BOTÃO MEUS AGENDAMENTOS */}
       <div className="relative h-36 bg-gray-900 border-b border-gray-800">
         <img src={tenant.banner_url || 'https://images.unsplash.com/photo-1503951914875-452162b0f3f1?w=800&auto=format&fit=crop&q=80'} alt="Capa" className="w-full h-full object-cover opacity-50" />
-        
+
         <button
           onClick={() => setShowMyAppsModal(true)}
           className="absolute top-3 right-3 bg-black/60 hover:bg-black border border-white/20 text-white text-[10px] font-bold px-3 py-1.5 rounded-full backdrop-blur-md transition">
@@ -449,6 +513,7 @@ export default function AgendamentoCliente() {
             ) : (
               <div className="flex space-x-2 overflow-x-auto pb-1 scrollbar-none">
                 <button
+                  type="button"
                   onClick={() => setSelectedProf('ANY')}
                   style={{ backgroundColor: selectedProf === 'ANY' ? primaryColor : 'rgba(255,255,255,0.05)' }}
                   className="p-3 rounded-xl border border-white/10 flex flex-col items-center min-w-[100px] text-center">
@@ -457,6 +522,7 @@ export default function AgendamentoCliente() {
                 </button>
                 {filteredProfessionals.map(p => (
                   <button
+                    type="button"
                     key={p.id}
                     onClick={() => setSelectedProf(p.id)}
                     style={{ backgroundColor: selectedProf === p.id ? primaryColor : 'rgba(255,255,255,0.05)' }}
@@ -479,7 +545,10 @@ export default function AgendamentoCliente() {
                 type="date"
                 min={new Date().toISOString().split('T')[0]}
                 value={selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value)}
+                onChange={(e) => {
+                  setSelectedDate(e.target.value);
+                  setSelectedTime('');
+                }}
                 className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white focus:outline-none cursor-pointer"
                 style={{
                   colorScheme: 'dark',
@@ -490,12 +559,20 @@ export default function AgendamentoCliente() {
 
             <div className="space-y-1">
               <label className="text-xs font-bold text-gray-300 block uppercase tracking-wider">4. Horários Disponíveis ({availableSlots.length})</label>
-              {availableSlots.length === 0 ? (
-                <p className="text-xs text-red-400 bg-red-500/10 p-3 rounded-xl border border-red-500/20 text-center">Nenhum horário livre ou agenda fechada nesta data.</p>
+              
+              {slotData.status !== 'ok' ? (
+                <p className="text-xs text-red-400 bg-red-500/10 p-3 rounded-xl border border-red-500/20 text-center font-semibold">
+                  {slotData.message}
+                </p>
+              ) : availableSlots.length === 0 ? (
+                <p className="text-xs text-red-400 bg-red-500/10 p-3 rounded-xl border border-red-500/20 text-center font-semibold">
+                  Nenhum horário livre ou agenda fechada nesta data.
+                </p>
               ) : (
                 <div className="grid grid-cols-4 gap-2 max-h-40 overflow-y-auto pt-1">
                   {availableSlots.map(slot => (
                     <button
+                      type="button"
                       key={slot}
                       onClick={() => setSelectedTime(slot)}
                       style={{ backgroundColor: selectedTime === slot ? primaryColor : 'rgba(255,255,255,0.05)' }}

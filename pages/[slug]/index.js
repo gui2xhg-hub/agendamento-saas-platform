@@ -257,7 +257,6 @@ export default function AgendamentoCliente() {
   if (loading) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><p className="text-xs text-gray-400">Carregando...</p></div>;
   if (!tenant) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><h1 className="text-xl font-bold text-orange-500">Estabelecimento não encontrado</h1></div>;
 
-  // HELPER PARA DETECTAR SE UMA COR HEX É ESCURA
   const isColorDark = (hex) => {
     if (!hex || hex.length < 6) return true;
     const cleanHex = hex.replace('#', '');
@@ -268,14 +267,12 @@ export default function AgendamentoCliente() {
     return brightness < 128;
   };
 
-  // LEITURA DINÂMICA DAS CORES DO MASTER
   const primaryColor = tenant.primary_color || '#FF8C00';
   const btnTextColor = tenant.button_text_color || '#FFFFFF';
   const bgColor = tenant.background_color || tenant.secondary_color || '#090D16';
   const cardColor = tenant.card_color || '#111827';
   const textColor = tenant.text_color || '#FFFFFF';
 
-  // COR DO PREÇO: Usa a configurada no Master Admin; caso vazia, faz o cálculo automático de contraste
   const accentPriceColor = tenant.price_color 
     ? tenant.price_color 
     : (isColorDark(primaryColor) ? (isColorDark(cardColor) ? '#FF8C00' : textColor) : primaryColor);
@@ -457,9 +454,20 @@ export default function AgendamentoCliente() {
 
   return (
     <div className="min-h-screen font-sans pb-12 max-w-md mx-auto transition-colors duration-300" style={{ backgroundColor: bgColor, color: textColor }}>
-      {/* CAPA & BOTÃO MEUS AGENDAMENTOS */}
+      {/* CAPA, INSTAGRAM & MEUS AGENDAMENTOS */}
       <div className="relative h-36 bg-gray-900 border-b border-white/10">
         <img src={tenant.banner_url || 'https://images.unsplash.com/photo-1503951914875-452162b0f3f1?w=800&auto=format&fit=crop&q=80'} alt="Capa" className="w-full h-full object-cover opacity-50" />
+
+        {/* BOTÃO DO INSTAGRAM (SE HOUVER LINK CADASTRADO) */}
+        {tenant.instagram_url && (
+          <a
+            href={tenant.instagram_url.startsWith('http') ? tenant.instagram_url : `https://${tenant.instagram_url}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="absolute top-3 left-3 bg-gradient-to-r from-purple-600 via-pink-600 to-orange-500 text-white font-bold text-[10px] px-3 py-1.5 rounded-full shadow-lg transition flex items-center space-x-1 hover:opacity-90">
+            <span>📸 Instagram</span>
+          </a>
+        )}
 
         <button
           onClick={() => setShowMyAppsModal(true)}

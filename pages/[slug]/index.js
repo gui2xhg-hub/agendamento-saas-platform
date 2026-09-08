@@ -44,8 +44,6 @@ export default function AgendamentoCliente() {
     }
   }, [router.isReady, slug]);
 
-  // SE TIVER APENAS 1 PROFISSIONAL, SELECIONA AUTOMATICAMENTE
-  // CASO CONTRÁRIO, LÊ DA URL (?prof=ID)
   useEffect(() => {
     if (professionals.length === 1) {
       setSelectedProf(professionals[0].id);
@@ -268,7 +266,6 @@ export default function AgendamentoCliente() {
   const totalDuration = selectedServices.reduce((acc, s) => acc + (s.duration_minutes || 30), 0);
   const totalPrice = selectedServices.reduce((acc, s) => acc + Number(s.price || 0), 0);
 
-  // PROFISSIONAL ATUAL SELECIONADO & INSTAGRAM DINÂMICO
   const selectedProfObj = professionals.find(p => String(p.id) === String(selectedProf));
   const activeInstagram = (selectedProfObj && selectedProfObj.instagram_url) 
     ? selectedProfObj.instagram_url 
@@ -278,7 +275,6 @@ export default function AgendamentoCliente() {
     ? (activeInstagram.startsWith('http') ? activeInstagram : `https://instagram.com/${activeInstagram.replace('@', '').trim()}`)
     : '';
 
-  // FILTRO DOS SERVIÇOS: Exibe APENAS os serviços da profissional selecionada
   const displayedServices = services.filter(srv => {
     if (!selectedProf) return false;
 
@@ -361,14 +357,12 @@ export default function AgendamentoCliente() {
     const endMin = closeHour * 60 + closeMin;
     const slots = [];
 
-    // Checagem de horário atual para bloquear horários passados no dia de hoje
     const now = new Date();
     const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     const isToday = selectedDate === todayStr;
     const nowInMinutes = now.getHours() * 60 + now.getMinutes();
 
     while (currentMin + totalDuration <= endMin) {
-      // Se a data selecionada for HOJE e o slot já passou, pula para o próximo
       if (isToday && currentMin <= nowInMinutes) {
         currentMin += 30;
         continue;
@@ -502,7 +496,6 @@ export default function AgendamentoCliente() {
       <div className="relative h-36 bg-gray-900 border-b border-white/10">
         <img src={tenant.banner_url || 'https://images.unsplash.com/photo-1503951914875-452162b0f3f1?w=800&auto=format&fit=crop&q=80'} alt="Capa" className="w-full h-full object-cover opacity-50" />
 
-        {/* BOTÃO DO INSTAGRAM DINÂMICO */}
         {formattedInstagramUrl && (
           <a
             href={formattedInstagramUrl}
@@ -539,7 +532,7 @@ export default function AgendamentoCliente() {
 
       <div className="mt-8 px-4 space-y-6">
 
-        {/* PASSO 1: ESCOLHA O PROFISSIONAL (EXIBIDO APENAS SE HOUVER MAIS DE 1) */}
+        {/* PASSO 1: ESCOLHA O PROFISSIONAL */}
         {professionals.length > 1 && (
           <div className="space-y-2">
             <label className="text-xs font-bold block uppercase tracking-wider opacity-80">1. Escolha a Profissional</label>
@@ -582,9 +575,17 @@ export default function AgendamentoCliente() {
         {/* PASSO 2: ESCOLHA OS SERVIÇOS DELE(A) */}
         {selectedProf ? (
           <div className="space-y-2 pt-2 border-t border-white/10">
-            <label className="text-xs font-bold block uppercase tracking-wider opacity-80">
-              {professionals.length > 1 ? `2. Serviços de ${selectedProfObj?.name}` : `1. Escolha os Serviços de ${selectedProfObj?.name}`}
-            </label>
+            <div className="flex justify-between items-center">
+              <label className="text-xs font-bold block uppercase tracking-wider opacity-80">
+                {professionals.length > 1 ? `2. Serviços de ${selectedProfObj?.name}` : `1. Escolha os Serviços de ${selectedProfObj?.name}`}
+              </label>
+              {selectedServices.length > 0 && (
+                <span className="text-[10px] font-bold opacity-80" style={{ color: accentPriceColor }}>
+                  {selectedServices.length} selecionado(s) ({totalDuration} min)
+                </span>
+              )}
+            </div>
+
             <div className="space-y-2">
               {displayedServices.length === 0 ? (
                 <p className="text-xs text-gray-400 bg-gray-900/50 p-4 rounded-xl text-center border border-white/5">
@@ -668,9 +669,14 @@ export default function AgendamentoCliente() {
                   {slotData.message}
                 </p>
               ) : availableSlots.length === 0 ? (
-                <p className="text-xs text-red-400 bg-red-500/10 p-3 rounded-xl border border-red-500/20 text-center font-semibold">
-                  Nenhum horário livre ou agenda fechada nesta data.
-                </p>
+                <div className="text-xs text-red-400 bg-red-500/10 p-3.5 rounded-xl border border-red-500/20 text-center space-y-1">
+                  <p className="font-bold">Nenhum horário contínuo de {totalDuration} min disponível nesta data.</p>
+                  {selectedServices.length > 1 && (
+                    <p className="text-[10px] opacity-80">
+                      💡 Tente selecionar outra data ou agendar os procedimentos separadamente.
+                    </p>
+                  )}
+                </div>
               ) : (
                 <div className="grid grid-cols-4 gap-2 max-h-40 overflow-y-auto pt-1">
                   {availableSlots.map(slot => {

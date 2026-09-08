@@ -13,9 +13,9 @@ export default function AgendamentoCliente() {
   const [blockedTimes, setBlockedTimes] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // ESTADOS DO AGENDAMENTO
-  const [selectedServices, setSelectedServices] = useState([]);
+  // ESTADOS DO AGENDAMENTO (PASSO 1 = PROFISSIONAL)
   const [selectedProf, setSelectedProf] = useState('');
+  const [selectedServices, setSelectedServices] = useState([]);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [selectedTime, setSelectedTime] = useState('');
   const [existingAppointments, setExistingAppointments] = useState([]);
@@ -44,50 +44,21 @@ export default function AgendamentoCliente() {
     }
   }, [router.isReady, slug]);
 
-  const filteredProfessionals = professionals.filter(p => {
-    if (selectedServices.length === 0) return true;
-
-    return selectedServices.every(srv => {
-      let allowedProfIds = srv.professional_ids;
-
-      if (typeof allowedProfIds === 'string') {
-        try { allowedProfIds = JSON.parse(allowedProfIds); } catch (e) { allowedProfIds = []; }
-      }
-
-      if (Array.isArray(allowedProfIds) && allowedProfIds.length > 0) {
-        return allowedProfIds.some(id => String(id) === String(p.id));
-      }
-
-      const hasTableRel = profServices.some(ps => String(ps.service_id) === String(srv.id));
-      if (hasTableRel) {
-        return profServices.some(ps => String(ps.service_id) === String(srv.id) && String(ps.professional_id) === String(p.id));
-      }
-
-      return true;
-    });
-  });
-
-  // SELEÇÃO AUTOMÁTICA DE PROFISSIONAL (LEITURA DA URL OU FILTRO)
+  // LEITURA DA URL PARA PRE-SELECIONAR PROFISSIONAL (ex: ?prof=15)
   useEffect(() => {
-    if (filteredProfessionals.length > 0) {
+    if (professionals.length > 0) {
       const urlProfId = prof || staff;
-      const urlMatch = filteredProfessionals.find(p => String(p.id) === String(urlProfId));
-
-      if (urlMatch) {
-        setSelectedProf(urlMatch.id);
-      } else {
-        const isStillValid = filteredProfessionals.some(p => String(p.id) === String(selectedProf));
-        if (!isStillValid) {
-          setSelectedProf(filteredProfessionals[0].id);
+      if (urlProfId) {
+        const urlMatch = professionals.find(p => String(p.id) === String(urlProfId));
+        if (urlMatch) {
+          setSelectedProf(urlMatch.id);
         }
       }
-    } else {
-      setSelectedProf('');
     }
-  }, [filteredProfessionals, prof, staff]);
+  }, [professionals, prof, staff]);
 
   useEffect(() => {
-    if (tenant?.id && selectedDate) {
+    if (tenant?.id && selectedDate && selectedProf) {
       fetchExistingAppointmentsAndBlocks();
     }
   }, [tenant?.id, selectedDate, selectedProf]);
@@ -185,7 +156,6 @@ export default function AgendamentoCliente() {
         console.error("Erro ao disparar notificação:", err);
       }
 
-      // IDENTIFICA QUAL WHATSAPP NOTIFICAR NO CANCELAMENTO
       const appProfObj = professionals.find(p => String(p.id) === String(app.professional_id));
       const targetPhone = (appProfObj && appProfObj.phone) ? appProfObj.phone : tenant.whatsapp;
       const cleanWhatsapp = targetPhone ? targetPhone.replace(/\D/g, '') : '';
@@ -295,7 +265,7 @@ export default function AgendamentoCliente() {
   const totalDuration = selectedServices.reduce((acc, s) => acc + (s.duration_minutes || 30), 0);
   const totalPrice = selectedServices.reduce((acc, s) => acc + Number(s.price || 0), 0);
 
-  // PROFISSIONAL ATUAL SELECIONADO & LINK DO INSTAGRAM DINÂMICO
+  // PROFISSIONAL ATUAL SELECIONADO & INSTAGRAM DINÂMICO
   const selectedProfObj = professionals.find(p => String(p.id) === String(selectedProf));
   const activeInstagram = (selectedProfObj && selectedProfObj.instagram_url) 
     ? selectedProfObj.instagram_url 
@@ -305,9 +275,9 @@ export default function AgendamentoCliente() {
     ? (activeInstagram.startsWith('http') ? activeInstagram : `https://instagram.com/${activeInstagram.replace('@', '').trim()}`)
     : '';
 
-  // FILTRO DINÂMICO DOS SERVIÇOS: Exibe apenas os serviços exclusivos do profissional ativo
+  // FILTRO DOS SERVIÇOS: Exibe APENAS os serviços da profissional selecionada
   const displayedServices = services.filter(srv => {
-    if (!selectedProf) return true;
+    if (!selectedProf) return false;
 
     let allowedProfIds = srv.professional_ids;
     if (typeof allowedProfIds === 'string') {
@@ -325,6 +295,12 @@ export default function AgendamentoCliente() {
 
     return true;
   });
+
+  const handleSelectProf = (profId) => {
+    setSelectedProf(profId);
+    setSelectedServices([]);
+    setSelectedTime('');
+  };
 
   const handleToggleService = (srv) => {
     const exists = selectedServices.some(s => s.id === srv.id);
@@ -421,8 +397,8 @@ export default function AgendamentoCliente() {
 
   const handleConfirmAppointment = async (e) => {
     e.preventDefault();
+    if (!selectedProf) return alert("Selecione a profissional!");
     if (selectedServices.length === 0) return alert("Selecione pelo menos 1 serviço!");
-    if (!selectedProf) return alert("Selecione um profissional!");
     if (!selectedTime) return alert("Selecione o horário desejado!");
     if (!customerName || !customerPhone) return alert("Preencha seu Nome e WhatsApp!");
 
@@ -489,7 +465,6 @@ export default function AgendamentoCliente() {
       msg += `\n\n📌 _${tenant.custom_message}_`;
     }
 
-    // DEFINE O WHATSAPP DE DESTINO (PROFISSIONAL OU CENTRAL)
     const targetPhone = (chosenProfObj && chosenProfObj.phone && chosenProfObj.phone.trim() !== '') 
       ? chosenProfObj.phone 
       : tenant.whatsapp;
@@ -507,6 +482,7 @@ export default function AgendamentoCliente() {
 
   return (
     <div className="min-h-screen font-sans pb-12 max-w-md mx-auto transition-colors duration-300" style={{ backgroundColor: bgColor, color: textColor }}>
+      
       {/* CAPA, INSTAGRAM & MEUS AGENDAMENTOS */}
       <div className="relative h-36 bg-gray-900 border-b border-white/10">
         <img src={tenant.banner_url || 'https://images.unsplash.com/photo-1503951914875-452162b0f3f1?w=800&auto=format&fit=crop&q=80'} alt="Capa" className="w-full h-full object-cover opacity-50" />
@@ -532,12 +508,12 @@ export default function AgendamentoCliente() {
         <div className="absolute -bottom-5 left-4 flex items-center space-x-3">
           <img 
             src={selectedProfObj?.avatar_url || tenant.logo_url || 'https://images.unsplash.com/photo-1585747860715-2ba37e788b70?w=150&auto=format&fit=crop&q=80'} 
-            alt="Logo/Profissional" 
+            alt="Foto Profissional" 
             className="w-16 h-16 rounded-full border-2 border-black/40 object-cover bg-gray-800 shadow-lg" 
           />
           <div className="pt-4">
             <h1 className="font-bold text-lg leading-tight" style={{ color: textColor }}>
-              {selectedProfObj?.name || tenant.name}
+              {selectedProfObj ? selectedProfObj.name : tenant.name}
             </h1>
             <p className="text-[11px] opacity-70">
               {selectedProfObj ? `💈 ${tenant.name}` : '📅 Agendamento Online'}
@@ -547,88 +523,104 @@ export default function AgendamentoCliente() {
       </div>
 
       <div className="mt-8 px-4 space-y-6">
-        {/* PASSO 1: SELEÇÃO DE SERVIÇOS (EXIBE APENAS OS DA PROFISSIONAL ATIVA) */}
-        <div className="space-y-2">
-          <label className="text-xs font-bold block uppercase tracking-wider opacity-80">1. Escolha os Serviços</label>
-          <div className="space-y-2">
-            {displayedServices.length === 0 ? (
-              <p className="text-xs text-gray-400 bg-gray-900/50 p-4 rounded-xl text-center border border-white/5">
-                Nenhum serviço disponível para este profissional.
-              </p>
-            ) : (
-              displayedServices.map(srv => {
-                const isSelected = selectedServices.some(s => s.id === srv.id);
-                const serviceImg = srv.image_url || srv.image;
 
-                return (
-                  <div
-                    key={srv.id}
-                    onClick={() => handleToggleService(srv)}
-                    style={{
-                      backgroundColor: isSelected ? `${primaryColor}22` : cardColor,
-                      borderColor: isSelected ? primaryColor : 'rgba(255,255,255,0.1)'
-                    }}
-                    className="p-3 rounded-xl border flex justify-between items-center cursor-pointer transition">
-                    <div className="flex items-center space-x-3">
-                      {serviceImg && (
-                        <img 
-                          src={serviceImg} 
-                          alt={srv.name} 
-                          className="w-12 h-12 rounded-xl object-cover border border-white/10 bg-gray-800 shrink-0" 
-                        />
-                      )}
-                      <div>
-                        <h3 className="font-bold text-xs" style={{ color: textColor }}>{srv.name}</h3>
-                        <p className="text-[10px] opacity-60">⏱️ {srv.duration_minutes || 30} min</p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <span className="font-bold text-xs block" style={{ color: accentPriceColor }}>
-                        R$ {Number(srv.price).toFixed(2)}
-                      </span>
-                      <span className="block text-[10px] font-bold mt-0.5" style={{ color: isSelected ? accentPriceColor : 'rgba(255,255,255,0.4)' }}>
-                        {isSelected ? '✓ Selecionado' : '+ Adicionar'}
-                      </span>
-                    </div>
+        {/* PASSO 1: ESCOLHA O PROFISSIONAL PRIMEIRO */}
+        <div className="space-y-2">
+          <label className="text-xs font-bold block uppercase tracking-wider opacity-80">1. Escolha a Profissional</label>
+          <div className="grid grid-cols-2 gap-2.5">
+            {professionals.map(p => {
+              const isSelected = String(selectedProf) === String(p.id);
+
+              return (
+                <button
+                  type="button"
+                  key={p.id}
+                  onClick={() => handleSelectProf(p.id)}
+                  style={{ 
+                    backgroundColor: isSelected ? primaryColor : cardColor,
+                    color: isSelected ? btnTextColor : textColor,
+                    borderColor: isSelected ? primaryColor : 'rgba(255,255,255,0.1)'
+                  }}
+                  className="p-3.5 rounded-2xl border flex items-center space-x-3 text-left transition shadow-md relative overflow-hidden">
+                  <img 
+                    src={p.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80'} 
+                    alt={p.name} 
+                    className="w-11 h-11 rounded-full object-cover border border-white/20 shrink-0 bg-gray-800" 
+                  />
+                  <div className="truncate">
+                    <span className="font-bold text-xs block truncate">{p.name}</span>
+                    <span className="text-[10px] opacity-70 block truncate">{p.specialty || 'Profissional'}</span>
                   </div>
-                );
-              })
-            )}
+                  {isSelected && (
+                    <span className="absolute top-2 right-2 text-[10px] font-bold">✓</span>
+                  )}
+                </button>
+              );
+            })}
           </div>
         </div>
 
-        {/* PASSO 2: PROFISSIONAIS */}
-        {selectedServices.length > 0 && filteredProfessionals.length > 1 && (
+        {/* PASSO 2: ESCOLHA OS SERVIÇOS (SÓ APARECE SE A PROFISSIONAL FOR SELECIONADA) */}
+        {selectedProf ? (
           <div className="space-y-2 pt-2 border-t border-white/10">
-            <label className="text-xs font-bold block uppercase tracking-wider opacity-80">2. Escolha o Profissional</label>
-            <div className="flex space-x-2 overflow-x-auto pb-1 scrollbar-none">
-              {filteredProfessionals.map(p => {
-                const isSelected = String(selectedProf) === String(p.id);
-                return (
-                  <button
-                    type="button"
-                    key={p.id}
-                    onClick={() => {
-                      setSelectedProf(p.id);
-                      setSelectedServices([]);
-                      setSelectedTime('');
-                    }}
-                    style={{ 
-                      backgroundColor: isSelected ? primaryColor : cardColor,
-                      color: isSelected ? btnTextColor : textColor
-                    }}
-                    className="p-3 rounded-xl border border-white/10 flex flex-col items-center min-w-[100px] text-center transition">
-                    <img src={p.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80'} alt={p.name} className="w-9 h-9 rounded-full object-cover mb-1 border border-white/20" />
-                    <span className="text-xs font-bold truncate max-w-[80px]">{p.name}</span>
-                  </button>
-                );
-              })}
+            <label className="text-xs font-bold block uppercase tracking-wider opacity-80">
+              2. Escolha os Serviços de {selectedProfObj?.name}
+            </label>
+            <div className="space-y-2">
+              {displayedServices.length === 0 ? (
+                <p className="text-xs text-gray-400 bg-gray-900/50 p-4 rounded-xl text-center border border-white/5">
+                  Nenhum serviço cadastrado para esta profissional.
+                </p>
+              ) : (
+                displayedServices.map(srv => {
+                  const isSelected = selectedServices.some(s => s.id === srv.id);
+                  const serviceImg = srv.image_url || srv.image;
+
+                  return (
+                    <div
+                      key={srv.id}
+                      onClick={() => handleToggleService(srv)}
+                      style={{
+                        backgroundColor: isSelected ? `${primaryColor}22` : cardColor,
+                        borderColor: isSelected ? primaryColor : 'rgba(255,255,255,0.1)'
+                      }}
+                      className="p-3 rounded-xl border flex justify-between items-center cursor-pointer transition">
+                      <div className="flex items-center space-x-3">
+                        {serviceImg && (
+                          <img 
+                            src={serviceImg} 
+                            alt={srv.name} 
+                            className="w-12 h-12 rounded-xl object-cover border border-white/10 bg-gray-800 shrink-0" 
+                          />
+                        )}
+                        <div>
+                          <h3 className="font-bold text-xs" style={{ color: textColor }}>{srv.name}</h3>
+                          <p className="text-[10px] opacity-60">⏱️ {srv.duration_minutes || 30} min</p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className="font-bold text-xs block" style={{ color: accentPriceColor }}>
+                          R$ {Number(srv.price).toFixed(2)}
+                        </span>
+                        <span className="block text-[10px] font-bold mt-0.5" style={{ color: isSelected ? accentPriceColor : 'rgba(255,255,255,0.4)' }}>
+                          {isSelected ? '✓ Selecionado' : '+ Adicionar'}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
             </div>
+          </div>
+        ) : (
+          <div className="p-4 rounded-2xl bg-gray-900/40 border border-dashed border-white/10 text-center">
+            <span className="text-lg block mb-1">👆</span>
+            <p className="text-xs opacity-60">Selecione uma profissional acima para ver os serviços e valores.</p>
           </div>
         )}
 
         {/* PASSO 3: DATA E HORÁRIO */}
-        {selectedServices.length > 0 && filteredProfessionals.length > 0 && (
+        {selectedProf && selectedServices.length > 0 && (
           <div className="space-y-4 pt-2 border-t border-white/10">
             <div className="space-y-1">
               <label className="text-xs font-bold block uppercase tracking-wider opacity-80">3. Escolha a Data</label>
@@ -680,7 +672,7 @@ export default function AgendamentoCliente() {
           </div>
         )}
 
-        {/* PASSO 4: CONFIRMAÇÃO */}
+        {/* PASSO 4: CONFIRMAÇÃO DE DADOS */}
         {selectedTime && (
           <form onSubmit={handleConfirmAppointment} className="space-y-3 pt-4 border-t border-white/10">
             <h3 className="font-bold text-xs uppercase tracking-wider opacity-80">5. Seus Dados</h3>

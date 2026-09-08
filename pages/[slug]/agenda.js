@@ -6,6 +6,9 @@ export default function AgendaTenant() {
   const router = useRouter();
   const { slug } = router.query;
 
+  // Função auxiliar para obter a data local formatada YYYY-MM-DD
+  const getTodayLocal = () => new Date().toLocaleDateString('sv-SE');
+
   const [tenant, setTenant] = useState(null);
   const [professionals, setProfessionals] = useState([]);
   const [services, setServices] = useState([]);
@@ -14,13 +17,13 @@ export default function AgendaTenant() {
   const [loading, setLoading] = useState(true);
 
   // FILTROS DE DATA E PROFISSIONAL
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState(getTodayLocal());
   const [selectedProf, setSelectedProf] = useState('');
 
   // MODAL DE BLOQUEIO DE HORÁRIO
   const [showBlockModal, setShowBlockModal] = useState(false);
   const [blockProfId, setBlockProfId] = useState('');
-  const [blockDate, setBlockDate] = useState(new Date().toISOString().split('T')[0]);
+  const [blockDate, setBlockDate] = useState(getTodayLocal());
   const [blockStartTime, setBlockStartTime] = useState('08:00');
   const [blockEndTime, setBlockEndTime] = useState('08:30');
   const [blockReason, setBlockReason] = useState('Compromisso Pessoal');
@@ -38,7 +41,7 @@ export default function AgendaTenant() {
   // MODAL DE AGENDAMENTO MANUAL PELO PROFISSIONAL
   const [showManualAppModal, setShowManualAppModal] = useState(false);
   const [manualProfId, setManualProfId] = useState('');
-  const [manualDate, setManualDate] = useState(new Date().toISOString().split('T')[0]);
+  const [manualDate, setManualDate] = useState(getTodayLocal());
   const [manualStartTime, setManualStartTime] = useState('09:00');
   const [manualCustomerName, setManualCustomerName] = useState('');
   const [manualCustomerPhone, setManualCustomerPhone] = useState('');
@@ -132,7 +135,7 @@ export default function AgendaTenant() {
     for (let i = 0; i < 7; i++) {
       const d = new Date(monday);
       d.setDate(monday.getDate() + i);
-      const isoDate = d.toISOString().split('T')[0];
+      const isoDate = d.toLocaleDateString('sv-SE');
       const dayNum = String(d.getDate()).padStart(2, '0');
       
       week.push({
@@ -414,11 +417,17 @@ export default function AgendaTenant() {
       return [{ type: 'prof_off', reason: `${currentProf?.name || 'Profissional'} não atende neste dia da semana (Folga Recorrente).` }];
     }
 
-    const openHour = parseInt((tenant?.opening_time || '08:00').split(':')[0]);
-    const closeHour = parseInt((tenant?.closing_time || '20:00').split(':')[0]);
+    const [openH, openM] = (tenant?.opening_time || '08:00').split(':').map(Number);
+    const [closeH, closeM] = (tenant?.closing_time || '20:00').split(':').map(Number);
 
-    let currentMin = openHour * 60;
-    const endMin = closeHour * 60;
+    let currentMin = openH * 60 + (openM || 0);
+    const endMin = closeH * 60 + (closeM || 0);
+
+    // Identificação de horários passados no dia de hoje
+    const now = new Date();
+    const todayStr = getTodayLocal();
+    const isToday = selectedDate === todayStr;
+    const nowInMinutes = now.getHours() * 60 + now.getMinutes();
 
     const timeline = [];
 
@@ -429,6 +438,7 @@ export default function AgendaTenant() {
       const h = Math.floor(currentMin / 60);
       const m = currentMin % 60;
       const timeStr = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+      const isPast = isToday && currentMin < nowInMinutes;
 
       const appsStarting = profApps.filter(a => {
         const [aStartH, aStartM] = a.start_time.split(':').map(Number);
@@ -442,11 +452,11 @@ export default function AgendaTenant() {
 
       if (appsStarting.length > 0) {
         appsStarting.forEach(app => {
-          timeline.push({ time: timeStr, type: 'appointment', data: app });
+          timeline.push({ time: timeStr, type: 'appointment', data: app, isPast });
         });
       } else if (blocksStarting.length > 0) {
         blocksStarting.forEach(block => {
-          timeline.push({ time: timeStr, type: 'blocked', data: block });
+          timeline.push({ time: timeStr, type: 'blocked', data: block, isPast });
         });
       } else {
         const isInsideApp = profApps.some(a => {
@@ -465,7 +475,7 @@ export default function AgendaTenant() {
         });
 
         if (!isInsideApp && !isInsideBlock) {
-          timeline.push({ time: timeStr, type: 'free' });
+          timeline.push({ time: timeStr, type: 'free', isPast });
         }
       }
 
@@ -650,14 +660,20 @@ export default function AgendaTenant() {
           // HORÁRIO LIVRE
           if (item.type === 'free') {
             return (
-              <div key={`free-${selectedProf}-${item.time}`} className="bg-gray-900/40 border border-dashed border-gray-800/80 p-3 rounded-2xl flex justify-between items-center transition hover:border-gray-700">
+              <div key={`free-${selectedProf}-${item.time}`} className={`bg-gray-900/40 border border-dashed border-gray-800/80 p-3 rounded-2xl flex justify-between items-center transition hover:border-gray-700 ${item.isPast ? 'opacity-60' : ''}`}>
                 <div className="flex items-center space-x-3">
                   <span className="text-xs font-bold text-gray-400 bg-gray-800 px-2.5 py-1 rounded-lg">
                     ⏰ {item.time}
                   </span>
-                  <span className="text-xs font-bold text-emerald-400 flex items-center space-x-1">
-                    <span>🟢 Horário Livre / Disponível</span>
-                  </span>
+                  {item.isPast ? (
+                    <span className="text-xs font-bold text-gray-500 flex items-center space-x-1">
+                      <span>⏳ Horário Passado</span>
+                    </span>
+                  ) : (
+                    <span className="text-xs font-bold text-emerald-400 flex items-center space-x-1">
+                      <span>🟢 Horário Livre / Disponível</span>
+                    </span>
+                  )}
                 </div>
 
                 <div className="flex space-x-1.5">
@@ -683,7 +699,7 @@ export default function AgendaTenant() {
             const cleanPhone = (app.customer_phone || '').replace(/\D/g, '');
 
             return (
-              <div key={`app-${app.id}-${idx}`} className="bg-gray-900 border border-gray-800 p-4 rounded-2xl space-y-3 shadow-lg border-l-4 border-l-orange-500">
+              <div key={`app-${app.id}-${idx}`} className={`bg-gray-900 border border-gray-800 p-4 rounded-2xl space-y-3 shadow-lg border-l-4 border-l-orange-500 ${item.isPast ? 'opacity-80' : ''}`}>
                 <div className="flex justify-between items-start border-b border-gray-800 pb-2.5">
                   <div className="flex items-center space-x-3">
                     <span className="bg-orange-500/10 border border-orange-500/30 text-orange-400 px-3 py-1.5 rounded-xl font-bold text-xs">

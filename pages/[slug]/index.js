@@ -269,7 +269,7 @@ export default function AgendamentoCliente() {
   };
 
   // LEITURA DINÂMICA DAS CORES DO MASTER
-  const primaryColor = tenant.primary_color || '#FF8C00';
+  const accentPriceColor = tenant.price_color || tenant.primary_color || '#FF8C00';
   const btnTextColor = tenant.button_text_color || '#FFFFFF';
   const bgColor = tenant.background_color || tenant.secondary_color || '#090D16';
   const cardColor = tenant.card_color || '#111827';

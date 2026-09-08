@@ -52,6 +52,7 @@ export default function AdminTenant() {
   const [newProf, setNewProf] = useState({ 
     name: '', 
     phone: '', 
+    specialty: '',
     avatar_url: '', 
     instagram_url: '',
     commission_percentage: '50',
@@ -214,6 +215,7 @@ export default function AdminTenant() {
       tenant_id: tenant.id,
       name: newProf.name.trim(),
       phone: newProf.phone ? newProf.phone.replace(/\D/g, '') : '',
+      specialty: newProf.specialty ? newProf.specialty.trim() : '',
       avatar_url: newProf.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80',
       instagram_url: newProf.instagram_url ? newProf.instagram_url.trim() : '',
       commission_percentage: parseFloat(newProf.commission_percentage || 50),
@@ -225,7 +227,8 @@ export default function AdminTenant() {
     if (error) {
       alert("Erro ao cadastrar profissional: " + error.message);
     } else {
-      setNewProf({ name: '', phone: '', avatar_url: '', instagram_url: '', commission_percentage: '50', work_days: [1, 2, 3, 4, 5, 6], pin: '1234' });
+      alert("Profissional cadastrado com sucesso!");
+      setNewProf({ name: '', phone: '', specialty: '', avatar_url: '', instagram_url: '', commission_percentage: '50', work_days: [1, 2, 3, 4, 5, 6], pin: '1234' });
       fetchData();
     }
   };
@@ -235,6 +238,7 @@ export default function AdminTenant() {
     const { error } = await supabase.from('professionals').update({
       name: editingProf.name.trim(),
       phone: editingProf.phone ? editingProf.phone.replace(/\D/g, '') : '',
+      specialty: editingProf.specialty ? editingProf.specialty.trim() : '',
       avatar_url: editingProf.avatar_url,
       instagram_url: editingProf.instagram_url ? editingProf.instagram_url.trim() : '',
       commission_percentage: parseFloat(editingProf.commission_percentage || 50),
@@ -485,14 +489,20 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* ABA 2: EQUIPE + INSTAGRAM INDIVIDUAL, WHATSAPP E PIN */}
+      {/* ABA 2: EQUIPE + ESPECIALIDADE, INSTAGRAM INDIVIDUAL, WHATSAPP E PIN */}
       {activeTab === 'professionals' && (
         <div className="space-y-6">
           <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
             <h3 className="font-bold text-sm text-orange-400">➕ Novo Profissional da Equipe</h3>
             <form onSubmit={handleAddProf} className="space-y-3">
-              <input type="text" placeholder="Nome Completo" value={newProf.name} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProf({ ...newProf, name: e.target.value })} />
+              <input type="text" placeholder="Nome Completo Ex: Lanna ou Janaia" value={newProf.name} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProf({ ...newProf, name: e.target.value })} />
               
+              <div>
+                <label className="text-[10px] text-purple-400 font-bold block mb-1">💅 Especialidade / Descrição do Trabalho:</label>
+                <input type="text" placeholder="Ex: Pé e Mão, Cabelos, Nail Designer..." value={newProf.specialty} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProf({ ...newProf, specialty: e.target.value })} />
+                <span className="text-[9px] text-gray-500 block mt-0.5">Aparece logo abaixo do nome na seleção do cliente.</span>
+              </div>
+
               <div>
                 <label className="text-[10px] text-gray-400 block mb-1">WhatsApp Individual (Agendamentos diretos):</label>
                 <input type="text" placeholder="Ex: 47999999999" value={newProf.phone} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProf({ ...newProf, phone: e.target.value })} />
@@ -552,14 +562,16 @@ export default function AdminTenant() {
                     <div className="flex items-center space-x-3">
                       <img src={p.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80'} alt={p.name} className="w-9 h-9 rounded-full object-cover border border-gray-700" />
                       <div>
-                        <span className="font-bold block text-white">{p.name}</span>
+                        <span className="font-bold block text-white">
+                          {p.name} {p.specialty && <span className="text-purple-400 text-[10px] font-normal">({p.specialty})</span>}
+                        </span>
                         <span className="text-gray-400 text-[10px]">Comissão: <b className="text-green-400">{p.commission_percentage}%</b> {p.phone ? `• 📱 ${p.phone}` : '• Central'}</span>
                         {p.instagram_url && <span className="text-[10px] text-pink-400 block">📸 Insta: {p.instagram_url}</span>}
                         <span className="text-[10px] text-orange-400 block font-mono">PIN: {p.pin || '1234'}</span>
                       </div>
                     </div>
                     <div className="flex space-x-1.5">
-                      <button onClick={() => setEditingProf({ ...p, work_days: p.work_days || [1, 2, 3, 4, 5, 6], pin: p.pin || '1234', instagram_url: p.instagram_url || '' })} className="bg-blue-600/20 text-blue-400 p-1.5 rounded-lg font-bold border border-blue-500/30">✏️ Editar</button>
+                      <button onClick={() => setEditingProf({ ...p, work_days: p.work_days || [1, 2, 3, 4, 5, 6], pin: p.pin || '1234', instagram_url: p.instagram_url || '', specialty: p.specialty || '' })} className="bg-blue-600/20 text-blue-400 p-1.5 rounded-lg font-bold border border-blue-500/30">✏️ Editar</button>
                       <button onClick={async () => { if (confirm("Excluir profissional?")) { await supabase.from('professionals').delete().eq('id', p.id); fetchData(); } }} className="text-red-400 font-bold p-1.5">🗑</button>
                     </div>
                   </div>
@@ -972,7 +984,8 @@ export default function AdminTenant() {
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
           <form onSubmit={handleUpdateProf} className="bg-gray-900 w-full max-w-sm rounded-2xl p-5 border border-blue-500/40 space-y-3">
             <h3 className="font-bold text-sm text-blue-400">✏️ Editar Profissional</h3>
-            <input type="text" value={editingProf.name} onChange={(e) => setEditingProf({ ...editingProf, name: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
+            <input type="text" value={editingProf.name} onChange={(e) => setEditingProf({ ...editingProf, name: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" placeholder="Nome Completo" />
+            <input type="text" value={editingProf.specialty || ''} onChange={(e) => setEditingProf({ ...editingProf, specialty: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" placeholder="Especialidade (Ex: Pé e mão, Cabelos)" />
             <input type="text" value={editingProf.phone || ''} onChange={(e) => setEditingProf({ ...editingProf, phone: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" placeholder="WhatsApp Individual" />
             <input type="text" value={editingProf.instagram_url || ''} onChange={(e) => setEditingProf({ ...editingProf, instagram_url: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" placeholder="Instagram (Ex: @ana_designer)" />
             <input type="text" value={editingProf.pin || ''} onChange={(e) => setEditingProf({ ...editingProf, pin: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" placeholder="PIN de 4 Dígitos" />

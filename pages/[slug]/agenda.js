@@ -8,6 +8,7 @@ export default function AgendaTenant() {
 
   const [tenant, setTenant] = useState(null);
   const [professionals, setProfessionals] = useState([]);
+  const [services, setServices] = useState([]);
   const [appointments, setAppointments] = useState([]);
   const [blockedTimes, setBlockedTimes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -34,6 +35,17 @@ export default function AgendaTenant() {
   const [rescheduleProfId, setRescheduleProfId] = useState('');
   const [isSavingReschedule, setIsSavingReschedule] = useState(false);
 
+  // MODAL DE AGENDAMENTO MANUAL PELO PROFISSIONAL
+  const [showManualAppModal, setShowManualAppModal] = useState(false);
+  const [manualProfId, setManualProfId] = useState('');
+  const [manualDate, setManualDate] = useState(new Date().toISOString().split('T')[0]);
+  const [manualStartTime, setManualStartTime] = useState('09:00');
+  const [manualCustomerName, setManualCustomerName] = useState('');
+  const [manualCustomerPhone, setManualCustomerPhone] = useState('');
+  const [manualSelectedServiceId, setManualSelectedServiceId] = useState('');
+  const [manualPaymentMethod, setPaymentMethod] = useState('No Local');
+  const [isSavingManualApp, setIsSavingManualApp] = useState(false);
+
   useEffect(() => {
     if (router.isReady && slug) {
       fetchTenantAndData();
@@ -54,11 +66,18 @@ export default function AgendaTenant() {
     if (tData) {
       setTenant(tData);
       const { data: pData } = await supabase.from('professionals').select('*').eq('tenant_id', tData.id).eq('active', true);
+      const { data: sData } = await supabase.from('services').select('*').eq('tenant_id', tData.id).eq('active', true);
       
       if (pData && pData.length > 0) {
         setProfessionals(pData);
         setSelectedProf(pData[0].id);
         setBlockProfId(pData[0].id);
+        setManualProfId(pData[0].id);
+      }
+
+      if (sData) {
+        setServices(sData);
+        if (sData.length > 0) setManualSelectedServiceId(sData[0].id);
       }
       
       await fetchAppointmentsAndBlocks(tData.id);
@@ -126,6 +145,75 @@ export default function AgendaTenant() {
   };
 
   const currentWeekDays = getWeekDays(selectedDate);
+
+  // CRIAR AGENDAMENTO MANUAL PELO PAINEL
+  const handleCreateManualApp = async (e) => {
+    e.preventDefault();
+    if (!manualCustomerName || !manualCustomerPhone) return alert("Preencha o Nome e WhatsApp do cliente!");
+    if (!manualSelectedServiceId) return alert("Selecione o procedimento!");
+
+    setIsSavingManualApp(true);
+
+    const serviceObj = services.find(s => String(s.id) === String(manualSelectedServiceId));
+    const duration = serviceObj?.duration_minutes || 30;
+    const price = Number(serviceObj?.price || 0);
+
+    const [h, m] = manualStartTime.split(':').map(Number);
+    const endDateObj = new Date();
+    endDateObj.setHours(h, m + duration, 0, 0);
+    const endTime = endDateObj.toTimeString().substring(0, 5);
+
+    const chosenProfObj = professionals.find(p => String(p.id) === String(manualProfId));
+    const cleanPhone = manualCustomerPhone.replace(/\D/g, '');
+
+    const appointmentPayload = {
+      tenant_id: tenant.id,
+      professional_id: parseInt(manualProfId),
+      customer_name: manualCustomerName.trim(),
+      customer_phone: cleanPhone,
+      services_json: serviceObj ? [serviceObj] : [],
+      total_price: price,
+      total_duration_minutes: duration,
+      appointment_date: manualDate,
+      start_time: manualStartTime,
+      end_time: endTime,
+      payment_method: manualPaymentMethod,
+      status: 'agendado',
+      is_paid: false
+    };
+
+    const { data: createdApp, error } = await supabase
+      .from('appointments')
+      .insert([appointmentPayload])
+      .select()
+      .single();
+
+    setIsSavingManualApp(false);
+
+    if (error) {
+      alert("Erro ao criar agendamento: " + error.message);
+    } else {
+      const formattedDate = manualDate.split('-').reverse().join('/');
+      
+      // MENSAGEM NO WHATSAPP DO CLIENTE CONFIRMANDO
+      if (cleanPhone) {
+        const msg = `Olá *${manualCustomerName}*! 👋\n\n` +
+          `Seu agendamento no *${tenant.name}* foi confirmado com sucesso!\n\n` +
+          `📅 *Data:* ${formattedDate} às *${manualStartTime}*\n` +
+          `👤 *Profissional:* ${chosenProfObj?.name || 'Equipe'}\n` +
+          `✂️ *Procedimento:* ${serviceObj?.name || 'Atendimento'}\n` +
+          `💰 *Valor:* R$ ${price.toFixed(2)}\n\n` +
+          `Te aguardamos! Se precisar alterar, nos avise por aqui.`;
+
+        window.open(`https://wa.me/55${cleanPhone}?text=${encodeURIComponent(msg)}`, '_blank');
+      }
+
+      setShowManualAppModal(false);
+      setManualCustomerName('');
+      setManualCustomerPhone('');
+      fetchAppointmentsAndBlocks();
+    }
+  };
 
   // BLOQUEAR HORÁRIO / DIA INTEIRO RECORRENTE
   const handleCreateBlock = async (e) => {
@@ -283,6 +371,14 @@ export default function AgendaTenant() {
     }
   };
 
+  // ABRIR AGENDAMENTO DIRETO PELA TIMELINE
+  const handleQuickManualAppSlot = (timeSlot) => {
+    setManualProfId(selectedProf);
+    setManualDate(selectedDate);
+    setManualStartTime(timeSlot);
+    setShowManualAppModal(true);
+  };
+
   // BLOQUEAR HORÁRIO DIRETO PELA TIMELINE
   const handleQuickBlockSlot = (timeSlot) => {
     const [h, m] = timeSlot.split(':').map(Number);
@@ -400,7 +496,7 @@ export default function AgendaTenant() {
           <p className="text-xs text-gray-400">Navegue pelos horários livres e compromissos marcados.</p>
         </div>
 
-        <div className="flex items-center space-x-2 w-full md:w-auto">
+        <div className="flex items-center space-x-2 w-full md:w-auto flex-wrap gap-2">
           <input
             type="date"
             value={selectedDate}
@@ -408,6 +504,16 @@ export default function AgendaTenant() {
             className="bg-gray-900 border border-gray-800 p-2.5 rounded-xl text-xs font-bold text-white focus:outline-none cursor-pointer"
             style={{ colorScheme: 'dark' }}
           />
+
+          <button
+            onClick={() => {
+              setManualProfId(selectedProf);
+              setManualDate(selectedDate);
+              setShowManualAppModal(true);
+            }}
+            className="bg-green-600 hover:bg-green-700 text-white px-3.5 py-2.5 rounded-xl text-xs font-bold transition shadow-lg flex items-center space-x-1 whitespace-nowrap">
+            <span>➕ Agendar Cliente</span>
+          </button>
 
           <button
             onClick={() => {
@@ -471,6 +577,7 @@ export default function AgendaTenant() {
                 onClick={() => {
                   setSelectedProf(prof.id);
                   setBlockProfId(prof.id);
+                  setManualProfId(prof.id);
                 }}
                 className={`p-3 rounded-2xl border flex items-center space-x-3 min-w-[170px] transition text-left relative ${
                   isSelected
@@ -553,11 +660,18 @@ export default function AgendaTenant() {
                   </span>
                 </div>
 
-                <button
-                  onClick={() => handleQuickBlockSlot(item.time)}
-                  className="bg-purple-600/20 hover:bg-purple-600/40 text-purple-300 border border-purple-500/30 px-3 py-1 rounded-xl text-[11px] font-bold transition">
-                  🔒 Bloquear
-                </button>
+                <div className="flex space-x-1.5">
+                  <button
+                    onClick={() => handleQuickManualAppSlot(item.time)}
+                    className="bg-green-600/20 hover:bg-green-600/40 text-green-300 border border-green-500/30 px-3 py-1 rounded-xl text-[11px] font-bold transition">
+                    ➕ Agendar
+                  </button>
+                  <button
+                    onClick={() => handleQuickBlockSlot(item.time)}
+                    className="bg-purple-600/20 hover:bg-purple-600/40 text-purple-300 border border-purple-500/30 px-3 py-1 rounded-xl text-[11px] font-bold transition">
+                    🔒 Bloquear
+                  </button>
+                </div>
               </div>
             );
           }
@@ -671,6 +785,112 @@ export default function AgendaTenant() {
           return null;
         })}
       </div>
+
+      {/* MODAL DE AGENDAMENTO MANUAL PELO PROFISSIONAL */}
+      {showManualAppModal && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-900 border border-gray-800 w-full max-w-md rounded-2xl p-5 space-y-4 shadow-2xl">
+            <div className="flex justify-between items-center border-b border-gray-800 pb-2">
+              <h3 className="font-bold text-sm text-green-400 flex items-center space-x-1">
+                <span>➕ Agendar Atendimento Manual</span>
+              </h3>
+              <button onClick={() => setShowManualAppModal(false)} className="text-gray-400 font-bold text-xs hover:text-white">✕ Fechar</button>
+            </div>
+
+            <form onSubmit={handleCreateManualApp} className="space-y-3 text-xs">
+              <div>
+                <label className="text-gray-400 block mb-1">Profissional Atendente:</label>
+                <select
+                  value={manualProfId}
+                  onChange={(e) => setManualProfId(e.target.value)}
+                  className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-white focus:outline-none">
+                  {professionals.map(p => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-gray-400 block mb-1">Nome Completo do Cliente:</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ex: Maria Oliveira"
+                  value={manualCustomerName}
+                  onChange={(e) => setManualCustomerName(e.target.value)}
+                  className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-white focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="text-gray-400 block mb-1">WhatsApp do Cliente (DDD + Número):</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ex: 47999999999"
+                  value={manualCustomerPhone}
+                  onChange={(e) => setManualCustomerPhone(e.target.value)}
+                  className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-white focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="text-gray-400 block mb-1">Procedimento / Serviço:</label>
+                <select
+                  value={manualSelectedServiceId}
+                  onChange={(e) => setManualSelectedServiceId(e.target.value)}
+                  className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-white focus:outline-none">
+                  {services.map(s => (
+                    <option key={s.id} value={s.id}>
+                      {s.name} — R$ {Number(s.price).toFixed(2)} ({s.duration_minutes || 30} min)
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-gray-400 block mb-1">Data:</label>
+                  <input
+                    type="date"
+                    required
+                    value={manualDate}
+                    onChange={(e) => setManualDate(e.target.value)}
+                    className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-white focus:outline-none cursor-pointer"
+                    style={{ colorScheme: 'dark' }}
+                  />
+                </div>
+
+                <div>
+                  <label className="text-gray-400 block mb-1">Horário de Início:</label>
+                  <input
+                    type="time"
+                    required
+                    value={manualStartTime}
+                    onChange={(e) => setManualStartTime(e.target.value)}
+                    className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-white focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="flex space-x-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowManualAppModal(false)}
+                  className="w-1/2 bg-gray-800 text-gray-300 py-3 rounded-xl font-bold">
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingManualApp}
+                  className="w-1/2 bg-green-600 hover:bg-green-700 text-white py-3 rounded-xl font-bold transition">
+                  {isSavingManualApp ? 'Agendando...' : 'Confirmar & Notificar WhatsApp 🚀'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* MODAL REAGENDAR ATENDIMENTO */}
       {editingApp && (

@@ -8,7 +8,7 @@ export default function AdminTenant() {
 
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [password, setPassword] = useState('');
-  const [activeTab, setActiveTab] = useState('services');
+  const [activeTab, setActiveTab] = useState('services'); // services, professionals, reports, links, settings
   const [loading, setLoading] = useState(true);
 
   const [tenant, setTenant] = useState(null);
@@ -16,6 +16,17 @@ export default function AdminTenant() {
   const [professionals, setProfessionals] = useState([]);
   const [appointments, setAppointments] = useState([]);
   const [reportFilter, setReportFilter] = useState('all');
+
+  // CONTROLE DO FINANCEIRO INDIVIDUAL / PIN
+  const [finViewMode, setFinViewMode] = useState('global'); // 'global' ou 'individual'
+  const [selectedProfForFin, setSelectedProfForFin] = useState('');
+  const [inputProfPin, setInputProfPin] = useState('');
+  const [isProfFinUnlocked, setIsProfFinUnlocked] = useState(false);
+  const [unlockedProfData, setUnlockedProfData] = useState(null);
+
+  // CONTROLE DE DIVULGAÇÃO & LINKS
+  const [selectedProfForLink, setSelectedProfForLink] = useState('');
+  const [copiedLink, setCopiedLink] = useState(false);
 
   // NORMAS DE DIAS DA SEMANA (0 = Domingo, 1 = Segunda, ..., 6 = Sábado)
   const ALL_DAYS = [
@@ -42,8 +53,10 @@ export default function AdminTenant() {
     name: '', 
     phone: '', 
     avatar_url: '', 
+    instagram_url: '',
     commission_percentage: '50',
-    work_days: [1, 2, 3, 4, 5, 6]
+    work_days: [1, 2, 3, 4, 5, 6],
+    pin: '1234'
   });
   const [editingProf, setEditingProf] = useState(null);
 
@@ -61,7 +74,8 @@ export default function AdminTenant() {
     if (tData) {
       setTenant({
         ...tData,
-        work_days: tData.work_days || [1, 2, 3, 4, 5, 6]
+        work_days: tData.work_days || [1, 2, 3, 4, 5, 6],
+        share_template: tData.share_template || 'Olá! Agende seu horário no *{empresa}* com *{profissional}* acessando: {link}'
       });
 
       const savedPass = localStorage.getItem('sinerge_tenant_pass');
@@ -95,7 +109,8 @@ export default function AdminTenant() {
     if (tData) {
       setTenant({
         ...tData,
-        work_days: tData.work_days || [1, 2, 3, 4, 5, 6]
+        work_days: tData.work_days || [1, 2, 3, 4, 5, 6],
+        share_template: tData.share_template || 'Olá! Agende seu horário no *{empresa}* com *{profissional}* acessando: {link}'
       });
     }
     if (sData) setServices(sData);
@@ -118,6 +133,7 @@ export default function AdminTenant() {
       closing_time: tenant.closing_time || '20:00',
       work_days: tenant.work_days || [1, 2, 3, 4, 5, 6],
       custom_message: tenant.custom_message || '',
+      share_template: tenant.share_template || '',
       admin_password: tenant.admin_password,
       pix_enabled: tenant.pix_enabled || false,
       pix_provider: tenant.pix_provider || 'mercadopago',
@@ -128,7 +144,6 @@ export default function AdminTenant() {
     else { alert("Configurações salvas com sucesso!"); fetchData(); }
   };
 
-  // LIMPAR DADOS DO FINANCEIRO / ZERAR TESTES
   const handleClearFinancialData = async () => {
     if (confirm("⚠️ ATENÇÃO: Tem certeza que deseja zerar TODOS os agendamentos e dados financeiros?\n\nEsta ação vai apagar definitivamente todos os agendamentos de teste. Não poderá ser desfeito!")) {
       const { error } = await supabase
@@ -200,15 +215,17 @@ export default function AdminTenant() {
       name: newProf.name.trim(),
       phone: newProf.phone ? newProf.phone.replace(/\D/g, '') : '',
       avatar_url: newProf.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80',
+      instagram_url: newProf.instagram_url ? newProf.instagram_url.trim() : '',
       commission_percentage: parseFloat(newProf.commission_percentage || 50),
       work_days: newProf.work_days || [1, 2, 3, 4, 5, 6],
+      pin: newProf.pin || '1234',
       active: true
     }]);
 
     if (error) {
       alert("Erro ao cadastrar profissional: " + error.message);
     } else {
-      setNewProf({ name: '', phone: '', avatar_url: '', commission_percentage: '50', work_days: [1, 2, 3, 4, 5, 6] });
+      setNewProf({ name: '', phone: '', avatar_url: '', instagram_url: '', commission_percentage: '50', work_days: [1, 2, 3, 4, 5, 6], pin: '1234' });
       fetchData();
     }
   };
@@ -219,8 +236,10 @@ export default function AdminTenant() {
       name: editingProf.name.trim(),
       phone: editingProf.phone ? editingProf.phone.replace(/\D/g, '') : '',
       avatar_url: editingProf.avatar_url,
+      instagram_url: editingProf.instagram_url ? editingProf.instagram_url.trim() : '',
       commission_percentage: parseFloat(editingProf.commission_percentage || 50),
-      work_days: editingProf.work_days || [1, 2, 3, 4, 5, 6]
+      work_days: editingProf.work_days || [1, 2, 3, 4, 5, 6],
+      pin: editingProf.pin || '1234'
     }).eq('id', editingProf.id);
 
     if (error) {
@@ -268,6 +287,36 @@ export default function AdminTenant() {
     }
   });
 
+  const handleUnlockProfFin = (e) => {
+    e.preventDefault();
+    const prof = professionals.find(p => String(p.id) === String(selectedProfForFin));
+    if (!prof) return alert('Selecione um profissional.');
+
+    if (prof.pin && String(prof.pin) === String(inputProfPin).trim()) {
+      setIsProfFinUnlocked(true);
+      setUnlockedProfData(prof);
+    } else {
+      alert('PIN / Senha do profissional incorreta!');
+    }
+  };
+
+  const getShareLinkAndMsg = () => {
+    const baseUrl = `https://agendamento.sinergemkt.com/${tenant?.slug || ''}`;
+    const selectedProfObj = professionals.find(p => String(p.id) === String(selectedProfForLink));
+    
+    const finalLink = selectedProfObj ? `${baseUrl}?prof=${selectedProfObj.id}` : baseUrl;
+    const profName = selectedProfObj ? selectedProfObj.name : 'Nossa Equipe';
+
+    const customMsg = (tenant?.share_template || 'Olá! Agende seu horário no *{empresa}* com *{profissional}* acessando: {link}')
+      .replace('{empresa}', tenant?.name || '')
+      .replace('{profissional}', profName)
+      .replace('{link}', finalLink);
+
+    return { finalLink, customMsg };
+  };
+
+  const { finalLink, customMsg } = getShareLinkAndMsg();
+
   if (loading) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><p className="text-sm text-gray-400">Carregando painel...</p></div>;
   if (!tenant) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><h1 className="text-xl font-bold text-orange-500">Estabelecimento não encontrado</h1></div>;
 
@@ -284,8 +333,25 @@ export default function AdminTenant() {
     );
   }
 
+  const profApps = unlockedProfData
+    ? filteredApps.filter(a => String(a.professional_id) === String(unlockedProfData.id))
+    : [];
+  const profTotalRev = profApps.reduce((sum, a) => sum + Number(a.total_price || 0), 0);
+  const profCommEarned = profTotalRev * (Number(unlockedProfData?.commission_percentage || 50) / 100);
+
   return (
     <div className="min-h-screen bg-gray-950 text-white p-4 max-w-md mx-auto font-sans pb-12">
+      <style jsx global>{`
+        @media print {
+          body * { visibility: hidden !important; }
+          #print-prof-receipt, #print-prof-receipt * { visibility: visible !important; }
+          #print-prof-receipt {
+            position: absolute !important; left: 0 !important; top: 0 !important;
+            width: 100% !important; color: #000 !important; background: #fff !important; padding: 15px !important; font-family: sans-serif !important;
+          }
+        }
+      `}</style>
+
       <header className="flex justify-between items-center py-4 border-b border-gray-800 mb-4">
         <div className="flex items-center space-x-2">
           <button onClick={() => router.push('/')} className="text-xs bg-gray-800 px-2.5 py-1.5 rounded-lg text-gray-300 font-bold border border-gray-700">
@@ -307,13 +373,16 @@ export default function AdminTenant() {
         </button>
       </header>
 
+      {/* BARRA DE TABS */}
       <div className="flex space-x-1 bg-gray-900 p-1 rounded-xl border border-gray-800 mb-6 text-[11px] font-bold overflow-x-auto">
         <button onClick={() => setActiveTab('services')} className={`flex-1 py-2 px-2 rounded-lg whitespace-nowrap ${activeTab === 'services' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>💈 Serviços</button>
         <button onClick={() => setActiveTab('professionals')} className={`flex-1 py-2 px-2 rounded-lg whitespace-nowrap ${activeTab === 'professionals' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>👨‍🔬 Equipe</button>
         <button onClick={() => setActiveTab('reports')} className={`flex-1 py-2 px-2 rounded-lg whitespace-nowrap ${activeTab === 'reports' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>📊 Financeiro</button>
+        <button onClick={() => setActiveTab('links')} className={`flex-1 py-2 px-2 rounded-lg whitespace-nowrap ${activeTab === 'links' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>🔗 Divulgação</button>
         <button onClick={() => setActiveTab('settings')} className={`flex-1 py-2 px-2 rounded-lg whitespace-nowrap ${activeTab === 'settings' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>⚙️ Config</button>
       </div>
 
+      {/* ABA 1: SERVIÇOS */}
       {activeTab === 'services' && (
         <div className="space-y-6">
           <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
@@ -416,13 +485,30 @@ export default function AdminTenant() {
         </div>
       )}
 
+      {/* ABA 2: EQUIPE + INSTAGRAM INDIVIDUAL, WHATSAPP E PIN */}
       {activeTab === 'professionals' && (
         <div className="space-y-6">
           <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
-            <h3 className="font-bold text-sm text-orange-400">➕ Novo Profissional / Barbeiro</h3>
+            <h3 className="font-bold text-sm text-orange-400">➕ Novo Profissional da Equipe</h3>
             <form onSubmit={handleAddProf} className="space-y-3">
               <input type="text" placeholder="Nome Completo" value={newProf.name} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProf({ ...newProf, name: e.target.value })} />
-              <input type="text" placeholder="WhatsApp" value={newProf.phone} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProf({ ...newProf, phone: e.target.value })} />
+              
+              <div>
+                <label className="text-[10px] text-gray-400 block mb-1">WhatsApp Individual (Agendamentos diretos):</label>
+                <input type="text" placeholder="Ex: 47999999999" value={newProf.phone} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProf({ ...newProf, phone: e.target.value })} />
+              </div>
+
+              <div>
+                <label className="text-[10px] text-purple-400 font-bold block mb-1">📸 Instagram do Profissional (Opcional):</label>
+                <input type="text" placeholder="Ex: @ana_naildesigner ou URL" value={newProf.instagram_url} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProf({ ...newProf, instagram_url: e.target.value })} />
+                <span className="text-[9px] text-gray-500 block mt-0.5">Se preenchido, o botão do topo da página redireciona para este perfil.</span>
+              </div>
+
+              <div>
+                <label className="text-[10px] text-gray-400 block mb-1">PIN / Senha Secreta (Para extrato individual):</label>
+                <input type="text" placeholder="Ex: 1234" value={newProf.pin} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProf({ ...newProf, pin: e.target.value })} />
+              </div>
+
               <input type="text" placeholder="URL da Foto de Perfil (Avatar)" value={newProf.avatar_url} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProf({ ...newProf, avatar_url: e.target.value })} />
               
               <div>
@@ -467,11 +553,13 @@ export default function AdminTenant() {
                       <img src={p.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80'} alt={p.name} className="w-9 h-9 rounded-full object-cover border border-gray-700" />
                       <div>
                         <span className="font-bold block text-white">{p.name}</span>
-                        <span className="text-gray-400 text-[10px]">Comissão: <b className="text-green-400">{p.commission_percentage}%</b> {p.phone && `• 📱 ${p.phone}`}</span>
+                        <span className="text-gray-400 text-[10px]">Comissão: <b className="text-green-400">{p.commission_percentage}%</b> {p.phone ? `• 📱 ${p.phone}` : '• Central'}</span>
+                        {p.instagram_url && <span className="text-[10px] text-pink-400 block">📸 Insta: {p.instagram_url}</span>}
+                        <span className="text-[10px] text-orange-400 block font-mono">PIN: {p.pin || '1234'}</span>
                       </div>
                     </div>
                     <div className="flex space-x-1.5">
-                      <button onClick={() => setEditingProf({ ...p, work_days: p.work_days || [1, 2, 3, 4, 5, 6] })} className="bg-blue-600/20 text-blue-400 p-1.5 rounded-lg font-bold border border-blue-500/30">✏️ Editar</button>
+                      <button onClick={() => setEditingProf({ ...p, work_days: p.work_days || [1, 2, 3, 4, 5, 6], pin: p.pin || '1234', instagram_url: p.instagram_url || '' })} className="bg-blue-600/20 text-blue-400 p-1.5 rounded-lg font-bold border border-blue-500/30">✏️ Editar</button>
                       <button onClick={async () => { if (confirm("Excluir profissional?")) { await supabase.from('professionals').delete().eq('id', p.id); fetchData(); } }} className="text-red-400 font-bold p-1.5">🗑</button>
                     </div>
                   </div>
@@ -487,61 +575,234 @@ export default function AdminTenant() {
         </div>
       )}
 
+      {/* ABA 3: FINANCEIRO */}
       {activeTab === 'reports' && (
         <div className="space-y-4">
-          <div className="flex flex-col space-y-2 bg-gray-900 p-3 rounded-xl border border-gray-800 text-xs">
-            <span className="text-gray-400 font-bold">Filtro de Período:</span>
-            <div className="flex space-x-1 overflow-x-auto pb-1">
-              <button onClick={() => setReportFilter('all')} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${reportFilter === 'all' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400'}`}>Tudo</button>
-              <button onClick={() => setReportFilter('today')} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${reportFilter === 'today' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400'}`}>Hoje</button>
-              <button onClick={() => setReportFilter('7days')} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${reportFilter === '7days' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400'}`}>7 Dias</button>
-              <button onClick={() => setReportFilter('30days')} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${reportFilter === '30days' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400'}`}>30 Dias</button>
-            </div>
+          <div className="flex space-x-2 bg-gray-900 p-1.5 rounded-xl border border-gray-800 text-xs font-bold">
+            <button 
+              onClick={() => { setFinViewMode('global'); setIsProfFinUnlocked(false); }} 
+              className={`flex-1 py-2 rounded-lg transition ${finViewMode === 'global' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>
+              🌐 Visão Geral (Admin)
+            </button>
+            <button 
+              onClick={() => setFinViewMode('individual')} 
+              className={`flex-1 py-2 rounded-lg transition ${finViewMode === 'individual' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>
+              🔒 Extrato do Profissional (PIN)
+            </button>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div className="bg-gray-900 p-4 rounded-xl border border-gray-800">
-              <span className="text-[11px] text-gray-400 block mb-1">Faturamento Bruto</span>
-              <span className="text-lg font-bold text-green-400">R$ {totalRevenue.toFixed(2)}</span>
-            </div>
-            <div className="bg-gray-900 p-4 rounded-xl border border-gray-800">
-              <span className="text-[11px] text-gray-400 block mb-1">Total Atendimentos</span>
-              <span className="text-lg font-bold text-orange-400">{filteredApps.length}</span>
-            </div>
-          </div>
+          {finViewMode === 'global' && (
+            <div className="space-y-4">
+              <div className="flex flex-col space-y-2 bg-gray-900 p-3 rounded-xl border border-gray-800 text-xs">
+                <span className="text-gray-400 font-bold">Filtro de Período:</span>
+                <div className="flex space-x-1 overflow-x-auto pb-1">
+                  <button onClick={() => setReportFilter('all')} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${reportFilter === 'all' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400'}`}>Tudo</button>
+                  <button onClick={() => setReportFilter('today')} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${reportFilter === 'today' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400'}`}>Hoje</button>
+                  <button onClick={() => setReportFilter('7days')} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${reportFilter === '7days' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400'}`}>7 Dias</button>
+                  <button onClick={() => setReportFilter('30days')} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${reportFilter === '30days' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400'}`}>30 Dias</button>
+                </div>
+              </div>
 
-          <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
-            <h3 className="font-bold text-xs text-orange-400 uppercase tracking-wider">💰 REPASSE DE COMISSÕES</h3>
-            <div className="space-y-2">
-              {Object.keys(profCommissionsMap).length === 0 ? (
-                <p className="text-xs text-gray-400">Nenhum cálculo de comissão no período.</p>
-              ) : (
-                Object.entries(profCommissionsMap).map(([profName, val], idx) => (
-                  <div key={idx} className="flex justify-between items-center bg-gray-800 p-2.5 rounded-lg text-xs">
-                    <span className="font-bold text-white">{profName}</span>
-                    <span className="bg-green-500/20 text-green-400 px-2.5 py-1 rounded-md font-bold">A pagar: R$ {val.toFixed(2)}</span>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-gray-900 p-4 rounded-xl border border-gray-800">
+                  <span className="text-[11px] text-gray-400 block mb-1">Faturamento Bruto</span>
+                  <span className="text-lg font-bold text-green-400">R$ {totalRevenue.toFixed(2)}</span>
+                </div>
+                <div className="bg-gray-900 p-4 rounded-xl border border-gray-800">
+                  <span className="text-[11px] text-gray-400 block mb-1">Total Atendimentos</span>
+                  <span className="text-lg font-bold text-orange-400">{filteredApps.length}</span>
+                </div>
+              </div>
+
+              <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
+                <h3 className="font-bold text-xs text-orange-400 uppercase tracking-wider">💰 REPASSE DE COMISSÕES</h3>
+                <div className="space-y-2">
+                  {Object.keys(profCommissionsMap).length === 0 ? (
+                    <p className="text-xs text-gray-400">Nenhum cálculo de comissão no período.</p>
+                  ) : (
+                    Object.entries(profCommissionsMap).map(([profName, val], idx) => (
+                      <div key={idx} className="flex justify-between items-center bg-gray-800 p-2.5 rounded-lg text-xs">
+                        <span className="font-bold text-white">{profName}</span>
+                        <span className="bg-green-500/20 text-green-400 px-2.5 py-1 rounded-md font-bold">A pagar: R$ {val.toFixed(2)}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </section>
+
+              <section className="bg-gray-900 p-4 rounded-xl border border-red-500/30 flex justify-between items-center mt-4">
+                <div>
+                  <h4 className="font-bold text-xs text-red-400">🧹 Zerar Dados de Teste</h4>
+                  <p className="text-[10px] text-gray-400">Apaga todo o histórico de agendamentos.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleClearFinancialData}
+                  className="bg-red-500/20 hover:bg-red-500/40 text-red-400 border border-red-500/40 px-3 py-2 rounded-xl text-xs font-bold transition">
+                  🗑️ Limpar
+                </button>
+              </section>
+            </div>
+          )}
+
+          {finViewMode === 'individual' && (
+            <div className="space-y-4">
+              {!isProfFinUnlocked ? (
+                <form onSubmit={handleUnlockProfFin} className="bg-gray-900 border border-gray-800 p-5 rounded-2xl space-y-4">
+                  <div>
+                    <h3 className="font-bold text-xs text-orange-400 uppercase tracking-wider">🔒 Extrato do Profissional</h3>
+                    <p className="text-[11px] text-gray-400 mt-1">Selecione seu perfil e digite seu PIN para abrir seu extrato privado.</p>
                   </div>
-                ))
+
+                  <div>
+                    <label className="text-[11px] text-gray-400 block mb-1">Selecione Seu Nome:</label>
+                    <select
+                      value={selectedProfForFin}
+                      onChange={(e) => setSelectedProfForFin(e.target.value)}
+                      className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none"
+                    >
+                      <option value="">-- Selecionar Profissional --</option>
+                      {professionals.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] text-gray-400 block mb-1">PIN / Senha de 4 Dígitos:</label>
+                    <input
+                      type="password"
+                      placeholder="****"
+                      value={inputProfPin}
+                      onChange={(e) => setInputProfPin(e.target.value)}
+                      className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none"
+                    />
+                  </div>
+
+                  <button type="submit" className="w-full bg-green-600 hover:bg-green-700 font-bold py-3 rounded-xl text-xs text-white transition">
+                    Desbloquear Meu Extrato 🔓
+                  </button>
+                </form>
+              ) : (
+                <div id="print-prof-receipt" className="bg-gray-900 border border-gray-800 p-5 rounded-2xl space-y-4">
+                  <div className="flex justify-between items-center border-b border-gray-800 pb-3">
+                    <div>
+                      <h3 className="font-bold text-sm text-white">👤 Extrato — <span className="text-orange-400">{unlockedProfData.name}</span></h3>
+                      <p className="text-[11px] text-gray-400">Comissão: {unlockedProfData.commission_percentage}%</p>
+                    </div>
+
+                    <div className="flex space-x-1.5">
+                      <button onClick={() => window.print()} className="bg-blue-600 hover:bg-blue-700 font-bold px-3 py-1.5 rounded-lg text-xs text-white transition">
+                        🖨️ Imprimir
+                      </button>
+                      <button onClick={() => { setIsProfFinUnlocked(false); setInputProfPin(''); }} className="bg-gray-800 text-gray-300 font-bold px-3 py-1.5 rounded-lg text-xs">
+                        🔒 Sair
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="bg-gray-950 p-3 rounded-xl border border-gray-800">
+                      <span className="text-[10px] font-bold text-gray-400 uppercase block">Total Atendido</span>
+                      <span className="text-base font-bold text-white">R$ {profTotalRev.toFixed(2)}</span>
+                      <span className="text-[10px] text-gray-500 block">{profApps.length} serviços</span>
+                    </div>
+
+                    <div className="bg-gray-950 p-3 rounded-xl border border-gray-800">
+                      <span className="text-[10px] font-bold text-green-400 uppercase block">Sua Comissão</span>
+                      <span className="text-base font-bold text-green-400">R$ {profCommEarned.toFixed(2)}</span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <h4 className="font-bold text-xs text-gray-300">Serviços Realizados:</h4>
+                    <div className="space-y-2 max-h-60 overflow-y-auto">
+                      {profApps.length === 0 ? (
+                        <p className="text-xs text-gray-500">Nenhum atendimento finalizado no período.</p>
+                      ) : (
+                        profApps.map(a => (
+                          <div key={a.id} className="bg-gray-950 p-2.5 rounded-xl border border-gray-800/80 flex justify-between items-center text-xs">
+                            <div>
+                              <span className="font-bold text-white block">{a.client_name || a.customer_name}</span>
+                              <span className="text-[10px] text-gray-400">{a.service_name} • {a.appointment_date || a.date}</span>
+                            </div>
+                            <span className="font-bold text-green-400">R$ {Number(a.total_price || a.price || 0).toFixed(2)}</span>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </div>
               )}
             </div>
+          )}
+        </div>
+      )}
+
+      {/* ABA 4: DIVULGAÇÃO & LINKS PERSONALIZADOS */}
+      {activeTab === 'links' && (
+        <div className="space-y-6">
+          <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
+            <h3 className="font-bold text-xs text-orange-400 uppercase tracking-wider">✍️ Modelo de Mensagem de Divulgação</h3>
+            <p className="text-[10px] text-gray-400">Variáveis automáticas: <b className="text-white">{'{empresa}'}</b>, <b className="text-white">{'{profissional}'}</b> e <b className="text-white">{'{link}'}</b>.</p>
+
+            <textarea
+              rows={3}
+              value={tenant.share_template || ''}
+              onChange={(e) => setTenant({ ...tenant, share_template: e.target.value })}
+              className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none font-mono"
+            />
+
+            <button onClick={handleSaveTenantSettings} className="bg-green-600 font-bold px-4 py-2 rounded-lg text-xs text-white transition">
+              💾 Salvar Modelo
+            </button>
           </section>
 
-          {/* BOTÃO PARA ZERAR DADOS E APAGAR TESTES */}
-          <section className="bg-gray-900 p-4 rounded-xl border border-red-500/30 flex justify-between items-center mt-4">
+          <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
+            <h3 className="font-bold text-xs text-gray-200 uppercase tracking-wider">🔗 Gerar Link Individual por Profissional</h3>
+
             <div>
-              <h4 className="font-bold text-xs text-red-400">🧹 Zerar Dados de Teste</h4>
-              <p className="text-[10px] text-gray-400">Apaga todo o histórico de agendamentos para recomeçar do zero.</p>
+              <label className="text-[11px] text-gray-400 block mb-1">Filtrar Link para um Profissional:</label>
+              <select
+                value={selectedProfForLink}
+                onChange={(e) => setSelectedProfForLink(e.target.value)}
+                className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none"
+              >
+                <option value="">-- Link Geral do Estabelecimento --</option>
+                {professionals.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
             </div>
-            <button
-              type="button"
-              onClick={handleClearFinancialData}
-              className="bg-red-500/20 hover:bg-red-500/40 text-red-400 border border-red-500/40 px-3 py-2 rounded-xl text-xs font-bold transition">
-              🗑️ Limpar
-            </button>
+
+            <div className="bg-gray-950 p-3 rounded-xl border border-gray-800 space-y-1">
+              <span className="text-[10px] font-bold text-gray-400 uppercase block">Prévia da Mensagem:</span>
+              <p className="text-xs text-gray-200 font-mono whitespace-pre-wrap">{customMsg}</p>
+            </div>
+
+            <div className="flex space-x-2 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(customMsg);
+                  setCopiedLink(true);
+                  setTimeout(() => setCopiedLink(false), 2000);
+                }}
+                className="flex-1 bg-orange-500 hover:bg-orange-600 font-bold py-2.5 rounded-lg text-xs text-white transition"
+              >
+                {copiedLink ? '✓ Copiado!' : '📋 Copiar Mensagem + Link'}
+              </button>
+
+              <a
+                href={`https://wa.me/?text=${encodeURIComponent(customMsg)}`}
+                target="_blank"
+                rel="noreferrer"
+                className="bg-green-600 hover:bg-green-700 font-bold px-3 py-2.5 rounded-lg text-xs text-white transition flex items-center"
+              >
+                💬 Zap
+              </a>
+            </div>
           </section>
         </div>
       )}
 
+      {/* ABA 5: CONFIGURAÇÕES */}
       {activeTab === 'settings' && (
         <div className="space-y-6">
           <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
@@ -552,9 +813,8 @@ export default function AdminTenant() {
                 <input type="text" value={tenant.name || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, name: e.target.value })} />
               </div>
 
-              {/* CAMPO DE LINK DO INSTAGRAM */}
               <div>
-                <label className="text-[11px] text-gray-400 block mb-1">Link do Instagram:</label>
+                <label className="text-[11px] text-gray-400 block mb-1">Link do Instagram Geral do Salão:</label>
                 <input 
                   type="text" 
                   placeholder="Ex: https://instagram.com/lanna_designer" 
@@ -607,7 +867,7 @@ export default function AdminTenant() {
               </div>
 
               <div>
-                <label className="text-[11px] text-gray-400 block mb-1">WhatsApp de Recebimento:</label>
+                <label className="text-[11px] text-gray-400 block mb-1">WhatsApp Geral de Recebimento:</label>
                 <input type="text" value={tenant.whatsapp || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, whatsapp: e.target.value })} />
               </div>
 
@@ -648,6 +908,7 @@ export default function AdminTenant() {
         </div>
       )}
 
+      {/* MODAL EDIÇÃO DE SERVIÇO */}
       {editingService && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
           <form onSubmit={handleUpdateService} className="bg-gray-900 w-full max-w-sm rounded-2xl p-5 border border-blue-500/40 space-y-3 max-h-[90vh] overflow-y-auto">
@@ -706,12 +967,15 @@ export default function AdminTenant() {
         </div>
       )}
 
+      {/* MODAL EDIÇÃO DE PROFISSIONAL */}
       {editingProf && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
           <form onSubmit={handleUpdateProf} className="bg-gray-900 w-full max-w-sm rounded-2xl p-5 border border-blue-500/40 space-y-3">
             <h3 className="font-bold text-sm text-blue-400">✏️ Editar Profissional</h3>
             <input type="text" value={editingProf.name} onChange={(e) => setEditingProf({ ...editingProf, name: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
-            <input type="text" value={editingProf.phone || ''} onChange={(e) => setEditingProf({ ...editingProf, phone: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" placeholder="WhatsApp" />
+            <input type="text" value={editingProf.phone || ''} onChange={(e) => setEditingProf({ ...editingProf, phone: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" placeholder="WhatsApp Individual" />
+            <input type="text" value={editingProf.instagram_url || ''} onChange={(e) => setEditingProf({ ...editingProf, instagram_url: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" placeholder="Instagram (Ex: @ana_designer)" />
+            <input type="text" value={editingProf.pin || ''} onChange={(e) => setEditingProf({ ...editingProf, pin: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" placeholder="PIN de 4 Dígitos" />
             <input type="text" value={editingProf.avatar_url || ''} onChange={(e) => setEditingProf({ ...editingProf, avatar_url: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" placeholder="URL Avatar" />
             <input type="number" value={editingProf.commission_percentage || ''} onChange={(e) => setEditingProf({ ...editingProf, commission_percentage: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" placeholder="% Comissão" />
 

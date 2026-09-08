@@ -13,7 +13,7 @@ export default function AgendamentoCliente() {
   const [blockedTimes, setBlockedTimes] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // ESTADOS DO AGENDAMENTO (PASSO 1 = PROFISSIONAL)
+  // ESTADOS DO AGENDAMENTO
   const [selectedProf, setSelectedProf] = useState('');
   const [selectedServices, setSelectedServices] = useState([]);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
@@ -44,9 +44,12 @@ export default function AgendamentoCliente() {
     }
   }, [router.isReady, slug]);
 
-  // LEITURA DA URL PARA PRE-SELECIONAR PROFISSIONAL (ex: ?prof=15)
+  // SE TIVER APENAS 1 PROFISSIONAL, SELECIONA AUTOMATICAMENTE
+  // CASO CONTRÁRIO, LE DA URL (?prof=ID)
   useEffect(() => {
-    if (professionals.length > 0) {
+    if (professionals.length === 1) {
+      setSelectedProf(professionals[0].id);
+    } else if (professionals.length > 1) {
       const urlProfId = prof || staff;
       if (urlProfId) {
         const urlMatch = professionals.find(p => String(p.id) === String(urlProfId));
@@ -516,7 +519,7 @@ export default function AgendamentoCliente() {
               {selectedProfObj ? selectedProfObj.name : tenant.name}
             </h1>
             <p className="text-[11px] opacity-70">
-              {selectedProfObj ? `💈 ${tenant.name}` : '📅 Agendamento Online'}
+              {selectedProfObj?.specialty ? selectedProfObj.specialty : (selectedProfObj ? `💈 ${tenant.name}` : '📅 Agendamento Online')}
             </p>
           </div>
         </div>
@@ -524,47 +527,51 @@ export default function AgendamentoCliente() {
 
       <div className="mt-8 px-4 space-y-6">
 
-        {/* PASSO 1: ESCOLHA O PROFISSIONAL PRIMEIRO */}
-        <div className="space-y-2">
-          <label className="text-xs font-bold block uppercase tracking-wider opacity-80">1. Escolha a Profissional</label>
-          <div className="grid grid-cols-2 gap-2.5">
-            {professionals.map(p => {
-              const isSelected = String(selectedProf) === String(p.id);
+        {/* PASSO 1: ESCOLHA O PROFISSIONAL (EXIBIDO APENAS SE HOUVER MAIS DE 1) */}
+        {professionals.length > 1 && (
+          <div className="space-y-2">
+            <label className="text-xs font-bold block uppercase tracking-wider opacity-80">1. Escolha a Profissional</label>
+            <div className="grid grid-cols-2 gap-2.5">
+              {professionals.map(p => {
+                const isSelected = String(selectedProf) === String(p.id);
 
-              return (
-                <button
-                  type="button"
-                  key={p.id}
-                  onClick={() => handleSelectProf(p.id)}
-                  style={{ 
-                    backgroundColor: isSelected ? primaryColor : cardColor,
-                    color: isSelected ? btnTextColor : textColor,
-                    borderColor: isSelected ? primaryColor : 'rgba(255,255,255,0.1)'
-                  }}
-                  className="p-3.5 rounded-2xl border flex items-center space-x-3 text-left transition shadow-md relative overflow-hidden">
-                  <img 
-                    src={p.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80'} 
-                    alt={p.name} 
-                    className="w-11 h-11 rounded-full object-cover border border-white/20 shrink-0 bg-gray-800" 
-                  />
-                  <div className="truncate">
-                    <span className="font-bold text-xs block truncate">{p.name}</span>
-                    <span className="text-[10px] opacity-70 block truncate">{p.specialty || 'Profissional'}</span>
-                  </div>
-                  {isSelected && (
-                    <span className="absolute top-2 right-2 text-[10px] font-bold">✓</span>
-                  )}
-                </button>
-              );
-            })}
+                return (
+                  <button
+                    type="button"
+                    key={p.id}
+                    onClick={() => handleSelectProf(p.id)}
+                    style={{ 
+                      backgroundColor: isSelected ? primaryColor : cardColor,
+                      color: isSelected ? btnTextColor : textColor,
+                      borderColor: isSelected ? primaryColor : 'rgba(255,255,255,0.1)'
+                    }}
+                    className="p-3 rounded-2xl border flex items-center space-x-2.5 text-left transition shadow-md relative overflow-hidden">
+                    <img 
+                      src={p.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80'} 
+                      alt={p.name} 
+                      className="w-10 h-10 rounded-full object-cover border border-white/20 shrink-0 bg-gray-800" 
+                    />
+                    <div className="truncate">
+                      <span className="font-bold text-xs block truncate">{p.name}</span>
+                      <span className="text-[10px] opacity-80 block truncate font-medium">
+                        {p.specialty || 'Atendimento'}
+                      </span>
+                    </div>
+                    {isSelected && (
+                      <span className="absolute top-1.5 right-2 text-[10px] font-bold">✓</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
           </div>
-        </div>
+        )}
 
-        {/* PASSO 2: ESCOLHA OS SERVIÇOS (SÓ APARECE SE A PROFISSIONAL FOR SELECIONADA) */}
+        {/* PASSO 2: ESCOLHA OS SERVIÇOS DELE(A) */}
         {selectedProf ? (
           <div className="space-y-2 pt-2 border-t border-white/10">
             <label className="text-xs font-bold block uppercase tracking-wider opacity-80">
-              2. Escolha os Serviços de {selectedProfObj?.name}
+              {professionals.length > 1 ? `2. Serviços de ${selectedProfObj?.name}` : `1. Escolha os Serviços de ${selectedProfObj?.name}`}
             </label>
             <div className="space-y-2">
               {displayedServices.length === 0 ? (
@@ -623,7 +630,9 @@ export default function AgendamentoCliente() {
         {selectedProf && selectedServices.length > 0 && (
           <div className="space-y-4 pt-2 border-t border-white/10">
             <div className="space-y-1">
-              <label className="text-xs font-bold block uppercase tracking-wider opacity-80">3. Escolha a Data</label>
+              <label className="text-xs font-bold block uppercase tracking-wider opacity-80">
+                {professionals.length > 1 ? '3. Escolha a Data' : '2. Escolha a Data'}
+              </label>
               <input
                 type="date"
                 min={new Date().toISOString().split('T')[0]}
@@ -638,7 +647,9 @@ export default function AgendamentoCliente() {
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-bold block uppercase tracking-wider opacity-80">4. Horários Disponíveis ({availableSlots.length})</label>
+              <label className="text-xs font-bold block uppercase tracking-wider opacity-80">
+                {professionals.length > 1 ? `4. Horários Disponíveis (${availableSlots.length})` : `3. Horários Disponíveis (${availableSlots.length})`}
+              </label>
               
               {slotData.status !== 'ok' ? (
                 <p className="text-xs text-red-400 bg-red-500/10 p-3 rounded-xl border border-red-500/20 text-center font-semibold">
@@ -675,7 +686,9 @@ export default function AgendamentoCliente() {
         {/* PASSO 4: CONFIRMAÇÃO DE DADOS */}
         {selectedTime && (
           <form onSubmit={handleConfirmAppointment} className="space-y-3 pt-4 border-t border-white/10">
-            <h3 className="font-bold text-xs uppercase tracking-wider opacity-80">5. Seus Dados</h3>
+            <h3 className="font-bold text-xs uppercase tracking-wider opacity-80">
+              {professionals.length > 1 ? '5. Seus Dados' : '4. Seus Dados'}
+            </h3>
             <input
               type="text"
               required

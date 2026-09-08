@@ -269,17 +269,16 @@ export default function AgendamentoCliente() {
   };
 
   // LEITURA DINÂMICA DAS CORES DO MASTER
-  const accentPriceColor = tenant.price_color || tenant.primary_color || '#FF8C00';
+  const primaryColor = tenant.primary_color || '#FF8C00';
   const btnTextColor = tenant.button_text_color || '#FFFFFF';
   const bgColor = tenant.background_color || tenant.secondary_color || '#090D16';
   const cardColor = tenant.card_color || '#111827';
   const textColor = tenant.text_color || '#FFFFFF';
 
-  // LÓGICA INTELIGENTE DE CONTRASTE PARA O TEXTO DOS VALORES
-  // Se a cor do botão for muito escura, usa a cor de texto do tema (ou destaque claro) para o preço não sumir
-  const accentPriceColor = isColorDark(primaryColor) 
-    ? (isColorDark(cardColor) ? '#FF8C00' : textColor) 
-    : primaryColor;
+  // COR DO PREÇO: Usa a configurada no Master Admin; caso vazia, faz o cálculo automático de contraste
+  const accentPriceColor = tenant.price_color 
+    ? tenant.price_color 
+    : (isColorDark(primaryColor) ? (isColorDark(cardColor) ? '#FF8C00' : textColor) : primaryColor);
 
   const totalDuration = selectedServices.reduce((acc, s) => acc + (s.duration_minutes || 30), 0);
   const totalPrice = selectedServices.reduce((acc, s) => acc + Number(s.price || 0), 0);

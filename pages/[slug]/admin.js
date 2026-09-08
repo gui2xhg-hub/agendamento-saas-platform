@@ -17,6 +17,10 @@ export default function AdminTenant() {
   const [appointments, setAppointments] = useState([]);
   const [reportFilter, setReportFilter] = useState('all');
 
+  // CONTROLE DO FINANCEIRO GERAL / SENHA ADMIN
+  const [isGlobalFinUnlocked, setIsGlobalFinUnlocked] = useState(false);
+  const [adminFinPass, setAdminFinPass] = useState('');
+
   // CONTROLE DO FINANCEIRO INDIVIDUAL / PIN
   const [finViewMode, setFinViewMode] = useState('global'); // 'global' ou 'individual'
   const [selectedProfForFin, setSelectedProfForFin] = useState('');
@@ -290,6 +294,16 @@ export default function AdminTenant() {
       profCommissionsMap[prof.name] = (profCommissionsMap[prof.name] || 0) + commValue;
     }
   });
+
+  const handleUnlockGlobalFin = (e) => {
+    e.preventDefault();
+    if (tenant && (adminFinPass === tenant.admin_password || adminFinPass === 'master123')) {
+      setIsGlobalFinUnlocked(true);
+      setAdminFinPass('');
+    } else {
+      alert('Senha de Admin incorreta!');
+    }
+  };
 
   const handleUnlockProfFin = (e) => {
     e.preventDefault();
@@ -597,7 +611,7 @@ export default function AdminTenant() {
               🌐 Visão Geral (Admin)
             </button>
             <button 
-              onClick={() => setFinViewMode('individual')} 
+              onClick={() => { setFinViewMode('individual'); setIsGlobalFinUnlocked(false); }} 
               className={`flex-1 py-2 rounded-lg transition ${finViewMode === 'individual' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>
               🔒 Extrato do Profissional (PIN)
             </button>
@@ -605,55 +619,94 @@ export default function AdminTenant() {
 
           {finViewMode === 'global' && (
             <div className="space-y-4">
-              <div className="flex flex-col space-y-2 bg-gray-900 p-3 rounded-xl border border-gray-800 text-xs">
-                <span className="text-gray-400 font-bold">Filtro de Período:</span>
-                <div className="flex space-x-1 overflow-x-auto pb-1">
-                  <button onClick={() => setReportFilter('all')} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${reportFilter === 'all' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400'}`}>Tudo</button>
-                  <button onClick={() => setReportFilter('today')} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${reportFilter === 'today' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400'}`}>Hoje</button>
-                  <button onClick={() => setReportFilter('7days')} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${reportFilter === '7days' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400'}`}>7 Dias</button>
-                  <button onClick={() => setReportFilter('30days')} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${reportFilter === '30days' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400'}`}>30 Dias</button>
-                </div>
-              </div>
+              {!isGlobalFinUnlocked ? (
+                <form onSubmit={handleUnlockGlobalFin} className="bg-gray-900 border border-gray-800 p-5 rounded-2xl space-y-4 shadow-xl">
+                  <div>
+                    <h3 className="font-bold text-xs text-orange-400 uppercase tracking-wider flex items-center space-x-1">
+                      <span>🔒 Financeiro Geral Protegido</span>
+                    </h3>
+                    <p className="text-[11px] text-gray-400 mt-1">
+                      Digite a senha de Admin do estabelecimento para visualizar o faturamento total e o repasse de comissões.
+                    </p>
+                  </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div className="bg-gray-900 p-4 rounded-xl border border-gray-800">
-                  <span className="text-[11px] text-gray-400 block mb-1">Faturamento Bruto</span>
-                  <span className="text-lg font-bold text-green-400">R$ {totalRevenue.toFixed(2)}</span>
-                </div>
-                <div className="bg-gray-900 p-4 rounded-xl border border-gray-800">
-                  <span className="text-[11px] text-gray-400 block mb-1">Total Atendimentos</span>
-                  <span className="text-lg font-bold text-orange-400">{filteredApps.length}</span>
-                </div>
-              </div>
+                  <div>
+                    <label className="text-[11px] text-gray-400 block mb-1">Senha de Admin:</label>
+                    <input
+                      type="password"
+                      placeholder="Sua senha de administrador..."
+                      value={adminFinPass}
+                      onChange={(e) => setAdminFinPass(e.target.value)}
+                      className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none focus:border-orange-500"
+                    />
+                  </div>
 
-              <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
-                <h3 className="font-bold text-xs text-orange-400 uppercase tracking-wider">💰 REPASSE DE COMISSÕES</h3>
-                <div className="space-y-2">
-                  {Object.keys(profCommissionsMap).length === 0 ? (
-                    <p className="text-xs text-gray-400">Nenhum cálculo de comissão no período.</p>
-                  ) : (
-                    Object.entries(profCommissionsMap).map(([profName, val], idx) => (
-                      <div key={idx} className="flex justify-between items-center bg-gray-800 p-2.5 rounded-lg text-xs">
-                        <span className="font-bold text-white">{profName}</span>
-                        <span className="bg-green-500/20 text-green-400 px-2.5 py-1 rounded-md font-bold">A pagar: R$ {val.toFixed(2)}</span>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </section>
+                  <button type="submit" className="w-full bg-orange-500 hover:bg-orange-600 font-bold py-3 rounded-xl text-xs text-white transition shadow-lg">
+                    Visualizar Financeiro Geral 🔓
+                  </button>
+                </form>
+              ) : (
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center bg-gray-900/80 p-3 rounded-xl border border-gray-800">
+                    <span className="text-xs font-bold text-green-400">🔓 Financeiro Desbloqueado</span>
+                    <button
+                      onClick={() => setIsGlobalFinUnlocked(false)}
+                      className="bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700 px-3 py-1 rounded-lg text-xs font-bold transition">
+                      🔒 Ocultar Dados
+                    </button>
+                  </div>
 
-              <section className="bg-gray-900 p-4 rounded-xl border border-red-500/30 flex justify-between items-center mt-4">
-                <div>
-                  <h4 className="font-bold text-xs text-red-400">🧹 Zerar Dados de Teste</h4>
-                  <p className="text-[10px] text-gray-400">Apaga todo o histórico de agendamentos.</p>
+                  <div className="flex flex-col space-y-2 bg-gray-900 p-3 rounded-xl border border-gray-800 text-xs">
+                    <span className="text-gray-400 font-bold">Filtro de Período:</span>
+                    <div className="flex space-x-1 overflow-x-auto pb-1">
+                      <button onClick={() => setReportFilter('all')} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${reportFilter === 'all' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400'}`}>Tudo</button>
+                      <button onClick={() => setReportFilter('today')} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${reportFilter === 'today' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400'}`}>Hoje</button>
+                      <button onClick={() => setReportFilter('7days')} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${reportFilter === '7days' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400'}`}>7 Dias</button>
+                      <button onClick={() => setReportFilter('30days')} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${reportFilter === '30days' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400'}`}>30 Dias</button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-gray-900 p-4 rounded-xl border border-gray-800">
+                      <span className="text-[11px] text-gray-400 block mb-1">Faturamento Bruto</span>
+                      <span className="text-lg font-bold text-green-400">R$ {totalRevenue.toFixed(2)}</span>
+                    </div>
+                    <div className="bg-gray-900 p-4 rounded-xl border border-gray-800">
+                      <span className="text-[11px] text-gray-400 block mb-1">Total Atendimentos</span>
+                      <span className="text-lg font-bold text-orange-400">{filteredApps.length}</span>
+                    </div>
+                  </div>
+
+                  <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
+                    <h3 className="font-bold text-xs text-orange-400 uppercase tracking-wider">💰 REPASSE DE COMISSÕES</h3>
+                    <div className="space-y-2">
+                      {Object.keys(profCommissionsMap).length === 0 ? (
+                        <p className="text-xs text-gray-400">Nenhum cálculo de comissão no período.</p>
+                      ) : (
+                        Object.entries(profCommissionsMap).map(([profName, val], idx) => (
+                          <div key={idx} className="flex justify-between items-center bg-gray-800 p-2.5 rounded-lg text-xs">
+                            <span className="font-bold text-white">{profName}</span>
+                            <span className="bg-green-500/20 text-green-400 px-2.5 py-1 rounded-md font-bold">A pagar: R$ {val.toFixed(2)}</span>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </section>
+
+                  <section className="bg-gray-900 p-4 rounded-xl border border-red-500/30 flex justify-between items-center mt-4">
+                    <div>
+                      <h4 className="font-bold text-xs text-red-400">🧹 Zerar Dados de Teste</h4>
+                      <p className="text-[10px] text-gray-400">Apaga todo o histórico de agendamentos.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleClearFinancialData}
+                      className="bg-red-500/20 hover:bg-red-500/40 text-red-400 border border-red-500/40 px-3 py-2 rounded-xl text-xs font-bold transition">
+                      🗑️ Limpar
+                    </button>
+                  </section>
                 </div>
-                <button
-                  type="button"
-                  onClick={handleClearFinancialData}
-                  className="bg-red-500/20 hover:bg-red-500/40 text-red-400 border border-red-500/40 px-3 py-2 rounded-xl text-xs font-bold transition">
-                  🗑️ Limpar
-                </button>
-              </section>
+              )}
             </div>
           )}
 

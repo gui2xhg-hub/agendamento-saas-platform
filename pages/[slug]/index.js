@@ -13,7 +13,7 @@ export default function AgendamentoCliente() {
   const [blockedTimes, setBlockedTimes] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // ESTADOS DO AGENDAMENTO (sem a opção ANY)
+  // ESTADOS DO AGENDAMENTO
   const [selectedServices, setSelectedServices] = useState([]);
   const [selectedProf, setSelectedProf] = useState('');
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
@@ -32,7 +32,7 @@ export default function AgendamentoCliente() {
   const [myAppointments, setMyAppointments] = useState([]);
   const [isSearchingApps, setIsSearchingApps] = useState(false);
 
-  // ESTADOS DE REAGENDAMENTO DO CLIENTE
+  // ESTADOS DE REAGENDAMENTO
   const [editingUserApp, setEditingUserApp] = useState(null);
   const [userNewDate, setUserNewDate] = useState('');
   const [userNewTime, setUserNewTime] = useState('');
@@ -44,7 +44,6 @@ export default function AgendamentoCliente() {
     }
   }, [router.isReady, slug]);
 
-  // FILTRAGEM INTELIGENTE DE PROFISSIONAIS HABILITADOS
   const filteredProfessionals = professionals.filter(p => {
     if (selectedServices.length === 0) return true;
 
@@ -68,7 +67,6 @@ export default function AgendamentoCliente() {
     });
   });
 
-  // SELEÇÃO AUTOMÁTICA DO PROFISSIONAL DISPONÍVEL
   useEffect(() => {
     if (filteredProfessionals.length > 0) {
       const isStillValid = filteredProfessionals.some(p => String(p.id) === String(selectedProf));
@@ -259,8 +257,12 @@ export default function AgendamentoCliente() {
   if (loading) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><p className="text-xs text-gray-400">Carregando...</p></div>;
   if (!tenant) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><h1 className="text-xl font-bold text-orange-500">Estabelecimento não encontrado</h1></div>;
 
+  // LEITURA DINÂMICA DAS CORES DO MASTER
   const primaryColor = tenant.primary_color || '#FF8C00';
-  const secondaryColor = tenant.secondary_color || '#111827';
+  const btnTextColor = tenant.button_text_color || '#FFFFFF';
+  const bgColor = tenant.background_color || tenant.secondary_color || '#090D16';
+  const cardColor = tenant.card_color || '#111827';
+  const textColor = tenant.text_color || '#FFFFFF';
 
   const totalDuration = selectedServices.reduce((acc, s) => acc + (s.duration_minutes || 30), 0);
   const totalPrice = selectedServices.reduce((acc, s) => acc + Number(s.price || 0), 0);
@@ -275,7 +277,6 @@ export default function AgendamentoCliente() {
     setSelectedTime('');
   };
 
-  // CÁLCULO DE HORÁRIOS DISPONÍVEIS
   const getSlotAvailability = () => {
     if (selectedServices.length === 0 || !selectedDate) {
       return { slots: [], status: 'select_service', message: 'Selecione ao menos um serviço.' };
@@ -288,13 +289,11 @@ export default function AgendamentoCliente() {
     const dateObj = new Date(selectedDate + 'T00:00:00');
     const dayOfWeek = dateObj.getDay();
 
-    // 1. FUNCIONAMENTO DA LOJA
     const tenantWorkDays = tenant?.work_days || [1, 2, 3, 4, 5, 6];
     if (!tenantWorkDays.includes(dayOfWeek)) {
       return { slots: [], status: 'store_closed', message: '🚪 O estabelecimento não funciona neste dia da semana.' };
     }
 
-    // 2. FUNCIONAMENTO DO PROFISSIONAL SELECIONADO
     const profObj = professionals.find(p => String(p.id) === String(selectedProf));
     if (!profObj) {
       return { slots: [], status: 'no_prof', message: 'Profissional não encontrado.' };
@@ -305,7 +304,6 @@ export default function AgendamentoCliente() {
       return { slots: [], status: 'prof_off', message: `💈 ${profObj.name} não atende neste dia da semana.` };
     }
 
-    // 3. BLOQUEIOS DO PROFISSIONAL
     const dayBlocks = blockedTimes.filter(b => {
       const isProfTarget = b.professional_id === null || String(b.professional_id) === String(selectedProf);
       if (!isProfTarget) return false;
@@ -316,7 +314,6 @@ export default function AgendamentoCliente() {
       return false;
     });
 
-    // 4. TIMELINE DE HORÁRIOS
     const openHour = parseInt((tenant.opening_time || '08:00').split(':')[0]);
     const openMin = parseInt((tenant.opening_time || '08:00').split(':')[1] || '0');
     const closeHour = parseInt((tenant.closing_time || '20:00').split(':')[0]);
@@ -334,7 +331,6 @@ export default function AgendamentoCliente() {
       const slotStartMin = currentMin;
       const slotEndMin = currentMin + totalDuration;
 
-      // Conflito com agendamentos do profissional
       const profApps = existingAppointments.filter(app => String(app.professional_id) === String(selectedProf));
       const hasAppConflict = profApps.some(app => {
         const [aStartH, aStartM] = app.start_time.split(':').map(Number);
@@ -343,7 +339,6 @@ export default function AgendamentoCliente() {
         return Math.max(slotStartMin, aStartMin) < Math.min(slotEndMin, aEndMin);
       });
 
-      // Conflito com bloqueios
       const hasBlockConflict = dayBlocks.some(b => {
         const [bStartH, bStartM] = b.start_time.split(':').map(Number);
         const [bEndH, bEndM] = b.end_time.split(':').map(Number);
@@ -445,22 +440,23 @@ export default function AgendamentoCliente() {
   };
 
   return (
-    <div className="min-h-screen text-white font-sans pb-12 max-w-md mx-auto" style={{ backgroundColor: secondaryColor }}>
+    <div className="min-h-screen font-sans pb-12 max-w-md mx-auto transition-colors duration-300" style={{ backgroundColor: bgColor, color: textColor }}>
       {/* CAPA & BOTÃO MEUS AGENDAMENTOS */}
-      <div className="relative h-36 bg-gray-900 border-b border-gray-800">
+      <div className="relative h-36 bg-gray-900 border-b border-white/10">
         <img src={tenant.banner_url || 'https://images.unsplash.com/photo-1503951914875-452162b0f3f1?w=800&auto=format&fit=crop&q=80'} alt="Capa" className="w-full h-full object-cover opacity-50" />
 
         <button
           onClick={() => setShowMyAppsModal(true)}
-          className="absolute top-3 right-3 bg-black/60 hover:bg-black border border-white/20 text-white text-[10px] font-bold px-3 py-1.5 rounded-full backdrop-blur-md transition">
+          style={{ backgroundColor: primaryColor, color: btnTextColor }}
+          className="absolute top-3 right-3 font-bold text-[10px] px-3 py-1.5 rounded-full shadow-lg transition">
           📋 Meus Agendamentos
         </button>
 
         <div className="absolute -bottom-5 left-4 flex items-center space-x-3">
-          <img src={tenant.logo_url || 'https://images.unsplash.com/photo-1585747860715-2ba37e788b70?w=150&auto=format&fit=crop&q=80'} alt="Logo" className="w-16 h-16 rounded-full border-2 border-gray-950 object-cover bg-gray-800 shadow-lg" />
+          <img src={tenant.logo_url || 'https://images.unsplash.com/photo-1585747860715-2ba37e788b70?w=150&auto=format&fit=crop&q=80'} alt="Logo" className="w-16 h-16 rounded-full border-2 border-black/40 object-cover bg-gray-800 shadow-lg" />
           <div className="pt-4">
-            <h1 className="font-bold text-lg text-white leading-tight">{tenant.name}</h1>
-            <p className="text-[11px] text-gray-400">📅 Agendamento Online</p>
+            <h1 className="font-bold text-lg leading-tight" style={{ color: textColor }}>{tenant.name}</h1>
+            <p className="text-[11px] opacity-70">📅 Agendamento Online</p>
           </div>
         </div>
       </div>
@@ -468,22 +464,37 @@ export default function AgendamentoCliente() {
       <div className="mt-8 px-4 space-y-6">
         {/* PASSO 1: SELEÇÃO DE SERVIÇOS */}
         <div className="space-y-2">
-          <label className="text-xs font-bold text-gray-300 block uppercase tracking-wider">1. Escolha os Serviços</label>
+          <label className="text-xs font-bold block uppercase tracking-wider opacity-80">1. Escolha os Serviços</label>
           <div className="space-y-2">
             {services.map(srv => {
               const isSelected = selectedServices.some(s => s.id === srv.id);
+              const serviceImg = srv.image_url || srv.image;
+
               return (
                 <div
                   key={srv.id}
                   onClick={() => handleToggleService(srv)}
-                  className={`p-3 rounded-xl border flex justify-between items-center cursor-pointer transition ${isSelected ? 'border-orange-500 bg-orange-500/10' : 'border-white/10 bg-black/30'}`}>
-                  <div>
-                    <h3 className="font-bold text-xs text-white">{srv.name}</h3>
-                    <p className="text-[10px] text-gray-400">⏱️ {srv.duration_minutes || 30} min</p>
+                  style={{
+                    backgroundColor: isSelected ? `${primaryColor}22` : cardColor,
+                    borderColor: isSelected ? primaryColor : 'rgba(255,255,255,0.1)'
+                  }}
+                  className="p-3 rounded-xl border flex justify-between items-center cursor-pointer transition">
+                  <div className="flex items-center space-x-3">
+                    {serviceImg && (
+                      <img 
+                        src={serviceImg} 
+                        alt={srv.name} 
+                        className="w-12 h-12 rounded-xl object-cover border border-white/10 bg-gray-800 shrink-0" 
+                      />
+                    )}
+                    <div>
+                      <h3 className="font-bold text-xs" style={{ color: textColor }}>{srv.name}</h3>
+                      <p className="text-[10px] opacity-60">⏱️ {srv.duration_minutes || 30} min</p>
+                    </div>
                   </div>
                   <div className="text-right">
                     <span className="font-bold text-xs" style={{ color: primaryColor }}>R$ {Number(srv.price).toFixed(2)}</span>
-                    <span className={`block text-[10px] font-bold mt-0.5 ${isSelected ? 'text-orange-400' : 'text-gray-500'}`}>
+                    <span className="block text-[10px] font-bold mt-0.5" style={{ color: isSelected ? primaryColor : 'rgba(255,255,255,0.4)' }}>
                       {isSelected ? '✓ Selecionado' : '+ Adicionar'}
                     </span>
                   </div>
@@ -493,25 +504,31 @@ export default function AgendamentoCliente() {
           </div>
         </div>
 
-        {/* PASSO 2: PROFISSIONAIS (SEM 'QUALQUER UM') */}
+        {/* PASSO 2: PROFISSIONAIS */}
         {selectedServices.length > 0 && (
           <div className="space-y-2 pt-2 border-t border-white/10">
-            <label className="text-xs font-bold text-gray-300 block uppercase tracking-wider">2. Escolha o Profissional</label>
+            <label className="text-xs font-bold block uppercase tracking-wider opacity-80">2. Escolha o Profissional</label>
             {filteredProfessionals.length === 0 ? (
               <p className="text-xs text-red-400 bg-red-500/10 p-3 rounded-xl border border-red-500/20 text-center">Nenhum profissional realiza todos os serviços selecionados.</p>
             ) : (
               <div className="flex space-x-2 overflow-x-auto pb-1 scrollbar-none">
-                {filteredProfessionals.map(p => (
-                  <button
-                    type="button"
-                    key={p.id}
-                    onClick={() => setSelectedProf(p.id)}
-                    style={{ backgroundColor: String(selectedProf) === String(p.id) ? primaryColor : 'rgba(255,255,255,0.05)' }}
-                    className="p-3 rounded-xl border border-white/10 flex flex-col items-center min-w-[100px] text-center transition">
-                    <img src={p.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80'} alt={p.name} className="w-9 h-9 rounded-full object-cover mb-1 border border-white/20" />
-                    <span className="text-xs font-bold text-white truncate max-w-[80px]">{p.name}</span>
-                  </button>
-                ))}
+                {filteredProfessionals.map(p => {
+                  const isSelected = String(selectedProf) === String(p.id);
+                  return (
+                    <button
+                      type="button"
+                      key={p.id}
+                      onClick={() => setSelectedProf(p.id)}
+                      style={{ 
+                        backgroundColor: isSelected ? primaryColor : cardColor,
+                        color: isSelected ? btnTextColor : textColor
+                      }}
+                      className="p-3 rounded-xl border border-white/10 flex flex-col items-center min-w-[100px] text-center transition">
+                      <img src={p.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80'} alt={p.name} className="w-9 h-9 rounded-full object-cover mb-1 border border-white/20" />
+                      <span className="text-xs font-bold truncate max-w-[80px]">{p.name}</span>
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -521,7 +538,7 @@ export default function AgendamentoCliente() {
         {selectedServices.length > 0 && filteredProfessionals.length > 0 && (
           <div className="space-y-4 pt-2 border-t border-white/10">
             <div className="space-y-1">
-              <label className="text-xs font-bold text-gray-300 block uppercase tracking-wider">3. Escolha a Data</label>
+              <label className="text-xs font-bold block uppercase tracking-wider opacity-80">3. Escolha a Data</label>
               <input
                 type="date"
                 min={new Date().toISOString().split('T')[0]}
@@ -530,16 +547,13 @@ export default function AgendamentoCliente() {
                   setSelectedDate(e.target.value);
                   setSelectedTime('');
                 }}
-                className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white focus:outline-none cursor-pointer"
-                style={{
-                  colorScheme: 'dark',
-                  accentColor: primaryColor
-                }}
+                style={{ backgroundColor: cardColor, color: textColor }}
+                className="w-full border border-white/10 p-3 rounded-xl text-xs focus:outline-none cursor-pointer"
               />
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-bold text-gray-300 block uppercase tracking-wider">4. Horários Disponíveis ({availableSlots.length})</label>
+              <label className="text-xs font-bold block uppercase tracking-wider opacity-80">4. Horários Disponíveis ({availableSlots.length})</label>
               
               {slotData.status !== 'ok' ? (
                 <p className="text-xs text-red-400 bg-red-500/10 p-3 rounded-xl border border-red-500/20 text-center font-semibold">
@@ -551,16 +565,22 @@ export default function AgendamentoCliente() {
                 </p>
               ) : (
                 <div className="grid grid-cols-4 gap-2 max-h-40 overflow-y-auto pt-1">
-                  {availableSlots.map(slot => (
-                    <button
-                      type="button"
-                      key={slot}
-                      onClick={() => setSelectedTime(slot)}
-                      style={{ backgroundColor: selectedTime === slot ? primaryColor : 'rgba(255,255,255,0.05)' }}
-                      className="py-2 rounded-lg border border-white/10 text-xs font-bold text-white text-center">
-                      {slot}
-                    </button>
-                  ))}
+                  {availableSlots.map(slot => {
+                    const isSelected = selectedTime === slot;
+                    return (
+                      <button
+                        type="button"
+                        key={slot}
+                        onClick={() => setSelectedTime(slot)}
+                        style={{ 
+                          backgroundColor: isSelected ? primaryColor : cardColor,
+                          color: isSelected ? btnTextColor : textColor
+                        }}
+                        className="py-2 rounded-lg border border-white/10 text-xs font-bold text-center transition">
+                        {slot}
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -570,14 +590,15 @@ export default function AgendamentoCliente() {
         {/* PASSO 4: CONFIRMAÇÃO */}
         {selectedTime && (
           <form onSubmit={handleConfirmAppointment} className="space-y-3 pt-4 border-t border-white/10">
-            <h3 className="font-bold text-xs text-gray-300 uppercase tracking-wider">5. Seus Dados</h3>
+            <h3 className="font-bold text-xs uppercase tracking-wider opacity-80">5. Seus Dados</h3>
             <input
               type="text"
               required
               placeholder="Seu Nome Completo"
               value={customerName}
               onChange={(e) => setCustomerName(e.target.value)}
-              className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white focus:outline-none"
+              style={{ backgroundColor: cardColor, color: textColor }}
+              className="w-full border border-white/10 p-3 rounded-xl text-xs focus:outline-none"
             />
             <input
               type="text"
@@ -585,30 +606,32 @@ export default function AgendamentoCliente() {
               placeholder="Seu WhatsApp (DDD + Número)"
               value={customerPhone}
               onChange={(e) => setCustomerPhone(e.target.value)}
-              className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white focus:outline-none"
+              style={{ backgroundColor: cardColor, color: textColor }}
+              className="w-full border border-white/10 p-3 rounded-xl text-xs focus:outline-none"
             />
 
             <select
               value={paymentMethod}
               onChange={(e) => setPaymentMethod(e.target.value)}
-              className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white focus:outline-none">
+              style={{ backgroundColor: cardColor, color: textColor }}
+              className="w-full border border-white/10 p-3 rounded-xl text-xs focus:outline-none">
               <option value="No Local">Pagar no Local (Dinheiro / Cartão / PIX)</option>
               <option value="PIX Antecipado">PIX Antecipado</option>
             </select>
 
-            <div className="bg-black/50 p-3 rounded-xl border border-white/10 flex justify-between items-center text-xs">
+            <div style={{ backgroundColor: cardColor }} className="p-3 rounded-xl border border-white/10 flex justify-between items-center text-xs">
               <div>
-                <span className="text-gray-400 block text-[10px]">Duração: {totalDuration} min</span>
-                <span className="font-bold text-white text-sm">TOTAL: R$ {totalPrice.toFixed(2)}</span>
+                <span className="opacity-60 block text-[10px]">Duração: {totalDuration} min</span>
+                <span className="font-bold text-sm">TOTAL: R$ {totalPrice.toFixed(2)}</span>
               </div>
-              <span className="text-orange-400 font-bold">{selectedDate.split('-').reverse().join('/')} às {selectedTime}</span>
+              <span className="font-bold" style={{ color: primaryColor }}>{selectedDate.split('-').reverse().join('/')} às {selectedTime}</span>
             </div>
 
             <button
               type="submit"
               disabled={isSubmitting}
-              style={{ backgroundColor: primaryColor }}
-              className="w-full font-bold py-3.5 rounded-xl text-xs text-white shadow-lg transition opacity-90 hover:opacity-100">
+              style={{ backgroundColor: primaryColor, color: btnTextColor }}
+              className="w-full font-bold py-3.5 rounded-xl text-xs shadow-lg transition hover:opacity-90">
               {isSubmitting ? 'Agendando...' : 'Confirmar Agendamento no WhatsApp 🚀'}
             </button>
           </form>
@@ -618,25 +641,26 @@ export default function AgendamentoCliente() {
       {/* MODAL MEUS AGENDAMENTOS */}
       {showMyAppsModal && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-900 border border-gray-800 w-full max-w-sm rounded-2xl p-5 space-y-4 shadow-2xl">
-            <div className="flex justify-between items-center border-b border-gray-800 pb-2">
-              <h3 className="font-bold text-sm text-orange-400">📋 Meus Agendamentos</h3>
-              <button onClick={() => { setShowMyAppsModal(false); setEditingUserApp(null); }} className="text-gray-400 font-bold text-xs">✕ Fechar</button>
+          <div style={{ backgroundColor: cardColor, color: textColor }} className="border border-white/10 w-full max-w-sm rounded-2xl p-5 space-y-4 shadow-2xl">
+            <div className="flex justify-between items-center border-b border-white/10 pb-2">
+              <h3 className="font-bold text-sm" style={{ color: primaryColor }}>📋 Meus Agendamentos</h3>
+              <button onClick={() => { setShowMyAppsModal(false); setEditingUserApp(null); }} className="opacity-60 font-bold text-xs">✕ Fechar</button>
             </div>
 
             {!editingUserApp ? (
               <>
                 <form onSubmit={handleSearchMyAppointments} className="space-y-2">
-                  <label className="text-[11px] text-gray-400 block">Digite seu WhatsApp para consultar:</label>
+                  <label className="text-[11px] opacity-70 block">Digite seu WhatsApp para consultar:</label>
                   <div className="flex space-x-2">
                     <input
                       type="text"
                       placeholder="DDD + WhatsApp"
                       value={searchPhone}
                       onChange={(e) => setSearchPhone(e.target.value)}
-                      className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none"
+                      style={{ backgroundColor: bgColor, color: textColor }}
+                      className="w-full border border-white/10 p-2.5 rounded-xl text-xs focus:outline-none"
                     />
-                    <button type="submit" disabled={isSearchingApps} className="bg-orange-500 hover:bg-orange-600 px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap">
+                    <button type="submit" disabled={isSearchingApps} style={{ backgroundColor: primaryColor, color: btnTextColor }} className="px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap">
                       {isSearchingApps ? '...' : 'Buscar'}
                     </button>
                   </div>
@@ -644,15 +668,15 @@ export default function AgendamentoCliente() {
 
                 <div className="space-y-2 max-h-72 overflow-y-auto">
                   {myAppointments.length === 0 ? (
-                    <p className="text-xs text-gray-500 text-center py-4">Nenhum agendamento encontrado.</p>
+                    <p className="text-xs opacity-50 text-center py-4">Nenhum agendamento encontrado.</p>
                   ) : (
                     myAppointments.map(app => {
                       const canManage = app.status === 'agendado';
 
                       return (
-                        <div key={app.id} className="bg-gray-800 p-3 rounded-xl border border-gray-700 text-xs space-y-2">
+                        <div key={app.id} style={{ backgroundColor: bgColor }} className="p-3 rounded-xl border border-white/10 text-xs space-y-2">
                           <div className="flex justify-between font-bold">
-                            <span className="text-orange-400">📅 {app.appointment_date.split('-').reverse().join('/')} às {app.start_time}</span>
+                            <span style={{ color: primaryColor }}>📅 {app.appointment_date.split('-').reverse().join('/')} às {app.start_time}</span>
                             <span className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded ${
                               app.status === 'agendado' ? 'bg-yellow-500/20 text-yellow-400' :
                               app.status === 'concluido' ? 'bg-green-500/20 text-green-400' :
@@ -662,10 +686,10 @@ export default function AgendamentoCliente() {
                             </span>
                           </div>
 
-                          <p className="text-gray-300"><b>Valor:</b> R$ {Number(app.total_price).toFixed(2)} ({app.payment_method})</p>
+                          <p className="opacity-80"><b>Valor:</b> R$ {Number(app.total_price).toFixed(2)} ({app.payment_method})</p>
 
                           {canManage && (
-                            <div className="flex space-x-2 pt-1 border-t border-gray-700/60">
+                            <div className="flex space-x-2 pt-1 border-t border-white/10">
                               <button
                                 onClick={() => handleOpenUserReschedule(app)}
                                 className="flex-1 bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 py-1.5 rounded-lg font-bold text-[10px] border border-purple-500/30">
@@ -688,31 +712,29 @@ export default function AgendamentoCliente() {
               <form onSubmit={handleSaveUserReschedule} className="space-y-3">
                 <div className="bg-purple-500/10 border border-purple-500/30 p-2.5 rounded-xl text-xs">
                   <span className="text-purple-300 font-bold block">Reagendando Atendimento #{editingUserApp.id}</span>
-                  <span className="text-gray-400 text-[10px]">Data Atual: {editingUserApp.appointment_date.split('-').reverse().join('/')} às {editingUserApp.start_time}</span>
+                  <span className="opacity-60 text-[10px]">Data Atual: {editingUserApp.appointment_date.split('-').reverse().join('/')} às {editingUserApp.start_time}</span>
                 </div>
 
                 <div>
-                  <label className="text-[11px] text-gray-400 block mb-1">Nova Data:</label>
+                  <label className="text-[11px] opacity-70 block mb-1">Nova Data:</label>
                   <input
                     type="date"
                     min={new Date().toISOString().split('T')[0]}
                     value={userNewDate}
                     onChange={(e) => setUserNewDate(e.target.value)}
-                    className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none cursor-pointer"
-                    style={{
-                      colorScheme: 'dark',
-                      accentColor: primaryColor
-                    }}
+                    style={{ backgroundColor: bgColor, color: textColor }}
+                    className="w-full border border-white/10 p-2.5 rounded-xl text-xs focus:outline-none cursor-pointer"
                   />
                 </div>
 
                 <div>
-                  <label className="text-[11px] text-gray-400 block mb-1">Novo Horário:</label>
+                  <label className="text-[11px] opacity-70 block mb-1">Novo Horário:</label>
                   <input
                     type="time"
                     value={userNewTime}
                     onChange={(e) => setUserNewTime(e.target.value)}
-                    className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-xs text-white focus:outline-none"
+                    style={{ backgroundColor: bgColor, color: textColor }}
+                    className="w-full border border-white/10 p-2.5 rounded-xl text-xs focus:outline-none"
                   />
                 </div>
 
@@ -726,7 +748,8 @@ export default function AgendamentoCliente() {
                   <button
                     type="submit"
                     disabled={isSavingUserReschedule}
-                    className="w-1/2 bg-orange-500 hover:bg-orange-600 text-white py-2.5 rounded-xl text-xs font-bold transition">
+                    style={{ backgroundColor: primaryColor, color: btnTextColor }}
+                    className="w-1/2 py-2.5 rounded-xl text-xs font-bold transition">
                     {isSavingUserReschedule ? 'Salvando...' : 'Confirmar Novo Horário'}
                   </button>
                 </div>

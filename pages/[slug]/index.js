@@ -45,7 +45,7 @@ export default function AgendamentoCliente() {
   }, [router.isReady, slug]);
 
   // SE TIVER APENAS 1 PROFISSIONAL, SELECIONA AUTOMATICAMENTE
-  // CASO CONTRÁRIO, LE DA URL (?prof=ID)
+  // CASO CONTRÁRIO, LÊ DA URL (?prof=ID)
   useEffect(() => {
     if (professionals.length === 1) {
       setSelectedProf(professionals[0].id);
@@ -361,7 +361,19 @@ export default function AgendamentoCliente() {
     const endMin = closeHour * 60 + closeMin;
     const slots = [];
 
+    // Checagem de horário atual para bloquear horários passados no dia de hoje
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const isToday = selectedDate === todayStr;
+    const nowInMinutes = now.getHours() * 60 + now.getMinutes();
+
     while (currentMin + totalDuration <= endMin) {
+      // Se a data selecionada for HOJE e o slot já passou, pula para o próximo
+      if (isToday && currentMin <= nowInMinutes) {
+        currentMin += 30;
+        continue;
+      }
+
       const h = Math.floor(currentMin / 60);
       const m = currentMin % 60;
       const timeString = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;

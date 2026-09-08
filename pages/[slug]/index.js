@@ -4,7 +4,7 @@ import { supabase } from '../../lib/supabase';
 
 export default function AgendamentoCliente() {
   const router = useRouter();
-  const { slug } = router.query;
+  const { slug, prof, staff } = router.query;
 
   const [tenant, setTenant] = useState(null);
   const [professionals, setProfessionals] = useState([]);
@@ -67,16 +67,24 @@ export default function AgendamentoCliente() {
     });
   });
 
+  // SELEÇÃO AUTOMÁTICA DE PROFISSIONAL (LEITURA DA URL OU FILTRO)
   useEffect(() => {
     if (filteredProfessionals.length > 0) {
-      const isStillValid = filteredProfessionals.some(p => String(p.id) === String(selectedProf));
-      if (!isStillValid) {
-        setSelectedProf(filteredProfessionals[0].id);
+      const urlProfId = prof || staff;
+      const urlMatch = filteredProfessionals.find(p => String(p.id) === String(urlProfId));
+
+      if (urlMatch) {
+        setSelectedProf(urlMatch.id);
+      } else {
+        const isStillValid = filteredProfessionals.some(p => String(p.id) === String(selectedProf));
+        if (!isStillValid) {
+          setSelectedProf(filteredProfessionals[0].id);
+        }
       }
     } else {
       setSelectedProf('');
     }
-  }, [filteredProfessionals]);
+  }, [filteredProfessionals, prof, staff]);
 
   useEffect(() => {
     if (tenant?.id && selectedDate) {
@@ -177,7 +185,11 @@ export default function AgendamentoCliente() {
         console.error("Erro ao disparar notificação:", err);
       }
 
-      const cleanWhatsapp = tenant.whatsapp ? tenant.whatsapp.replace(/\D/g, '') : '';
+      // IDENTIFICA QUAL WHATSAPP NOTIFICAR NO CANCELAMENTO
+      const appProfObj = professionals.find(p => String(p.id) === String(app.professional_id));
+      const targetPhone = (appProfObj && appProfObj.phone) ? appProfObj.phone : tenant.whatsapp;
+      const cleanWhatsapp = targetPhone ? targetPhone.replace(/\D/g, '') : '';
+
       if (cleanWhatsapp) {
         const msg = `*CANCELAMENTO DE AGENDAMENTO #${app.id} - ${tenant.name.toUpperCase()}*\n\n` +
           `Olá, o cliente *${app.customer_name}* cancelou o agendamento do dia *${formattedDate}* às *${app.start_time}*.`;
@@ -240,7 +252,10 @@ export default function AgendamentoCliente() {
       console.error("Erro ao disparar notificação:", err);
     }
 
-    const cleanWhatsapp = tenant.whatsapp ? tenant.whatsapp.replace(/\D/g, '') : '';
+    const appProfObj = professionals.find(p => String(p.id) === String(editingUserApp.professional_id));
+    const targetPhone = (appProfObj && appProfObj.phone) ? appProfObj.phone : tenant.whatsapp;
+    const cleanWhatsapp = targetPhone ? targetPhone.replace(/\D/g, '') : '';
+
     if (cleanWhatsapp) {
       const msg = `*SOLICITAÇÃO DE REAGENDAMENTO #${editingUserApp.id} - ${tenant.name.toUpperCase()}*\n\n` +
         `Cliente: *${editingUserApp.customer_name}*\n` +
@@ -279,6 +294,16 @@ export default function AgendamentoCliente() {
 
   const totalDuration = selectedServices.reduce((acc, s) => acc + (s.duration_minutes || 30), 0);
   const totalPrice = selectedServices.reduce((acc, s) => acc + Number(s.price || 0), 0);
+
+  // PROFISSIONAL ATUAL SELECIONADO & LINK DO INSTAGRAM DINÂMICO
+  const selectedProfObj = professionals.find(p => String(p.id) === String(selectedProf));
+  const activeInstagram = (selectedProfObj && selectedProfObj.instagram_url) 
+    ? selectedProfObj.instagram_url 
+    : (tenant?.instagram_url || '');
+
+  const formattedInstagramUrl = activeInstagram
+    ? (activeInstagram.startsWith('http') ? activeInstagram : `https://instagram.com/${activeInstagram.replace('@', '').trim()}`)
+    : '';
 
   const handleToggleService = (srv) => {
     const exists = selectedServices.some(s => s.id === srv.id);
@@ -388,7 +413,8 @@ export default function AgendamentoCliente() {
     const endTime = endDateObj.toTimeString().substring(0, 5);
 
     const chosenProfId = parseInt(selectedProf);
-    const chosenProfName = professionals.find(p => String(p.id) === String(chosenProfId))?.name || '';
+    const chosenProfObj = professionals.find(p => String(p.id) === String(chosenProfId));
+    const chosenProfName = chosenProfObj?.name || '';
 
     const appointmentData = {
       tenant_id: tenant.id,
@@ -442,7 +468,13 @@ export default function AgendamentoCliente() {
       msg += `\n\n📌 _${tenant.custom_message}_`;
     }
 
-    const cleanWhatsapp = tenant.whatsapp ? tenant.whatsapp.replace(/\D/g, '') : '';
+    // DEFINE O WHATSAPP DE DESTINO (PROFISSIONAL OU CENTRAL)
+    const targetPhone = (chosenProfObj && chosenProfObj.phone && chosenProfObj.phone.trim() !== '') 
+      ? chosenProfObj.phone 
+      : tenant.whatsapp;
+      
+    const cleanWhatsapp = targetPhone ? targetPhone.replace(/\D/g, '') : '';
+
     if (cleanWhatsapp) {
       window.open(`https://wa.me/${cleanWhatsapp}?text=${encodeURIComponent(msg)}`, '_blank');
     }
@@ -458,13 +490,13 @@ export default function AgendamentoCliente() {
       <div className="relative h-36 bg-gray-900 border-b border-white/10">
         <img src={tenant.banner_url || 'https://images.unsplash.com/photo-1503951914875-452162b0f3f1?w=800&auto=format&fit=crop&q=80'} alt="Capa" className="w-full h-full object-cover opacity-50" />
 
-        {/* BOTÃO DO INSTAGRAM (SE HOUVER LINK CADASTRADO) */}
-        {tenant.instagram_url && (
+        {/* BOTÃO DO INSTAGRAM DINÂMICO */}
+        {formattedInstagramUrl && (
           <a
-            href={tenant.instagram_url.startsWith('http') ? tenant.instagram_url : `https://${tenant.instagram_url}`}
+            href={formattedInstagramUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="absolute top-3 left-3 bg-gradient-to-r from-purple-600 via-pink-600 to-orange-500 text-white font-bold text-[10px] px-3 py-1.5 rounded-full shadow-lg transition flex items-center space-x-1 hover:opacity-90">
+            className="absolute top-3 left-3 bg-gradient-to-r from-purple-600 via-pink-600 to-orange-500 text-white font-bold text-[10px] px-3 py-1.5 rounded-full shadow-lg transition flex items-center space-x-1 hover:opacity-90 z-10">
             <span>📸 Instagram</span>
           </a>
         )}
@@ -472,7 +504,7 @@ export default function AgendamentoCliente() {
         <button
           onClick={() => setShowMyAppsModal(true)}
           style={{ backgroundColor: primaryColor, color: btnTextColor }}
-          className="absolute top-3 right-3 font-bold text-[10px] px-3 py-1.5 rounded-full shadow-lg transition">
+          className="absolute top-3 right-3 font-bold text-[10px] px-3 py-1.5 rounded-full shadow-lg transition z-10">
           📋 Meus Agendamentos
         </button>
 

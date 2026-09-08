@@ -257,12 +257,29 @@ export default function AgendamentoCliente() {
   if (loading) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><p className="text-xs text-gray-400">Carregando...</p></div>;
   if (!tenant) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><h1 className="text-xl font-bold text-orange-500">Estabelecimento não encontrado</h1></div>;
 
+  // HELPER PARA DETECTAR SE UMA COR HEX É ESCURA
+  const isColorDark = (hex) => {
+    if (!hex || hex.length < 6) return true;
+    const cleanHex = hex.replace('#', '');
+    const r = parseInt(cleanHex.substring(0, 2), 16) || 0;
+    const g = parseInt(cleanHex.substring(2, 4), 16) || 0;
+    const b = parseInt(cleanHex.substring(4, 6), 16) || 0;
+    const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+    return brightness < 128;
+  };
+
   // LEITURA DINÂMICA DAS CORES DO MASTER
   const primaryColor = tenant.primary_color || '#FF8C00';
   const btnTextColor = tenant.button_text_color || '#FFFFFF';
   const bgColor = tenant.background_color || tenant.secondary_color || '#090D16';
   const cardColor = tenant.card_color || '#111827';
   const textColor = tenant.text_color || '#FFFFFF';
+
+  // LÓGICA INTELIGENTE DE CONTRASTE PARA O TEXTO DOS VALORES
+  // Se a cor do botão for muito escura, usa a cor de texto do tema (ou destaque claro) para o preço não sumir
+  const accentPriceColor = isColorDark(primaryColor) 
+    ? (isColorDark(cardColor) ? '#FF8C00' : textColor) 
+    : primaryColor;
 
   const totalDuration = selectedServices.reduce((acc, s) => acc + (s.duration_minutes || 30), 0);
   const totalPrice = selectedServices.reduce((acc, s) => acc + Number(s.price || 0), 0);
@@ -493,8 +510,10 @@ export default function AgendamentoCliente() {
                     </div>
                   </div>
                   <div className="text-right">
-                    <span className="font-bold text-xs" style={{ color: primaryColor }}>R$ {Number(srv.price).toFixed(2)}</span>
-                    <span className="block text-[10px] font-bold mt-0.5" style={{ color: isSelected ? primaryColor : 'rgba(255,255,255,0.4)' }}>
+                    <span className="font-bold text-xs block" style={{ color: accentPriceColor }}>
+                      R$ {Number(srv.price).toFixed(2)}
+                    </span>
+                    <span className="block text-[10px] font-bold mt-0.5" style={{ color: isSelected ? accentPriceColor : 'rgba(255,255,255,0.4)' }}>
                       {isSelected ? '✓ Selecionado' : '+ Adicionar'}
                     </span>
                   </div>
@@ -624,7 +643,7 @@ export default function AgendamentoCliente() {
                 <span className="opacity-60 block text-[10px]">Duração: {totalDuration} min</span>
                 <span className="font-bold text-sm">TOTAL: R$ {totalPrice.toFixed(2)}</span>
               </div>
-              <span className="font-bold" style={{ color: primaryColor }}>{selectedDate.split('-').reverse().join('/')} às {selectedTime}</span>
+              <span className="font-bold" style={{ color: accentPriceColor }}>{selectedDate.split('-').reverse().join('/')} às {selectedTime}</span>
             </div>
 
             <button
@@ -643,7 +662,7 @@ export default function AgendamentoCliente() {
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
           <div style={{ backgroundColor: cardColor, color: textColor }} className="border border-white/10 w-full max-w-sm rounded-2xl p-5 space-y-4 shadow-2xl">
             <div className="flex justify-between items-center border-b border-white/10 pb-2">
-              <h3 className="font-bold text-sm" style={{ color: primaryColor }}>📋 Meus Agendamentos</h3>
+              <h3 className="font-bold text-sm" style={{ color: accentPriceColor }}>📋 Meus Agendamentos</h3>
               <button onClick={() => { setShowMyAppsModal(false); setEditingUserApp(null); }} className="opacity-60 font-bold text-xs">✕ Fechar</button>
             </div>
 
@@ -676,7 +695,7 @@ export default function AgendamentoCliente() {
                       return (
                         <div key={app.id} style={{ backgroundColor: bgColor }} className="p-3 rounded-xl border border-white/10 text-xs space-y-2">
                           <div className="flex justify-between font-bold">
-                            <span style={{ color: primaryColor }}>📅 {app.appointment_date.split('-').reverse().join('/')} às {app.start_time}</span>
+                            <span style={{ color: accentPriceColor }}>📅 {app.appointment_date.split('-').reverse().join('/')} às {app.start_time}</span>
                             <span className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded ${
                               app.status === 'agendado' ? 'bg-yellow-500/20 text-yellow-400' :
                               app.status === 'concluido' ? 'bg-green-500/20 text-green-400' :

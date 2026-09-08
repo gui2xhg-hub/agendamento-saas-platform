@@ -305,6 +305,27 @@ export default function AgendamentoCliente() {
     ? (activeInstagram.startsWith('http') ? activeInstagram : `https://instagram.com/${activeInstagram.replace('@', '').trim()}`)
     : '';
 
+  // FILTRO DINÂMICO DOS SERVIÇOS: Exibe apenas os serviços exclusivos do profissional ativo
+  const displayedServices = services.filter(srv => {
+    if (!selectedProf) return true;
+
+    let allowedProfIds = srv.professional_ids;
+    if (typeof allowedProfIds === 'string') {
+      try { allowedProfIds = JSON.parse(allowedProfIds); } catch (e) { allowedProfIds = []; }
+    }
+
+    if (Array.isArray(allowedProfIds) && allowedProfIds.length > 0) {
+      return allowedProfIds.some(id => String(id) === String(selectedProf));
+    }
+
+    const hasTableRel = profServices.some(ps => String(ps.service_id) === String(srv.id));
+    if (hasTableRel) {
+      return profServices.some(ps => String(ps.service_id) === String(srv.id) && String(ps.professional_id) === String(selectedProf));
+    }
+
+    return true;
+  });
+
   const handleToggleService = (srv) => {
     const exists = selectedServices.some(s => s.id === srv.id);
     if (exists) {
@@ -509,86 +530,100 @@ export default function AgendamentoCliente() {
         </button>
 
         <div className="absolute -bottom-5 left-4 flex items-center space-x-3">
-          <img src={tenant.logo_url || 'https://images.unsplash.com/photo-1585747860715-2ba37e788b70?w=150&auto=format&fit=crop&q=80'} alt="Logo" className="w-16 h-16 rounded-full border-2 border-black/40 object-cover bg-gray-800 shadow-lg" />
+          <img 
+            src={selectedProfObj?.avatar_url || tenant.logo_url || 'https://images.unsplash.com/photo-1585747860715-2ba37e788b70?w=150&auto=format&fit=crop&q=80'} 
+            alt="Logo/Profissional" 
+            className="w-16 h-16 rounded-full border-2 border-black/40 object-cover bg-gray-800 shadow-lg" 
+          />
           <div className="pt-4">
-            <h1 className="font-bold text-lg leading-tight" style={{ color: textColor }}>{tenant.name}</h1>
-            <p className="text-[11px] opacity-70">📅 Agendamento Online</p>
+            <h1 className="font-bold text-lg leading-tight" style={{ color: textColor }}>
+              {selectedProfObj?.name || tenant.name}
+            </h1>
+            <p className="text-[11px] opacity-70">
+              {selectedProfObj ? `💈 ${tenant.name}` : '📅 Agendamento Online'}
+            </p>
           </div>
         </div>
       </div>
 
       <div className="mt-8 px-4 space-y-6">
-        {/* PASSO 1: SELEÇÃO DE SERVIÇOS */}
+        {/* PASSO 1: SELEÇÃO DE SERVIÇOS (EXIBE APENAS OS DA PROFISSIONAL ATIVA) */}
         <div className="space-y-2">
           <label className="text-xs font-bold block uppercase tracking-wider opacity-80">1. Escolha os Serviços</label>
           <div className="space-y-2">
-            {services.map(srv => {
-              const isSelected = selectedServices.some(s => s.id === srv.id);
-              const serviceImg = srv.image_url || srv.image;
+            {displayedServices.length === 0 ? (
+              <p className="text-xs text-gray-400 bg-gray-900/50 p-4 rounded-xl text-center border border-white/5">
+                Nenhum serviço disponível para este profissional.
+              </p>
+            ) : (
+              displayedServices.map(srv => {
+                const isSelected = selectedServices.some(s => s.id === srv.id);
+                const serviceImg = srv.image_url || srv.image;
 
-              return (
-                <div
-                  key={srv.id}
-                  onClick={() => handleToggleService(srv)}
-                  style={{
-                    backgroundColor: isSelected ? `${primaryColor}22` : cardColor,
-                    borderColor: isSelected ? primaryColor : 'rgba(255,255,255,0.1)'
-                  }}
-                  className="p-3 rounded-xl border flex justify-between items-center cursor-pointer transition">
-                  <div className="flex items-center space-x-3">
-                    {serviceImg && (
-                      <img 
-                        src={serviceImg} 
-                        alt={srv.name} 
-                        className="w-12 h-12 rounded-xl object-cover border border-white/10 bg-gray-800 shrink-0" 
-                      />
-                    )}
-                    <div>
-                      <h3 className="font-bold text-xs" style={{ color: textColor }}>{srv.name}</h3>
-                      <p className="text-[10px] opacity-60">⏱️ {srv.duration_minutes || 30} min</p>
+                return (
+                  <div
+                    key={srv.id}
+                    onClick={() => handleToggleService(srv)}
+                    style={{
+                      backgroundColor: isSelected ? `${primaryColor}22` : cardColor,
+                      borderColor: isSelected ? primaryColor : 'rgba(255,255,255,0.1)'
+                    }}
+                    className="p-3 rounded-xl border flex justify-between items-center cursor-pointer transition">
+                    <div className="flex items-center space-x-3">
+                      {serviceImg && (
+                        <img 
+                          src={serviceImg} 
+                          alt={srv.name} 
+                          className="w-12 h-12 rounded-xl object-cover border border-white/10 bg-gray-800 shrink-0" 
+                        />
+                      )}
+                      <div>
+                        <h3 className="font-bold text-xs" style={{ color: textColor }}>{srv.name}</h3>
+                        <p className="text-[10px] opacity-60">⏱️ {srv.duration_minutes || 30} min</p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <span className="font-bold text-xs block" style={{ color: accentPriceColor }}>
+                        R$ {Number(srv.price).toFixed(2)}
+                      </span>
+                      <span className="block text-[10px] font-bold mt-0.5" style={{ color: isSelected ? accentPriceColor : 'rgba(255,255,255,0.4)' }}>
+                        {isSelected ? '✓ Selecionado' : '+ Adicionar'}
+                      </span>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <span className="font-bold text-xs block" style={{ color: accentPriceColor }}>
-                      R$ {Number(srv.price).toFixed(2)}
-                    </span>
-                    <span className="block text-[10px] font-bold mt-0.5" style={{ color: isSelected ? accentPriceColor : 'rgba(255,255,255,0.4)' }}>
-                      {isSelected ? '✓ Selecionado' : '+ Adicionar'}
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
+                );
+              })
+            )}
           </div>
         </div>
 
         {/* PASSO 2: PROFISSIONAIS */}
-        {selectedServices.length > 0 && (
+        {selectedServices.length > 0 && filteredProfessionals.length > 1 && (
           <div className="space-y-2 pt-2 border-t border-white/10">
             <label className="text-xs font-bold block uppercase tracking-wider opacity-80">2. Escolha o Profissional</label>
-            {filteredProfessionals.length === 0 ? (
-              <p className="text-xs text-red-400 bg-red-500/10 p-3 rounded-xl border border-red-500/20 text-center">Nenhum profissional realiza todos os serviços selecionados.</p>
-            ) : (
-              <div className="flex space-x-2 overflow-x-auto pb-1 scrollbar-none">
-                {filteredProfessionals.map(p => {
-                  const isSelected = String(selectedProf) === String(p.id);
-                  return (
-                    <button
-                      type="button"
-                      key={p.id}
-                      onClick={() => setSelectedProf(p.id)}
-                      style={{ 
-                        backgroundColor: isSelected ? primaryColor : cardColor,
-                        color: isSelected ? btnTextColor : textColor
-                      }}
-                      className="p-3 rounded-xl border border-white/10 flex flex-col items-center min-w-[100px] text-center transition">
-                      <img src={p.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80'} alt={p.name} className="w-9 h-9 rounded-full object-cover mb-1 border border-white/20" />
-                      <span className="text-xs font-bold truncate max-w-[80px]">{p.name}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
+            <div className="flex space-x-2 overflow-x-auto pb-1 scrollbar-none">
+              {filteredProfessionals.map(p => {
+                const isSelected = String(selectedProf) === String(p.id);
+                return (
+                  <button
+                    type="button"
+                    key={p.id}
+                    onClick={() => {
+                      setSelectedProf(p.id);
+                      setSelectedServices([]);
+                      setSelectedTime('');
+                    }}
+                    style={{ 
+                      backgroundColor: isSelected ? primaryColor : cardColor,
+                      color: isSelected ? btnTextColor : textColor
+                    }}
+                    className="p-3 rounded-xl border border-white/10 flex flex-col items-center min-w-[100px] text-center transition">
+                    <img src={p.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80'} alt={p.name} className="w-9 h-9 rounded-full object-cover mb-1 border border-white/20" />
+                    <span className="text-xs font-bold truncate max-w-[80px]">{p.name}</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         )}
 

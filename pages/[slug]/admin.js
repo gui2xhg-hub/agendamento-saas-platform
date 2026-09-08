@@ -33,7 +33,8 @@ export default function AdminTenant() {
     price: '', 
     duration_minutes: '30', 
     category: 'Geral', 
-    professional_ids: [] 
+    professional_ids: [],
+    image_url: ''
   });
   const [editingService, setEditingService] = useState(null);
 
@@ -42,7 +43,7 @@ export default function AdminTenant() {
     phone: '', 
     avatar_url: '', 
     commission_percentage: '50',
-    work_days: [1, 2, 3, 4, 5, 6] // Padrão Seg a Sáb
+    work_days: [1, 2, 3, 4, 5, 6]
   });
   const [editingProf, setEditingProf] = useState(null);
 
@@ -138,6 +139,7 @@ export default function AdminTenant() {
       duration_minutes: parseInt(newService.duration_minutes || 30),
       category: newService.category || 'Geral',
       professional_ids: newService.professional_ids || [],
+      image_url: newService.image_url ? newService.image_url.trim() : '',
       active: true
     }]);
 
@@ -145,7 +147,7 @@ export default function AdminTenant() {
       alert("Erro ao cadastrar serviço: " + error.message);
     } else {
       alert("Serviço cadastrado com sucesso!");
-      setNewService({ name: '', price: '', duration_minutes: '30', category: 'Geral', professional_ids: [] });
+      setNewService({ name: '', price: '', duration_minutes: '30', category: 'Geral', professional_ids: [], image_url: '' });
       fetchData();
     }
   };
@@ -159,7 +161,8 @@ export default function AdminTenant() {
       price: formattedPrice,
       duration_minutes: parseInt(editingService.duration_minutes || 30),
       category: editingService.category || 'Geral',
-      professional_ids: editingService.professional_ids || []
+      professional_ids: editingService.professional_ids || [],
+      image_url: editingService.image_url ? editingService.image_url.trim() : ''
     }).eq('id', editingService.id);
 
     if (error) {
@@ -306,6 +309,15 @@ export default function AdminTenant() {
                 <input type="text" placeholder="Categoria" value={newService.category} className="w-1/3 bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewService({ ...newService, category: e.target.value })} />
               </div>
 
+              {/* CAMPO DE IMAGEM OPCIONAL DO SERVIÇO */}
+              <input 
+                type="text" 
+                placeholder="URL da Foto do Serviço (Opcional)" 
+                value={newService.image_url} 
+                className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" 
+                onChange={(e) => setNewService({ ...newService, image_url: e.target.value })} 
+              />
+
               {professionals.length > 0 && (
                 <div className="border-t border-gray-800 pt-2">
                   <label className="text-[11px] text-gray-400 font-bold block mb-1">
@@ -346,14 +358,25 @@ export default function AdminTenant() {
             {services.map((s) => {
               const assignedProfIds = s.professional_ids || [];
               const assignedProfs = professionals.filter(p => assignedProfIds.includes(p.id));
+              const serviceImg = s.image_url || s.image;
 
               return (
                 <div key={s.id} className="bg-gray-900 p-3 rounded-xl border border-gray-800 space-y-2">
                   <div className="flex justify-between items-center">
-                    <div>
-                      <span className={`font-bold text-xs block ${!s.active ? 'line-through text-gray-500' : 'text-white'}`}>{s.name} <span className="text-[10px] text-gray-500 font-normal">({s.category || 'Geral'})</span></span>
-                      <span className="text-xs text-orange-400 font-bold">R$ {Number(s.price).toFixed(2)} • <span className="text-gray-400 font-normal">{s.duration_minutes} min</span></span>
+                    <div className="flex items-center space-x-3">
+                      {serviceImg && (
+                        <img 
+                          src={serviceImg} 
+                          alt={s.name} 
+                          className="w-12 h-12 rounded-lg object-cover border border-gray-700 bg-gray-800 shrink-0" 
+                        />
+                      )}
+                      <div>
+                        <span className={`font-bold text-xs block ${!s.active ? 'line-through text-gray-500' : 'text-white'}`}>{s.name} <span className="text-[10px] text-gray-500 font-normal">({s.category || 'Geral'})</span></span>
+                        <span className="text-xs text-orange-400 font-bold">R$ {Number(s.price).toFixed(2)} • <span className="text-gray-400 font-normal">{s.duration_minutes} min</span></span>
+                      </div>
                     </div>
+
                     <div className="flex items-center space-x-1.5">
                       <button onClick={() => setEditingService(s)} className="text-xs bg-blue-600/20 text-blue-400 p-1.5 rounded-lg font-bold border border-blue-500/30">✏️ Editar</button>
                       <button onClick={async () => { await supabase.from('services').update({ active: !s.active }).eq('id', s.id); fetchData(); }} className={`text-[10px] font-bold px-2 py-1.5 rounded-lg ${s.active ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'}`}>{s.active ? 'Ativo' : 'Pausado'}</button>
@@ -390,7 +413,6 @@ export default function AdminTenant() {
                 <input type="number" value={newProf.commission_percentage} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProf({ ...newProf, commission_percentage: e.target.value })} />
               </div>
 
-              {/* DIAS DE ATENDIMENTO DO PROFISSIONAL */}
               <div className="bg-gray-950 p-3 rounded-xl border border-gray-800 space-y-2">
                 <label className="text-[11px] font-bold text-purple-400 block">📅 Dias de Atendimento / Trabalho:</label>
                 <p className="text-[10px] text-gray-500">*(Desmarque os dias em que o profissional NÃO trabalha)*</p>
@@ -499,7 +521,6 @@ export default function AdminTenant() {
                 <input type="text" value={tenant.name || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, name: e.target.value })} />
               </div>
 
-              {/* HORÁRIOS E DIAS DA SEMANA */}
               <div className="bg-gray-950 p-3 rounded-xl border border-gray-800 space-y-3">
                 <div className="flex justify-between items-center flex-wrap gap-1">
                   <label className="text-[11px] font-bold text-orange-400 block">📆 Dias de Funcionamento da Loja:</label>
@@ -597,6 +618,14 @@ export default function AdminTenant() {
               <input type="text" value={editingService.category || 'Geral'} onChange={(e) => setEditingService({ ...editingService, category: e.target.value })} className="w-1/3 bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
             </div>
 
+            <input 
+              type="text" 
+              placeholder="URL da Foto do Serviço (Opcional)" 
+              value={editingService.image_url || editingService.image || ''} 
+              onChange={(e) => setEditingService({ ...editingService, image_url: e.target.value })} 
+              className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" 
+            />
+
             {professionals.length > 0 && (
               <div className="border-t border-gray-800 pt-2">
                 <label className="text-[11px] text-gray-400 font-bold block mb-1">
@@ -643,7 +672,6 @@ export default function AdminTenant() {
             <input type="text" value={editingProf.avatar_url || ''} onChange={(e) => setEditingProf({ ...editingProf, avatar_url: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" placeholder="URL Avatar" />
             <input type="number" value={editingProf.commission_percentage || ''} onChange={(e) => setEditingProf({ ...editingProf, commission_percentage: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" placeholder="% Comissão" />
 
-            {/* DIAS DE ATENDIMENTO DO PROFISSIONAL */}
             <div className="bg-gray-950 p-3 rounded-xl border border-gray-800 space-y-2">
               <label className="text-[11px] font-bold text-purple-400 block">📅 Dias de Atendimento / Trabalho:</label>
               <div className="grid grid-cols-7 gap-1">

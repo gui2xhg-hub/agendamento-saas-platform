@@ -125,9 +125,9 @@ export default function HomePortalAgendamento() {
     setTimeout(() => setCopiedPix(false), 2500);
   };
 
-  // FORMATADOR DE MOEDA BRASILEIRA (EX: R$ 99,99)
-  const formatCurrency = (amount) => {
-    const val = Number(amount || 99.99);
+  // 🟢 FORMATADOR DE MOEDA BRASILEIRA (CORRIGIDO PARA PRESERVAR R$ 0,00)
+  const formatCurrency = (amount, fallback = 0) => {
+    const val = Number(amount ?? fallback);
     return val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
   };
 
@@ -288,7 +288,9 @@ export default function HomePortalAgendamento() {
 
                 <div className="p-3 rounded-2xl border" style={{ backgroundColor: secondaryColor, borderColor: 'rgba(255,255,255,0.05)' }}>
                   <span className="opacity-60 block text-[10px]">Movimentação Prevista:</span>
-                  <span className="text-base font-bold text-green-400">{formatCurrency(stats.totalRevenue)}</span>
+                  <span className="text-base font-bold text-green-400">
+                    {formatCurrency(stats.totalRevenue, 0)}
+                  </span>
                 </div>
 
                 <div className="p-3 rounded-2xl border col-span-2 sm:col-span-1 flex justify-between items-center" style={{ backgroundColor: secondaryColor, borderColor: 'rgba(255,255,255,0.05)' }}>
@@ -318,7 +320,7 @@ export default function HomePortalAgendamento() {
                   <h3 className="font-bold text-sm" style={{ color: textColor }}>Status da Assinatura SaaS</h3>
                 </div>
                 <p className="text-xs opacity-80">
-                  {dueInfo.label} • Valor: <b className="text-green-400">{formatCurrency(tenant.monthly_fee)}/mês</b>
+                  {dueInfo.label} • Valor: <b className="text-green-400">{formatCurrency(tenant.monthly_fee, 99.99)}/mês</b>
                 </p>
               </div>
 
@@ -476,7 +478,7 @@ export default function HomePortalAgendamento() {
               <h3 className="font-bold text-base text-white">Pagamento de Mensalidade via PIX</h3>
               <p className="text-xs text-gray-400 mt-0.5">
                 Favorecido: <b className="text-white">Henrique Gonçalves de Olinda</b><br />
-                Valor da Mensalidade: <b className="text-green-400">{formatCurrency(tenant.monthly_fee)}</b>
+                Valor da Mensalidade: <b className="text-green-400">{formatCurrency(tenant.monthly_fee, 99.99)}</b>
               </p>
             </div>
 
@@ -509,7 +511,7 @@ export default function HomePortalAgendamento() {
 
             <a 
               href={`https://wa.me/${SUPPORT_WHATSAPP}?text=${encodeURIComponent(
-                `Olá! Realizei o pagamento da mensalidade do sistema de agendamento *${tenant.name}* (${formatCurrency(tenant.monthly_fee)}). Segue o comprovante em anexo!`
+                `Olá! Realizei o pagamento da mensalidade do sistema de agendamento *${tenant.name}* (${formatCurrency(tenant.monthly_fee, 99.99)}). Segue o comprovante em anexo!`
               )}`} 
               target="_blank" 
               rel="noopener noreferrer"

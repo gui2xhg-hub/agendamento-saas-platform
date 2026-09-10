@@ -88,6 +88,21 @@ export default function AgendaTenant() {
     }
   }, [tenant?.id, selectedDate]);
 
+  // FUNÇÃO DE FILTRO: RETORNA APENAS OS SERVIÇOS DO PROFISSIONAL SELECIONADO
+  const getManualServicesForProf = (profId) => {
+    if (!profId) return [];
+    return services.filter(s => {
+      let allowedProfIds = s.professional_ids;
+      if (typeof allowedProfIds === 'string') {
+        try { allowedProfIds = JSON.parse(allowedProfIds); } catch (e) { allowedProfIds = []; }
+      }
+      if (Array.isArray(allowedProfIds) && allowedProfIds.length > 0) {
+        return allowedProfIds.some(id => String(id) === String(profId));
+      }
+      return true; // Se nenhum profissional for especificado, todos realizam
+    });
+  };
+
   const fetchTenantAndData = async () => {
     setLoading(true);
     const cleanSlug = String(slug).toLowerCase().trim();
@@ -98,16 +113,32 @@ export default function AgendaTenant() {
       const { data: pData } = await supabase.from('professionals').select('*').eq('tenant_id', tData.id).eq('active', true);
       const { data: sData } = await supabase.from('services').select('*').eq('tenant_id', tData.id).eq('active', true);
       
+      let initialProfId = '';
       if (pData && pData.length > 0) {
         setProfessionals(pData);
-        setSelectedProf(pData[0].id);
-        setBlockProfId(pData[0].id);
-        setManualProfId(pData[0].id);
+        initialProfId = pData[0].id;
+        setSelectedProf(initialProfId);
+        setBlockProfId(initialProfId);
+        setManualProfId(initialProfId);
       }
 
       if (sData) {
         setServices(sData);
-        if (sData.length > 0) setManualSelectedServiceId(sData[0].id);
+        if (initialProfId) {
+          const availableForProf = sData.filter(s => {
+            let allowed = s.professional_ids;
+            if (typeof allowed === 'string') {
+              try { allowed = JSON.parse(allowed); } catch (e) { allowed = []; }
+            }
+            if (Array.isArray(allowed) && allowed.length > 0) {
+              return allowed.some(id => String(id) === String(initialProfId));
+            }
+            return true;
+          });
+          if (availableForProf.length > 0) {
+            setManualSelectedServiceId(availableForProf[0].id);
+          }
+        }
       }
       
       await fetchAppointmentsAndBlocks(tData.id);
@@ -424,11 +455,23 @@ export default function AgendaTenant() {
     }
   };
 
-  const handleQuickManualAppSlot = (timeSlot) => {
-    setManualProfId(selectedProf);
+  const openManualModalWithProf = (profId, timeSlot = '09:00') => {
+    setManualProfId(profId);
     setManualDate(selectedDate);
     setManualStartTime(timeSlot);
+
+    const validServices = getManualServicesForProf(profId);
+    if (validServices.length > 0) {
+      setManualSelectedServiceId(validServices[0].id);
+    } else {
+      setManualSelectedServiceId('');
+    }
+
     setShowManualAppModal(true);
+  };
+
+  const handleQuickManualAppSlot = (timeSlot) => {
+    openManualModalWithProf(selectedProf, timeSlot);
   };
 
   const handleQuickBlockSlot = (timeSlot) => {
@@ -448,7 +491,7 @@ export default function AgendaTenant() {
     setShowBlockModal(true);
   };
 
-  // GERAÇÃO DA LINHA DO TEMPO (PUXANDO DO PAINEL ADMIN DO PROFISSIONAL)
+  // GERAÇÃO DA LINHA DO TEMPO
   const generateTimeline = () => {
     if (!selectedProf) return [];
 
@@ -552,6 +595,9 @@ export default function AgendaTenant() {
   const selectedDayOfWeekNum = new Date(blockDate + 'T00:00:00').getDay();
   const selectedDayLabel = ALL_DAYS.find(d => d.id === selectedDayOfWeekNum)?.label || '';
 
+  // Serviços filtrados para o modal manual
+  const manualFilteredServices = getManualServicesForProf(manualProfId);
+
   return (
     <div className="min-h-screen bg-gray-950 text-white p-4 max-w-5xl mx-auto font-sans pb-20">
       <header className="flex flex-col md:flex-row justify-between items-start md:items-center py-4 border-b border-gray-800 mb-4 gap-4">
@@ -570,11 +616,7 @@ export default function AgendaTenant() {
           />
 
           <button
-            onClick={() => {
-              setManualProfId(selectedProf);
-              setManualDate(selectedDate);
-              setShowManualAppModal(true);
-            }}
+            onClick={() => openManualModalWithProf(selectedProf)}
             className="bg-green-600 hover:bg-green-700 text-white px-3.5 py-2.5 rounded-xl text-xs font-bold transition shadow-lg flex items-center space-x-1 whitespace-nowrap">
             <span>➕ Agendar Cliente</span>
           </button>
@@ -867,8 +909,17 @@ export default function AgendaTenant() {
                 <label className="text-gray-400 block mb-1">Profissional Atendente:</label>
                 <select
                   value={manualProfId}
-                  onChange={(e) => setManualProfId(e.target.value)}
-                  className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-white focus:outline-none">
+                  onChange={(e) => {
+                    const newProfId = e.target.value;
+                    setManualProfId(newProfId);
+                    const validServices = getManualServicesForProf(newProfId);
+                    if (validServices.length > 0) {
+                      setManualSelectedServiceId(validServices[0].id);
+                    } else {
+                      setManualSelectedServiceId('');
+                    }
+                  }}
+                  className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-white focus:outline-none cursor-pointer">
                   {professionals.map(p => (
                     <option key={p.id} value={p.id}>{p.name}</option>
                   ))}
@@ -904,12 +955,16 @@ export default function AgendaTenant() {
                 <select
                   value={manualSelectedServiceId}
                   onChange={(e) => setManualSelectedServiceId(e.target.value)}
-                  className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-white focus:outline-none">
-                  {services.map(s => (
-                    <option key={s.id} value={s.id}>
-                      {s.name} — R$ {Number(s.price).toFixed(2)} ({formatDuration(s.duration_minutes)})
-                    </option>
-                  ))}
+                  className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-white focus:outline-none cursor-pointer">
+                  {manualFilteredServices.length === 0 ? (
+                    <option value="">Nenhum procedimento atribuído a esta profissional</option>
+                  ) : (
+                    manualFilteredServices.map(s => (
+                      <option key={s.id} value={s.id}>
+                        {s.name} — R$ {Number(s.price).toFixed(2)} ({formatDuration(s.duration_minutes)})
+                      </option>
+                    ))
+                  )}
                 </select>
               </div>
 
@@ -947,8 +1002,8 @@ export default function AgendaTenant() {
                 </button>
                 <button
                   type="submit"
-                  disabled={isSavingManualApp}
-                  className="w-1/2 bg-green-600 hover:bg-green-700 text-white py-3 rounded-xl font-bold transition">
+                  disabled={isSavingManualApp || manualFilteredServices.length === 0}
+                  className="w-1/2 bg-green-600 hover:bg-green-700 text-white py-3 rounded-xl font-bold transition disabled:opacity-50">
                   {isSavingManualApp ? 'Agendando...' : 'Confirmar & Notificar WhatsApp 🚀'}
                 </button>
               </div>

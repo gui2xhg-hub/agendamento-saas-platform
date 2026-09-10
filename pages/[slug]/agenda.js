@@ -42,7 +42,7 @@ export default function AgendaTenant() {
   
   // CONTROLE AVANÇADO DE RECORRÊNCIA
   const [isRecurringBlock, setIsRecurringBlock] = useState(false);
-  const [blockRepeatDays, setBlockRepeatDays] = useState([1, 2, 3, 4, 5, 6]); // Padrão: Seg-Sáb
+  const [blockRepeatDays, setBlockRepeatDays] = useState([1, 2, 3, 4, 5, 6]);
   const [isSavingBlock, setIsSavingBlock] = useState(false);
 
   // MODAL DE REAGENDAMENTO
@@ -105,7 +105,6 @@ export default function AgendaTenant() {
   const fetchAppointmentsAndBlocks = async (tenantId = tenant?.id) => {
     if (!tenantId) return;
 
-    // Buscar agendamentos da data
     const { data: apps } = await supabase
       .from('appointments')
       .select('*')
@@ -114,7 +113,6 @@ export default function AgendaTenant() {
       .neq('status', 'cancelado')
       .order('start_time', { ascending: true });
 
-    // Buscar bloqueios (Pontuais + Recorrentes)
     const { data: blocks } = await supabase
       .from('blocked_times')
       .select('*')
@@ -134,7 +132,6 @@ export default function AgendaTenant() {
     }
   };
 
-  // NAVEGAÇÃO DE DIAS DA SEMANA
   const getWeekDays = (baseDateStr) => {
     const baseDate = new Date(baseDateStr + 'T00:00:00');
     const dayOfWeek = baseDate.getDay();
@@ -163,7 +160,6 @@ export default function AgendaTenant() {
 
   const currentWeekDays = getWeekDays(selectedDate);
 
-  // CRIAR AGENDAMENTO MANUAL PELO PAINEL
   const handleCreateManualApp = async (e) => {
     e.preventDefault();
     if (!manualCustomerName || !manualCustomerPhone) return alert("Preencha o Nome e WhatsApp do cliente!");
@@ -231,7 +227,6 @@ export default function AgendaTenant() {
     }
   };
 
-  // TOGGLE DE SELEÇÃO DE DIAS PARA O BLOQUEIO RECORRENTE
   const toggleRepeatDay = (dayId) => {
     if (blockRepeatDays.includes(dayId)) {
       if (blockRepeatDays.length === 1) return alert("Selecione pelo menos um dia para a repetição!");
@@ -241,19 +236,26 @@ export default function AgendaTenant() {
     }
   };
 
-  // BLOQUEAR HORÁRIO / REPETIR DURANTE O MÊS TODO
   const handleCreateBlock = async (e) => {
     e.preventDefault();
     if (!blockDate) return alert("Preencha a data!");
 
     setIsSavingBlock(true);
 
-    const openTime = tenant?.opening_time || '08:00';
-    const closeTime = tenant?.closing_time || '20:00';
+    const blockDayOfWeek = new Date(blockDate + 'T00:00:00').getDay();
+    const currentProf = professionals.find(p => String(p.id) === String(blockProfId));
+
+    let profWorkHours = currentProf?.work_hours || {};
+    if (typeof profWorkHours === 'string') {
+      try { profWorkHours = JSON.parse(profWorkHours); } catch (err) { profWorkHours = {}; }
+    }
+    const dayHours = profWorkHours[blockDayOfWeek] || { open: '08:00', close: '18:00' };
+
+    const openTime = dayHours.open || '08:00';
+    const closeTime = dayHours.close || '18:00';
 
     const finalStartTime = isFullDayBlock ? openTime : blockStartTime;
     const finalEndTime = isFullDayBlock ? closeTime : blockEndTime;
-    const blockDayOfWeek = new Date(blockDate + 'T00:00:00').getDay();
 
     let finalReason = blockReason || 'Horário Bloqueado';
     if (isRecurringBlock) finalReason += ' [RECORRENTE]';
@@ -261,7 +263,6 @@ export default function AgendaTenant() {
     let payloads = [];
 
     if (isRecurringBlock) {
-      // Cria uma regra de recorrência para cada dia da semana selecionado (mês todo)
       payloads = blockRepeatDays.map(dayNum => ({
         tenant_id: tenant.id,
         professional_id: blockProfId ? parseInt(blockProfId) : null,
@@ -273,7 +274,6 @@ export default function AgendaTenant() {
         recurring_day: dayNum
       }));
     } else {
-      // Bloqueio único e pontual somente para a data especificada
       payloads = [{
         tenant_id: tenant.id,
         professional_id: blockProfId ? parseInt(blockProfId) : null,
@@ -299,7 +299,6 @@ export default function AgendaTenant() {
     }
   };
 
-  // DESBLOQUEAR HORÁRIO
   const handleDeleteBlock = async (blockId) => {
     if (!confirm("Deseja desmarcar este bloqueio e liberar o horário novamente?")) return;
 
@@ -312,7 +311,6 @@ export default function AgendaTenant() {
     }
   };
 
-  // REAGENDAR ATENDIMENTO
   const handleOpenReschedule = (app) => {
     setEditingApp(app);
     setRescheduleDate(app.appointment_date);
@@ -375,7 +373,6 @@ export default function AgendaTenant() {
     }
   };
 
-  // ATUALIZAR STATUS COM NOTIFICAÇÃO PUSH
   const handleUpdateAppStatus = async (app, newStatus) => {
     const { error } = await supabase.from('appointments').update({ status: newStatus }).eq('id', app.id);
     
@@ -414,7 +411,6 @@ export default function AgendaTenant() {
     }
   };
 
-  // ABRIR AGENDAMENTO DIRETO PELA TIMELINE
   const handleQuickManualAppSlot = (timeSlot) => {
     setManualProfId(selectedProf);
     setManualDate(selectedDate);
@@ -422,10 +418,9 @@ export default function AgendaTenant() {
     setShowManualAppModal(true);
   };
 
-  // BLOQUEAR HORÁRIO DIRETO PELA TIMELINE (EX: ALMOÇO)
   const handleQuickBlockSlot = (timeSlot) => {
     const [h, m] = timeSlot.split(':').map(Number);
-    const endMin = h * 60 + m + 90; // Sugere 1h30 de intervalo
+    const endMin = h * 60 + m + 90;
     const endH = Math.floor(endMin / 60);
     const endM = endMin % 60;
     const endTimeStr = `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`;
@@ -436,28 +431,36 @@ export default function AgendaTenant() {
     setBlockEndTime(endTimeStr);
     setBlockReason('Almoço / Intervalo');
     setIsFullDayBlock(false);
-    setIsRecurringBlock(true); // Já abre sugerindo ser recorrente
+    setIsRecurringBlock(true);
     setShowBlockModal(true);
   };
 
-  // GERAÇÃO DA LINHA DO TEMPO
+  // GERAÇÃO DA LINHA DO TEMPO (PUXANDO DO PAINEL ADMIN DO PROFISSIONAL)
   const generateTimeline = () => {
     if (!selectedProf) return [];
 
     const selectedDayOfWeek = new Date(selectedDate + 'T00:00:00').getDay();
-    const tenantWorkDays = tenant?.work_days || [1, 2, 3, 4, 5, 6];
     const currentProf = professionals.find(p => String(p.id) === String(selectedProf));
-    const profWorkDays = currentProf?.work_days || [1, 2, 3, 4, 5, 6];
 
-    if (!tenantWorkDays.includes(selectedDayOfWeek)) {
-      return [{ type: 'day_closed', reason: 'Estabelecimento Fechado neste dia da semana.' }];
+    // Sanitiza e valida os dias de trabalho do profissional
+    let profWorkDays = currentProf?.work_days || [1, 2, 3, 4, 5, 6];
+    if (typeof profWorkDays === 'string') {
+      try { profWorkDays = JSON.parse(profWorkDays); } catch (e) { profWorkDays = [1, 2, 3, 4, 5, 6]; }
     }
+
     if (!profWorkDays.includes(selectedDayOfWeek)) {
       return [{ type: 'prof_off', reason: `${currentProf?.name || 'Profissional'} não atende neste dia da semana (Folga Recorrente).` }];
     }
 
-    const [openH, openM] = (tenant?.opening_time || '08:00').split(':').map(Number);
-    const [closeH, closeM] = (tenant?.closing_time || '20:00').split(':').map(Number);
+    // Puxa as horas específicas configuradas na aba "Equipe" para o dia da semana atual
+    let profWorkHours = currentProf?.work_hours || {};
+    if (typeof profWorkHours === 'string') {
+      try { profWorkHours = JSON.parse(profWorkHours); } catch (e) { profWorkHours = {}; }
+    }
+
+    const dayHours = profWorkHours[selectedDayOfWeek] || { open: '08:00', close: '18:00' };
+    const [openH, openM] = (dayHours.open || '08:00').split(':').map(Number);
+    const [closeH, closeM] = (dayHours.close || '18:00').split(':').map(Number);
 
     let currentMin = openH * 60 + (openM || 0);
     const endMin = closeH * 60 + (closeM || 0);
@@ -538,8 +541,6 @@ export default function AgendaTenant() {
 
   return (
     <div className="min-h-screen bg-gray-950 text-white p-4 max-w-5xl mx-auto font-sans pb-20">
-      
-      {/* CABEÇALHO */}
       <header className="flex flex-col md:flex-row justify-between items-start md:items-center py-4 border-b border-gray-800 mb-4 gap-4">
         <div>
           <h1 className="font-bold text-xl text-orange-500">📅 Gestão da Agenda — {tenant.name}</h1>
@@ -684,14 +685,13 @@ export default function AgendaTenant() {
         </div>
 
         {timelineItems.map((item, idx) => {
-
-          if (item.type === 'day_closed' || item.type === 'prof_off') {
+          if (item.type === 'prof_off') {
             return (
               <div key={`off-${idx}`} className="bg-red-950/20 border border-red-500/40 p-6 rounded-3xl text-center space-y-2 my-4">
                 <span className="text-2xl block">🛑</span>
                 <h3 className="font-bold text-sm text-red-400">Agenda Indisponível neste dia</h3>
                 <p className="text-xs text-gray-300">{item.reason}</p>
-                <p className="text-[10px] text-gray-500">Você pode ajustar os dias de atendimento na aba Config/Equipe do Admin.</p>
+                <p className="text-[10px] text-gray-500">Você pode ajustar os dias de atendimento na aba Equipe do Admin.</p>
               </div>
             );
           }
@@ -818,7 +818,7 @@ export default function AgendaTenant() {
                     <span className="text-red-400 font-bold block">🔒 Horário Bloqueado</span>
                     {isRecurring && (
                       <span className="bg-purple-500/20 text-purple-300 border border-purple-500/30 text-[9px] font-bold px-2 py-0.5 rounded-full">
-                        🔁 Recorrente (Mês Todo)
+                        🔁 Recorrente
                       </span>
                     )}
                   </div>
@@ -1049,7 +1049,6 @@ export default function AgendaTenant() {
                 />
               </div>
 
-              {/* OPÇÃO DE DIA INTEIRO */}
               <div className="flex items-center justify-between bg-gray-950 p-3 rounded-xl border border-gray-800">
                 <div>
                   <span className="font-bold text-white block">📅 Bloquear o Dia Inteiro</span>
@@ -1058,12 +1057,11 @@ export default function AgendaTenant() {
                 <input
                   type="checkbox"
                   checked={isFullDayBlock}
-                  onChange={(e) => setIsFullDayBlock(e.target.value ? e.target.checked : false)}
+                  onChange={(e) => setIsFullDayBlock(e.target.checked)}
                   className="w-4 h-4 accent-purple-500 cursor-pointer"
                 />
               </div>
 
-              {/* OPÇÃO DE RECORRÊNCIA SEMANAL / MÊS TODO */}
               <div className="bg-purple-950/20 p-3 rounded-xl border border-purple-500/30 space-y-2">
                 <div className="flex items-center justify-between">
                   <div>

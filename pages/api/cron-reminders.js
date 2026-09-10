@@ -2,68 +2,106 @@ import { supabase } from '../../lib/supabase';
 
 export default async function handler(req, res) {
   const { secret } = req.query;
+  
+  // Validação da sua chave de segurança
   if (secret !== 'sinerge2026') {
     return res.status(401).json({ error: 'Acesso não autorizado.' });
   }
 
   try {
-    const now = new Date();
-    const todayStr = now.toISOString().split('T')[0];
+    // 1. Calcula a data de AMANHÃ (Formato YYYY-MM-DD e DD/MM/YYYY)
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowStr = tomorrow.toISOString().split('T')[0];
+    const tomorrowFormatted = tomorrowStr.split('-').reverse().join('/');
 
-    // Busca agendamentos pendentes do dia com os dados da loja
+    // 2. Busca agendamentos de amanhã trazendo os dados da LOJA e do PROFISSIONAL
     const { data: apps, error } = await supabase
       .from('appointments')
-      .select('*, tenants(name, whatsapp, instance_id, api_key)')
-      .eq('appointment_date', todayStr)
-      .eq('status', 'agendado')
+      .select('*, tenants(*), professionals(*)')
+      .eq('appointment_date', tomorrowStr)
+      .neq('status', 'cancelado')
       .or('reminder_sent.is.null,reminder_sent.eq.false');
 
     if (error) throw error;
 
     const updatedIds = [];
+    const logs = [];
 
     for (const app of apps || []) {
-      const [appH, appM] = app.start_time.split(':').map(Number);
-      const appMinTotal = appH * 60 + appM;
-      const currMinTotal = now.getHours() * 60 + now.getMinutes();
+      const tenant = app.tenants;
+      const prof = app.professionals;
 
-      const diff = appMinTotal - currMinTotal;
+      // Se a loja não tem robô ativado nem credenciais de WhatsApp, ignora
+      if (tenant?.bot_enabled === false) continue;
 
-      // Dispara se o agendamento estiver entre 15 e 35 minutos de distância
-      if (diff >= 15 && diff <= 35) {
-        const tenant = app.tenants;
+      const instanceId = tenant?.bot_whatsapp_instance || tenant?.instance_id;
+      const apiKey = tenant?.bot_whatsapp_token || tenant?.api_key;
 
-        // Se o cliente tem a API de WhatsApp configurada, faz o disparo
-        if (tenant?.instance_id && tenant?.api_key) {
-          const message = `*LEMBRETE DE AGENDAMENTO — ${tenant.name.toUpperCase()}*\n\n` +
-            `Olá *${app.customer_name}*, passando para lembrar que seu atendimento está marcado para daqui a pouco, às *${app.start_time}*.\n\n` +
-            `Te aguardamos no local!`;
+      if (!instanceId || !apiKey) continue;
 
-          // Exemplo de requisição para Evolution API (ajustar a URL da sua instância)
-          await fetch(`https://sua-api-evolution.com/message/sendText/${tenant.instance_id}`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'apikey': tenant.api_key
-            },
-            body: JSON.stringify({
-              number: `55${app.customer_phone}`,
-              text: message
-            })
-          });
-        }
+      // Dados do cliente e atendimento
+      const clientName = app.customer_name || app.client_name || 'Cliente';
+      const rawPhone = app.customer_phone || app.client_phone || app.phone || '';
+      const cleanPhone = rawPhone.replace(/\D/g, '');
+      if (!cleanPhone) continue;
 
-        // Marca como lembrete enviado para não repetir
+      const serviceName = app.service_name || 'Atendimento';
+      const startTime = app.start_time || app.appointment_time || app.time || '';
+      const profName = prof?.name || 'Nossa Equipe';
+
+      // REGRA DE MENSAGEM:
+      // 1º Usa a mensagem própria do profissional (se ele cadastrou uma)
+      // 2º Se vazia, usa a mensagem padrão da loja
+      // 3º Se vazia, usa o modelo fallback padrão
+      let template = (prof?.bot_message_template && prof.bot_message_template.trim() !== '')
+        ? prof.bot_message_template
+        : (tenant?.bot_message_template || `Olá *{cliente}*! 👋 Passando para lembrar que seu atendimento de *{servico}* está marcado para amanhã ({data}) às *{horario}* no *{empresa}* com *{profissional}*.\n\nTe aguardamos!`);
+
+      // Substituição automática das variáveis na mensagem
+      const finalMessage = template
+        .replace(/{cliente}/g, clientName)
+        .replace(/{servico}/g, serviceName)
+        .replace(/{data}/g, tomorrowFormatted)
+        .replace(/{horario}/g, startTime)
+        .replace(/{empresa}/g, tenant?.name || '')
+        .replace(/{profissional}/g, profName);
+
+      const formattedPhone = cleanPhone.startsWith('55') ? cleanPhone : `55${cleanPhone}`;
+
+      try {
+        // Disparo para a API de WhatsApp (Evolution API / Z-API)
+        // Lembre-se de ajustar 'https://api.seugateway.com' para a URL real da sua API
+        await fetch(`https://api.seugateway.com/message/sendText/${instanceId}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey': apiKey
+          },
+          body: JSON.stringify({
+            number: formattedPhone,
+            text: finalMessage
+          })
+        });
+
+        // Marca como lembrete enviado para não disparar novamente
         await supabase
           .from('appointments')
           .update({ reminder_sent: true })
           .eq('id', app.id);
 
         updatedIds.push(app.id);
+        logs.push(`✓ Lembrete enviado para ${clientName} (${formattedPhone}) - Prof: ${profName}`);
+      } catch (sendErr) {
+        logs.push(`❌ Erro ao enviar para ${clientName}: ${sendErr.message}`);
       }
     }
 
-    return res.status(200).json({ success: true, processed: updatedIds.length });
+    return res.status(200).json({ 
+      success: true, 
+      processed: updatedIds.length,
+      logs 
+    });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }

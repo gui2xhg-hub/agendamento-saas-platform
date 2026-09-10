@@ -12,6 +12,19 @@ const DEFAULT_WORK_HOURS = {
   0: { open: '08:00', close: '18:00' }
 };
 
+// FUNÇÃO AUXILIAR PARA FORMATAR MINUTOS EM HORAS E MINUTOS
+const formatDuration = (minutes) => {
+  const mins = Number(minutes) || 0;
+  if (mins <= 0) return '30 min';
+  if (mins < 60) return `${mins} min`;
+  
+  const hrs = Math.floor(mins / 60);
+  const remMins = mins % 60;
+  
+  if (remMins === 0) return `${hrs}h`;
+  return `${hrs}h ${remMins}min`;
+};
+
 export default function AdminTenant() {
   const router = useRouter();
   const { slug } = router.query;
@@ -474,7 +487,27 @@ export default function AdminTenant() {
               
               <div className="flex space-x-2">
                 <input type="text" placeholder="Preço R$" value={newService.price} className="w-1/3 bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewService({ ...newService, price: e.target.value })} />
-                <input type="number" placeholder="Duração (min)" value={newService.duration_minutes} className="w-1/3 bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewService({ ...newService, duration_minutes: e.target.value })} />
+                
+                {/* SELECT DE DURAÇÃO EM HORAS/MINUTOS */}
+                <select 
+                  value={newService.duration_minutes} 
+                  onChange={(e) => setNewService({ ...newService, duration_minutes: e.target.value })} 
+                  className="w-1/3 bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none cursor-pointer">
+                  <option value="15">15 min</option>
+                  <option value="30">30 min</option>
+                  <option value="45">45 min</option>
+                  <option value="60">1 hora</option>
+                  <option value="75">1h 15min</option>
+                  <option value="90">1h 30min</option>
+                  <option value="105">1h 45min</option>
+                  <option value="120">2 horas</option>
+                  <option value="135">2h 15min</option>
+                  <option value="150">2h 30min</option>
+                  <option value="180">3 horas</option>
+                  <option value="210">3h 30min</option>
+                  <option value="240">4 horas</option>
+                </select>
+
                 <input type="text" placeholder="Categoria" value={newService.category} className="w-1/3 bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewService({ ...newService, category: e.target.value })} />
               </div>
 
@@ -541,7 +574,7 @@ export default function AdminTenant() {
                       )}
                       <div>
                         <span className={`font-bold text-xs block ${!s.active ? 'line-through text-gray-500' : 'text-white'}`}>{s.name} <span className="text-[10px] text-gray-500 font-normal">({s.category || 'Geral'})</span></span>
-                        <span className="text-xs text-orange-400 font-bold">R$ {Number(s.price).toFixed(2)} • <span className="text-gray-400 font-normal">{s.duration_minutes} min</span></span>
+                        <span className="text-xs text-orange-400 font-bold">R$ {Number(s.price).toFixed(2)} • <span className="text-gray-400 font-normal">{formatDuration(s.duration_minutes)}</span></span>
                       </div>
                     </div>
 
@@ -1158,7 +1191,27 @@ export default function AdminTenant() {
             
             <div className="flex space-x-2">
               <input type="text" value={editingService.price} onChange={(e) => setEditingService({ ...editingService, price: e.target.value })} className="w-1/3 bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
-              <input type="number" value={editingService.duration_minutes} onChange={(e) => setEditingService({ ...editingService, duration_minutes: e.target.value })} className="w-1/3 bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
+              
+              {/* SELECT DE DURAÇÃO NO MODAL DE EDIÇÃO */}
+              <select 
+                value={editingService.duration_minutes} 
+                onChange={(e) => setEditingService({ ...editingService, duration_minutes: e.target.value })} 
+                className="w-1/3 bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none cursor-pointer">
+                <option value="15">15 min</option>
+                <option value="30">30 min</option>
+                <option value="45">45 min</option>
+                <option value="60">1 hora</option>
+                <option value="75">1h 15min</option>
+                <option value="90">1h 30min</option>
+                <option value="105">1h 45min</option>
+                <option value="120">2 horas</option>
+                <option value="135">2h 15min</option>
+                <option value="150">2h 30min</option>
+                <option value="180">3 horas</option>
+                <option value="210">3h 30min</option>
+                <option value="240">4 horas</option>
+              </select>
+
               <input type="text" value={editingService.category || 'Geral'} onChange={(e) => setEditingService({ ...editingService, category: e.target.value })} className="w-1/3 bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
             </div>
 

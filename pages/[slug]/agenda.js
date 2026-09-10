@@ -2,6 +2,19 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../../lib/supabase';
 
+// FUNÇÃO AUXILIAR PARA FORMATAR MINUTOS EM HORAS E MINUTOS
+const formatDuration = (minutes) => {
+  const mins = Number(minutes) || 0;
+  if (mins <= 0) return '30 min';
+  if (mins < 60) return `${mins} min`;
+  
+  const hrs = Math.floor(mins / 60);
+  const remMins = mins % 60;
+  
+  if (remMins === 0) return `${hrs}h`;
+  return `${hrs}h ${remMins}min`;
+};
+
 export default function AgendaTenant() {
   const router = useRouter();
   const { slug } = router.query;
@@ -894,7 +907,7 @@ export default function AgendaTenant() {
                   className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-white focus:outline-none">
                   {services.map(s => (
                     <option key={s.id} value={s.id}>
-                      {s.name} — R$ {Number(s.price).toFixed(2)} ({s.duration_minutes || 30} min)
+                      {s.name} — R$ {Number(s.price).toFixed(2)} ({formatDuration(s.duration_minutes)})
                     </option>
                   ))}
                 </select>

@@ -2,6 +2,19 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../../lib/supabase';
 
+// FUNÇÃO AUXILIAR PARA FORMATAR MINUTOS EM HORAS E MINUTOS
+const formatDuration = (minutes) => {
+  const mins = Number(minutes) || 0;
+  if (mins <= 0) return '30 min';
+  if (mins < 60) return `${mins} min`;
+  
+  const hrs = Math.floor(mins / 60);
+  const remMins = mins % 60;
+  
+  if (remMins === 0) return `${hrs}h`;
+  return `${hrs}h ${remMins}min`;
+};
+
 export default function AgendamentoCliente() {
   const router = useRouter();
   const { slug, prof, staff } = router.query;
@@ -474,7 +487,7 @@ export default function AgendamentoCliente() {
     msg += `*Data:* ${formattedDate} às *${selectedTime}*\n`;
     msg += `*Profissional:* ${chosenProfName}\n\n`;
     msg += `*SERVIÇOS:*\n${servicesListText}\n\n`;
-    msg += `*Tempo Total:* ${totalDuration} min\n`;
+    msg += `*Tempo Total:* ${formatDuration(totalDuration)}\n`;
     msg += `*TOTAL:* *R$ ${totalPrice.toFixed(2)}* (${paymentMethod})`;
 
     if (tenant.custom_message) {
@@ -588,7 +601,7 @@ export default function AgendamentoCliente() {
               </label>
               {selectedServices.length > 0 && (
                 <span className="text-[10px] font-bold opacity-80" style={{ color: accentPriceColor }}>
-                  {selectedServices.length} selecionado(s) ({totalDuration} min)
+                  {selectedServices.length} selecionado(s) ({formatDuration(totalDuration)})
                 </span>
               )}
             </div>
@@ -622,7 +635,7 @@ export default function AgendamentoCliente() {
                         )}
                         <div>
                           <h3 className="font-bold text-xs" style={{ color: textColor }}>{srv.name}</h3>
-                          <p className="text-[10px] opacity-60">⏱️ {srv.duration_minutes || 30} min</p>
+                          <p className="text-[10px] opacity-60">⏱️ {formatDuration(srv.duration_minutes)}</p>
                         </div>
                       </div>
                       <div className="text-right">
@@ -677,7 +690,7 @@ export default function AgendamentoCliente() {
                 </p>
               ) : availableSlots.length === 0 ? (
                 <div className="text-xs text-red-400 bg-red-500/10 p-3.5 rounded-xl border border-red-500/20 text-center space-y-1">
-                  <p className="font-bold">Nenhum horário contínuo de {totalDuration} min disponível nesta data.</p>
+                  <p className="font-bold">Nenhum horário contínuo de {formatDuration(totalDuration)} disponível nesta data.</p>
                   {selectedServices.length > 1 && (
                     <p className="text-[10px] opacity-80">
                       💡 Tente selecionar outra data ou agendar os procedimentos separadamente.
@@ -744,7 +757,7 @@ export default function AgendamentoCliente() {
 
             <div style={{ backgroundColor: cardColor }} className="p-3 rounded-xl border border-white/10 flex justify-between items-center text-xs">
               <div>
-                <span className="opacity-60 block text-[10px]">Duração: {totalDuration} min</span>
+                <span className="opacity-60 block text-[10px]">Duração: {formatDuration(totalDuration)}</span>
                 <span className="font-bold text-sm">TOTAL: R$ {totalPrice.toFixed(2)}</span>
               </div>
               <span className="font-bold" style={{ color: accentPriceColor }}>{selectedDate.split('-').reverse().join('/')} às {selectedTime}</span>

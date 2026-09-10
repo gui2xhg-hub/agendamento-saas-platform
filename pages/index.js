@@ -11,19 +11,32 @@ export default function HomePortalAgendamento() {
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  // DOMÍNIO OFICIAL DO AGENDAMENTO
-  const DOMAIN_URL = 'https://agendamento.sinergemkt.com';
+  // ESTADOS DO PIX, MODAL E MÉTRICAS
+  const [showPixModal, setShowPixModal] = useState(false);
+  const [copiedPix, setCopiedPix] = useState(false);
+  const [stats, setStats] = useState({ appointmentsCount: 0, totalRevenue: 0 });
 
-  // CARREGA E RE-ATUALIZA OS DADOS DIRETO DO SUPABASE (EVITA CACHE ANTIGO)
+  // DOMÍNIO OFICIAL, PIX ESTÁTICO (R$ 99,99) E WHATSAPP SUPORTE
+  const DOMAIN_URL = 'https://agendamento.sinergemkt.com';
+  const PIX_COPIA_COLA = "00020101021126330014br.gov.bcb.pix011107758777945520400005303986540599.995802BR5925HENRIQUE GONCALVES DE OLI6009SAO PAULO622905251M24TWWDEN5A3XEVQZMREE1D56304C896";
+  const SUPPORT_WHATSAPP = "5547996302864";
+
+  // MURAL DE NOVIDADES DO SAAS DE AGENDAMENTO
+  const systemUpdates = [
+    { id: 1, tag: 'NOVO', date: '10/09', title: '🤖 Robô de Lembretes Automáticos', desc: 'Disparo no WhatsApp 1 dia antes da agenda para zerar faltas e desistências.' },
+    { id: 2, tag: 'MELHORIA', date: '05/09', title: '✂️ Mensagem por Profissional', desc: 'Cada profissional do salão agora pode ter um texto de lembrete exclusivo.' }
+  ];
+
+  // CARREGA E RE-ATUALIZA OS DADOS DIRETO DO SUPABASE
   useEffect(() => {
     const savedTenantStr = localStorage.getItem('sinerge_authenticated_tenant');
     if (savedTenantStr) {
       try {
         const saved = JSON.parse(savedTenantStr);
-        setTenant(saved); // Define estado inicial rápido
+        setTenant(saved);
         
-        // Busca versão mais recente e atualizada do banco
         if (saved && saved.id) {
+          // Busca dados mais recentes da loja e estatísticas de agendamentos
           supabase
             .from('tenants')
             .select('*')
@@ -33,6 +46,7 @@ export default function HomePortalAgendamento() {
               if (data) {
                 setTenant(data);
                 localStorage.setItem('sinerge_authenticated_tenant', JSON.stringify(data));
+                fetchTenantStats(data.id);
               }
             });
         }
@@ -41,6 +55,28 @@ export default function HomePortalAgendamento() {
       }
     }
   }, []);
+
+  // BUSCA ESTATÍSTICAS DA AGENDA DO ESTABELECIMENTO
+  const fetchTenantStats = async (tenantId) => {
+    try {
+      const { data: appointments } = await supabase
+        .from('appointments')
+        .select('price, service_price, status')
+        .eq('tenant_id', tenantId)
+        .neq('status', 'cancelado');
+
+      if (appointments) {
+        const count = appointments.length;
+        const revenue = appointments.reduce((acc, app) => {
+          const val = Number(app.price || app.service_price || 0);
+          return acc + val;
+        }, 0);
+        setStats({ appointmentsCount: count, totalRevenue: revenue });
+      }
+    } catch (err) {
+      console.log('Erro ao carregar estatísticas da agenda:', err);
+    }
+  };
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -63,6 +99,7 @@ export default function HomePortalAgendamento() {
     } else {
       setTenant(data);
       localStorage.setItem('sinerge_authenticated_tenant', JSON.stringify(data));
+      fetchTenantStats(data.id);
     }
   };
 
@@ -82,18 +119,44 @@ export default function HomePortalAgendamento() {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleCopyPixCopiaCola = () => {
+    navigator.clipboard.writeText(PIX_COPIA_COLA);
+    setCopiedPix(true);
+    setTimeout(() => setCopiedPix(false), 2500);
+  };
+
+  // CÁLCULO DE VENCIMENTO
+  const getDueDateInfo = (dueDateStr) => {
+    if (!dueDateStr) return { diffDays: 999, isExpiring: false, isExpired: false, label: 'Mensalidade em dia' };
+
+    const today = new Date(new Date().toISOString().split('T')[0]);
+    const dueDate = new Date(dueDateStr);
+    const diffDays = Math.ceil((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+
+    if (diffDays < 0) {
+      return { diffDays, isExpiring: false, isExpired: true, label: '🔴 Mensalidade Vencida — Efetue o pagamento para manter o sistema ativo' };
+    } else if (diffDays <= 3) {
+      return { diffDays, isExpiring: true, isExpired: false, label: `⚠️ Sua mensalidade vence ${diffDays === 0 ? 'HOJE' : `em ${diffDays} dia(s)`}` };
+    } else {
+      return { diffDays, isExpiring: false, isExpired: false, label: `🟢 Adimplente (Vence em ${diffDays} dias - ${dueDateStr.split('-').reverse().join('/')})` };
+    }
+  };
+
   // 🎨 CORES E TEMAS DINÂMICOS DO CLIENTE
   const primaryColor = tenant?.primary_color || '#A855F7';
   const buttonTextColor = tenant?.button_text_color || '#FFFFFF';
-  const secondaryColor = tenant?.secondary_color || '#090D16'; // Fundo da página
-  const cardBgColor = tenant?.card_bg_color || '#111827';       // Fundo dos cards
-  const textColor = tenant?.text_color || '#FFFFFF';             // Cor do texto
+  const secondaryColor = tenant?.secondary_color || '#090D16';
+  const cardBgColor = tenant?.card_bg_color || '#111827';
+  const textColor = tenant?.text_color || '#FFFFFF';
 
-  // TRATAMENTO DA LOGO (FILTRA FOTOS ANTIGAS DE HAMBÚRGUER OU COMIDA)
+  // LOGO (FILTRA FOTOS DE ALIMENTAÇÃO)
   const isFoodLogo = tenant?.logo_url && (tenant.logo_url.includes('photo-1550547660') || tenant.logo_url.includes('photo-1555396273'));
   const logoUrl = (tenant?.logo_url && !isFoodLogo && tenant.logo_url.trim() !== '')
     ? tenant.logo_url
     : 'https://images.unsplash.com/photo-1585747860715-2ba37e788b70?w=150&auto=format&fit=crop&q=80';
+
+  const dueInfo = tenant ? getDueDateInfo(tenant.due_date) : null;
+  const qrCodeImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(PIX_COPIA_COLA)}`;
 
   return (
     <div 
@@ -125,7 +188,7 @@ export default function HomePortalAgendamento() {
       </header>
 
       {/* CONTEÚDO PRINCIPAL */}
-      <main className="max-w-5xl mx-auto w-full my-auto py-8">
+      <main className="max-w-5xl mx-auto w-full my-auto py-6 space-y-6">
         {!tenant ? (
           /* TELA DE LOGIN */
           <div className="max-w-md mx-auto bg-gray-900 border border-gray-800 rounded-3xl p-6 md:p-8 space-y-6 shadow-2xl relative overflow-hidden">
@@ -176,36 +239,113 @@ export default function HomePortalAgendamento() {
           /* PAINEL AUTENTICADO DO CLIENTE */
           <div className="space-y-6">
             
-            {/* HERO BANNER DO ESTABELECIMENTO */}
+            {/* HERO BANNER & MÉTRICAS DA AGENDA */}
             <div 
-              className="border rounded-3xl p-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 relative overflow-hidden shadow-xl"
+              className="border rounded-3xl p-6 space-y-4 relative overflow-hidden shadow-xl"
               style={{ backgroundColor: cardBgColor, borderColor: 'rgba(255,255,255,0.1)' }}>
               
-              <div className="flex items-center space-x-4">
-                <img
-                  src={logoUrl}
-                  alt={tenant.name}
-                  className="w-16 h-16 rounded-2xl object-cover border-2 shadow-md"
-                  style={{ borderColor: primaryColor, backgroundColor: secondaryColor }}
-                />
-                <div>
-                  <div className="flex items-center space-x-2">
-                    <h2 className="text-xl font-bold" style={{ color: textColor }}>{tenant.name}</h2>
-                    <span className="bg-green-500/20 text-green-400 border border-green-500/30 text-[10px] font-bold px-2.5 py-0.5 rounded-full">
-                      🟢 Autenticado
-                    </span>
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div className="flex items-center space-x-4">
+                  <img
+                    src={logoUrl}
+                    alt={tenant.name}
+                    className="w-16 h-16 rounded-2xl object-cover border-2 shadow-md"
+                    style={{ borderColor: primaryColor, backgroundColor: secondaryColor }}
+                  />
+                  <div>
+                    <div className="flex items-center space-x-2">
+                      <h2 className="text-xl font-bold" style={{ color: textColor }}>{tenant.name}</h2>
+                      <span className="bg-green-500/20 text-green-400 border border-green-500/30 text-[10px] font-bold px-2.5 py-0.5 rounded-full">
+                        🟢 Autenticado
+                      </span>
+                    </div>
+                    <p className="text-xs opacity-75 mt-0.5">Painel de controle do seu sistema de agendamentos.</p>
                   </div>
-                  <p className="text-xs opacity-75 mt-0.5">Painel de controle do seu sistema de agendamentos.</p>
+                </div>
+
+                <div className="flex items-center space-x-2 w-full md:w-auto">
+                  <button
+                    onClick={() => router.push(`/${tenant.slug}/admin`)}
+                    style={{ backgroundColor: primaryColor, color: buttonTextColor }}
+                    className="font-bold px-5 py-3 rounded-xl text-xs transition shadow-lg w-full md:w-auto text-center hover:opacity-90">
+                    ⚙️ Ir para Configurações
+                  </button>
                 </div>
               </div>
 
-              <div className="flex items-center space-x-2 w-full md:w-auto">
-                <button
-                  onClick={() => router.push(`/${tenant.slug}/admin`)}
-                  style={{ backgroundColor: primaryColor, color: buttonTextColor }}
-                  className="font-bold px-5 py-3 rounded-xl text-xs transition shadow-lg w-full md:w-auto text-center hover:opacity-90">
-                  ⚙️ Ir para Configurações
-                </button>
+              {/* MÉTRICAS RÁPIDAS DE ATENDIMENTOS */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-3 border-t text-xs" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
+                <div className="p-3 rounded-2xl border" style={{ backgroundColor: secondaryColor, borderColor: 'rgba(255,255,255,0.05)' }}>
+                  <span className="opacity-60 block text-[10px]">Atendimentos Confirmados:</span>
+                  <span className="text-base font-bold" style={{ color: textColor }}>{stats.appointmentsCount} agendamento(s)</span>
+                </div>
+
+                <div className="p-3 rounded-2xl border" style={{ backgroundColor: secondaryColor, borderColor: 'rgba(255,255,255,0.05)' }}>
+                  <span className="opacity-60 block text-[10px]">Movimentação Prevista:</span>
+                  <span className="text-base font-bold text-green-400">R$ {stats.totalRevenue.toFixed(2)}</span>
+                </div>
+
+                <div className="p-3 rounded-2xl border col-span-2 sm:col-span-1 flex justify-between items-center" style={{ backgroundColor: secondaryColor, borderColor: 'rgba(255,255,255,0.05)' }}>
+                  <div>
+                    <span className="opacity-60 block text-[10px]">Robô de WhatsApp:</span>
+                    <span className="text-xs font-bold text-green-400">🟢 Ativo</span>
+                  </div>
+                  <button onClick={() => router.push(`/${tenant.slug}/admin`)} className="text-[10px] font-bold underline" style={{ color: primaryColor }}>Configurar</button>
+                </div>
+              </div>
+            </div>
+
+            {/* 💳 BARRA DE VENCIMENTO E MENSALIDADE PIX */}
+            <div 
+              className={`p-5 rounded-3xl border flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 transition ${
+                dueInfo.isExpired 
+                  ? 'bg-red-500/10 border-red-500/50' 
+                  : dueInfo.isExpiring 
+                  ? 'bg-yellow-500/10 border-yellow-500/50' 
+                  : 'border'
+              }`}
+              style={!dueInfo.isExpired && !dueInfo.isExpiring ? { backgroundColor: cardBgColor, borderColor: 'rgba(255,255,255,0.1)' } : {}}>
+              
+              <div className="space-y-1">
+                <div className="flex items-center space-x-2">
+                  <span className="text-base">{dueInfo.isExpired ? '🔴' : dueInfo.isExpiring ? '⚠️' : '💳'}</span>
+                  <h3 className="font-bold text-sm" style={{ color: textColor }}>Status da Assinatura SaaS</h3>
+                </div>
+                <p className="text-xs opacity-80">
+                  {dueInfo.label} • Valor: <b className="text-green-400">R$ {Number(tenant.monthly_fee || 99.99).toFixed(2)}/mês</b>
+                </p>
+              </div>
+
+              <button
+                onClick={() => setShowPixModal(true)}
+                className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white font-bold px-5 py-2.5 rounded-xl text-xs transition shadow-lg shadow-green-600/20 flex items-center justify-center space-x-1.5 shrink-0">
+                <span>⚡ Pagar Mensalidade (PIX)</span>
+              </button>
+            </div>
+
+            {/* 📢 MURAL DE NOVIDADES DO SISTEMA */}
+            <div 
+              className="p-5 rounded-3xl border space-y-3"
+              style={{ backgroundColor: cardBgColor, borderColor: 'rgba(255,255,255,0.1)' }}>
+              
+              <div className="flex justify-between items-center">
+                <h3 className="font-bold text-xs uppercase tracking-wider flex items-center space-x-2" style={{ color: primaryColor }}>
+                  <span>📢 O que há de novo no Sinerge Agendamento?</span>
+                </h3>
+                <span className="text-[10px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-2 py-0.5 rounded-full font-bold">Atualizado</span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {systemUpdates.map(up => (
+                  <div key={up.id} className="p-3.5 rounded-2xl border space-y-1" style={{ backgroundColor: secondaryColor, borderColor: 'rgba(255,255,255,0.05)' }}>
+                    <div className="flex items-center space-x-2">
+                      <span className="bg-purple-500/20 text-purple-300 text-[9px] font-bold px-2 py-0.5 rounded">{up.tag}</span>
+                      <span className="text-[10px] opacity-60">{up.date}</span>
+                      <h4 className="font-bold text-xs truncate" style={{ color: textColor }}>{up.title}</h4>
+                    </div>
+                    <p className="text-[11px] opacity-75">{up.desc}</p>
+                  </div>
+                ))}
               </div>
             </div>
 
@@ -315,6 +455,64 @@ export default function HomePortalAgendamento() {
           </div>
         )}
       </main>
+
+      {/* MODAL DE PAGAMENTO PIX (COM QR CODE E COPIA E COLA) */}
+      {showPixModal && tenant && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-900 w-full max-w-md rounded-3xl p-6 border border-green-500/40 space-y-4 relative shadow-2xl text-center">
+            <button 
+              onClick={() => setShowPixModal(false)} 
+              className="absolute top-4 right-4 text-gray-400 hover:text-white font-bold text-sm">
+              ✕
+            </button>
+
+            <div>
+              <h3 className="font-bold text-base text-white">Pagamento de Mensalidade via PIX</h3>
+              <p className="text-xs text-gray-400 mt-0.5">
+                Favorecido: <b className="text-white">Henrique Gonçalves de Olinda</b><br />
+                Valor: <b className="text-green-400">R$ {Number(tenant.monthly_fee || 99.99).toFixed(2)}</b>
+              </p>
+            </div>
+
+            {/* IMAGEM DO QR CODE EXIBIDA NA TELA */}
+            <div className="bg-white p-3 rounded-2xl w-44 h-44 mx-auto flex items-center justify-center shadow-lg border-2 border-green-500">
+              <img 
+                src={qrCodeImageUrl} 
+                alt="QR Code PIX Sinerge" 
+                className="w-full h-full object-contain"
+              />
+            </div>
+            <p className="text-[11px] text-gray-400">Abra o app do seu banco e escaneie o código acima.</p>
+
+            {/* CAMPO PIX COPIA E COLA */}
+            <div className="bg-gray-950 p-3 rounded-2xl border border-gray-800 space-y-2">
+              <span className="text-[10px] text-gray-400 block font-bold uppercase tracking-wider">Ou use o PIX Copia e Cola:</span>
+              <input 
+                type="text" 
+                readOnly 
+                value={PIX_COPIA_COLA} 
+                className="w-full bg-gray-900 border border-gray-800 p-2 rounded-xl text-[10px] text-yellow-400 font-mono focus:outline-none text-center select-all"
+              />
+              
+              <button 
+                onClick={handleCopyPixCopiaCola} 
+                className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2.5 rounded-xl text-xs transition shadow-md shadow-green-600/20">
+                {copiedPix ? '✓ PIX Copia e Cola Copiado!' : '📋 Copiar PIX Copia e Cola'}
+              </button>
+            </div>
+
+            <a 
+              href={`https://wa.me/${SUPPORT_WHATSAPP}?text=${encodeURIComponent(
+                `Olá! Realizei o pagamento da mensalidade do sistema de agendamento *${tenant.name}* (R$ ${Number(tenant.monthly_fee || 99.99).toFixed(2)}). Segue o comprovante em anexo!`
+              )}`} 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="w-full bg-gray-800 hover:bg-gray-700 text-green-400 border border-green-500/30 font-bold py-3 rounded-xl text-xs transition block">
+              💬 Enviar Comprovante no WhatsApp
+            </a>
+          </div>
+        </div>
+      )}
 
       {/* RODAPÉ */}
       <footer className="max-w-5xl mx-auto w-full text-center py-4 border-t text-xs opacity-60" style={{ borderColor: 'rgba(255,255,255,0.1)' }}>

@@ -2,6 +2,16 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../../lib/supabase';
 
+const DEFAULT_WORK_HOURS = {
+  1: { open: '08:00', close: '18:00' },
+  2: { open: '08:00', close: '18:00' },
+  3: { open: '08:00', close: '18:00' },
+  4: { open: '08:00', close: '18:00' },
+  5: { open: '08:00', close: '18:00' },
+  6: { open: '08:00', close: '18:00' },
+  0: { open: '08:00', close: '18:00' }
+};
+
 export default function AdminTenant() {
   const router = useRouter();
   const { slug } = router.query;
@@ -61,6 +71,7 @@ export default function AdminTenant() {
     instagram_url: '',
     commission_percentage: '50',
     work_days: [1, 2, 3, 4, 5, 6],
+    work_hours: DEFAULT_WORK_HOURS,
     pin: '1234',
     bot_message_template: ''
   });
@@ -80,7 +91,6 @@ export default function AdminTenant() {
     if (tData) {
       setTenant({
         ...tData,
-        work_days: tData.work_days || [1, 2, 3, 4, 5, 6],
         share_template: tData.share_template || 'Olá! Agende seu horário no *{empresa}* com *{profissional}* acessando: {link}',
         bot_enabled: tData.bot_enabled || false,
         bot_send_time: tData.bot_send_time || '08:00',
@@ -120,7 +130,6 @@ export default function AdminTenant() {
     if (tData) {
       setTenant({
         ...tData,
-        work_days: tData.work_days || [1, 2, 3, 4, 5, 6],
         share_template: tData.share_template || 'Olá! Agende seu horário no *{empresa}* com *{profissional}* acessando: {link}',
         bot_enabled: tData.bot_enabled || false,
         bot_send_time: tData.bot_send_time || '08:00',
@@ -145,9 +154,6 @@ export default function AdminTenant() {
       instagram_url: tenant.instagram_url || '',
       primary_color: tenant.primary_color || '#FF8C00',
       secondary_color: tenant.secondary_color || '#111827',
-      opening_time: tenant.opening_time || '08:00',
-      closing_time: tenant.closing_time || '20:00',
-      work_days: tenant.work_days || [1, 2, 3, 4, 5, 6],
       custom_message: tenant.custom_message || '',
       share_template: tenant.share_template || '',
       admin_password: tenant.admin_password,
@@ -237,7 +243,6 @@ export default function AdminTenant() {
     e.preventDefault();
     if (!newProf.name || !newProf.name.trim()) return alert("Digite o nome do profissional!");
     
-    // Remove qualquer link blob: temporário do navegador
     let cleanAvatar = (newProf.avatar_url || '').trim();
     if (cleanAvatar.startsWith('blob:')) {
       cleanAvatar = '';
@@ -254,6 +259,7 @@ export default function AdminTenant() {
       instagram_url: newProf.instagram_url ? newProf.instagram_url.trim() : '',
       commission_percentage: parseFloat(newProf.commission_percentage || 50),
       work_days: newProf.work_days || [1, 2, 3, 4, 5, 6],
+      work_hours: newProf.work_hours || DEFAULT_WORK_HOURS,
       pin: newProf.pin ? String(newProf.pin).trim() : '1234',
       bot_message_template: newProf.bot_message_template ? newProf.bot_message_template.trim() : '',
       active: true
@@ -263,10 +269,21 @@ export default function AdminTenant() {
 
     if (error) {
       console.error("Erro no Supabase ao adicionar profissional:", error);
-      alert("Erro no Supabase ao cadastrar profissional: " + error.message);
+      alert("Erro ao cadastrar profissional: " + error.message);
     } else {
       alert("Profissional cadastrado com sucesso!");
-      setNewProf({ name: '', phone: '', specialty: '', avatar_url: '', instagram_url: '', commission_percentage: '50', work_days: [1, 2, 3, 4, 5, 6], pin: '1234', bot_message_template: '' });
+      setNewProf({ 
+        name: '', 
+        phone: '', 
+        specialty: '', 
+        avatar_url: '', 
+        instagram_url: '', 
+        commission_percentage: '50', 
+        work_days: [1, 2, 3, 4, 5, 6], 
+        work_hours: DEFAULT_WORK_HOURS, 
+        pin: '1234', 
+        bot_message_template: '' 
+      });
       fetchData();
     }
   };
@@ -290,6 +307,7 @@ export default function AdminTenant() {
       instagram_url: editingProf.instagram_url ? editingProf.instagram_url.trim() : '',
       commission_percentage: parseFloat(editingProf.commission_percentage || 50),
       work_days: editingProf.work_days || [1, 2, 3, 4, 5, 6],
+      work_hours: editingProf.work_hours || DEFAULT_WORK_HOURS,
       pin: editingProf.pin ? String(editingProf.pin).trim() : '1234',
       bot_message_template: editingProf.bot_message_template ? editingProf.bot_message_template.trim() : ''
     }).eq('id', editingProf.id);
@@ -555,11 +573,11 @@ export default function AdminTenant() {
           <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
             <h3 className="font-bold text-sm text-orange-400">➕ Novo Profissional da Equipe</h3>
             <form onSubmit={handleAddProf} className="space-y-3">
-              <input type="text" placeholder="Nome Completo Ex: Lanna ou Janaia" value={newProf.name} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProf({ ...newProf, name: e.target.value })} />
+              <input type="text" placeholder="Nome Completo Ex: Daniel Eladio" value={newProf.name} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProf({ ...newProf, name: e.target.value })} />
               
               <div>
                 <label className="text-[10px] text-purple-400 font-bold block mb-1">💅 Especialidade / Descrição do Trabalho:</label>
-                <input type="text" placeholder="Ex: Pé e Mão, Cabelos, Nail Designer..." value={newProf.specialty} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProf({ ...newProf, specialty: e.target.value })} />
+                <input type="text" placeholder="Ex: Barbeiro, Corte e Barba..." value={newProf.specialty} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProf({ ...newProf, specialty: e.target.value })} />
                 <span className="text-[9px] text-gray-500 block mt-0.5">Aparece logo abaixo do nome na seleção do cliente.</span>
               </div>
 
@@ -570,8 +588,7 @@ export default function AdminTenant() {
 
               <div>
                 <label className="text-[10px] text-purple-400 font-bold block mb-1">📸 Instagram do Profissional (Opcional):</label>
-                <input type="text" placeholder="Ex: @ana_naildesigner ou URL" value={newProf.instagram_url} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProf({ ...newProf, instagram_url: e.target.value })} />
-                <span className="text-[9px] text-gray-500 block mt-0.5">Se preenchido, o botão do topo da página redireciona para este perfil.</span>
+                <input type="text" placeholder="Ex: @triunfobarbearia ou URL" value={newProf.instagram_url} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProf({ ...newProf, instagram_url: e.target.value })} />
               </div>
 
               <div>
@@ -582,7 +599,6 @@ export default function AdminTenant() {
               <div>
                 <label className="text-[10px] text-green-400 font-bold block mb-1">🤖 Mensagem Personalizada do Robô para este Profissional (Opcional):</label>
                 <textarea rows={2} placeholder="Ex: Olá {cliente}! Lembrete do seu horário comigo ({profissional}) amanhã..." value={newProf.bot_message_template} className="w-full bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white focus:outline-none font-mono" onChange={(e) => setNewProf({ ...newProf, bot_message_template: e.target.value })} />
-                <span className="text-[9px] text-gray-500 block mt-0.5">Se ficar vazio, o robô usará o modelo padrão geral do estabelecimento.</span>
               </div>
 
               <input type="text" placeholder="URL da Foto de Perfil (Avatar)" value={newProf.avatar_url} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProf({ ...newProf, avatar_url: e.target.value })} />
@@ -592,21 +608,62 @@ export default function AdminTenant() {
                 <input type="number" value={newProf.commission_percentage} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProf({ ...newProf, commission_percentage: e.target.value })} />
               </div>
 
+              {/* SELEÇÃO DE DIAS E HORÁRIOS INDIVIDUAIS DA JORNADA */}
               <div className="bg-gray-950 p-3 rounded-xl border border-gray-800 space-y-2">
-                <label className="text-[11px] font-bold text-purple-400 block">📅 Dias de Atendimento / Trabalho:</label>
-                <p className="text-[10px] text-gray-500">*(Desmarque os dias em que o profissional NÃO trabalha)*</p>
+                <label className="text-[11px] font-bold text-purple-400 block">📅 Dias e Horários de Atendimento:</label>
+                <p className="text-[10px] text-gray-500 mb-1">Selecione os dias e ajuste o horário de entrada e saída:</p>
 
-                <div className="grid grid-cols-7 gap-1">
+                <div className="space-y-2">
                   {ALL_DAYS.map(day => {
                     const isSelected = (newProf.work_days || []).includes(day.id);
+                    const dayHours = (newProf.work_hours || DEFAULT_WORK_HOURS)[day.id] || { open: '08:00', close: '18:00' };
+
                     return (
-                      <button
-                        key={day.id}
-                        type="button"
-                        onClick={() => setNewProf({ ...newProf, work_days: toggleDaySelection(newProf.work_days, day.id) })}
-                        className={`py-1.5 rounded-lg text-[10px] font-bold border transition ${isSelected ? 'bg-purple-600 text-white border-purple-500' : 'bg-gray-900 text-gray-500 border-gray-800'}`}>
-                        {day.label}
-                      </button>
+                      <div key={day.id} className={`p-2 rounded-lg border transition text-xs flex items-center justify-between ${isSelected ? 'bg-purple-950/40 border-purple-500/50' : 'bg-gray-900 border-gray-800 opacity-60'}`}>
+                        <div className="flex items-center space-x-2">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => {
+                              const updatedDays = toggleDaySelection(newProf.work_days, day.id);
+                              setNewProf({ ...newProf, work_days: updatedDays });
+                            }}
+                            className="accent-purple-500 w-4 h-4 cursor-pointer"
+                          />
+                          <span className="font-bold text-white w-8">{day.label}</span>
+                        </div>
+
+                        {isSelected && (
+                          <div className="flex items-center space-x-1.5 text-[10px]">
+                            <span className="text-gray-400">De:</span>
+                            <input
+                              type="time"
+                              value={dayHours.open || '08:00'}
+                              onChange={(e) => {
+                                const updatedHours = {
+                                  ...(newProf.work_hours || DEFAULT_WORK_HOURS),
+                                  [day.id]: { ...dayHours, open: e.target.value }
+                                };
+                                setNewProf({ ...newProf, work_hours: updatedHours });
+                              }}
+                              className="bg-gray-800 border border-gray-700 p-1 rounded text-white font-mono"
+                            />
+                            <span className="text-gray-400">Até:</span>
+                            <input
+                              type="time"
+                              value={dayHours.close || '18:00'}
+                              onChange={(e) => {
+                                const updatedHours = {
+                                  ...(newProf.work_hours || DEFAULT_WORK_HOURS),
+                                  [day.id]: { ...dayHours, close: e.target.value }
+                                };
+                                setNewProf({ ...newProf, work_hours: updatedHours });
+                              }}
+                              className="bg-gray-800 border border-gray-700 p-1 rounded text-white font-mono"
+                            />
+                          </div>
+                        )}
+                      </div>
                     );
                   })}
                 </div>
@@ -620,7 +677,7 @@ export default function AdminTenant() {
             <h3 className="font-bold text-sm text-gray-300">💈 Equipe ({professionals.length})</h3>
             {professionals.map((p) => {
               const pWorkDays = p.work_days || [1, 2, 3, 4, 5, 6];
-              const pWorkDaysLabels = ALL_DAYS.filter(d => pWorkDays.includes(d.id)).map(d => d.label).join(', ');
+              const pWorkHours = p.work_hours || DEFAULT_WORK_HOURS;
 
               return (
                 <div key={p.id} className="bg-gray-900 p-3 rounded-xl border border-gray-800 space-y-2 text-xs">
@@ -637,17 +694,23 @@ export default function AdminTenant() {
                       </div>
                     </div>
                     <div className="flex space-x-1.5">
-                      <button onClick={() => setEditingProf({ ...p, work_days: p.work_days || [1, 2, 3, 4, 5, 6], pin: p.pin || '1234', instagram_url: p.instagram_url || '', specialty: p.specialty || '', bot_message_template: p.bot_message_template || '' })} className="bg-blue-600/20 text-blue-400 p-1.5 rounded-lg font-bold border border-blue-500/30">✏️ Editar</button>
+                      <button onClick={() => setEditingProf({ ...p, work_days: p.work_days || [1, 2, 3, 4, 5, 6], work_hours: p.work_hours || DEFAULT_WORK_HOURS, pin: p.pin || '1234', instagram_url: p.instagram_url || '', specialty: p.specialty || '', bot_message_template: p.bot_message_template || '' })} className="bg-blue-600/20 text-blue-400 p-1.5 rounded-lg font-bold border border-blue-500/30">✏️ Editar</button>
                       <button onClick={async () => { if (confirm("Excluir profissional?")) { await supabase.from('professionals').delete().eq('id', p.id); fetchData(); } }} className="text-red-400 font-bold p-1.5">🗑</button>
                     </div>
                   </div>
 
-                  <div className="text-[10px] text-gray-400 border-t border-gray-800/60 pt-1.5 flex justify-between">
-                    <div>
-                      <span className="font-semibold text-gray-500">Dias que trabalha: </span>
-                      <span className="text-purple-300 font-medium">{pWorkDaysLabels || 'Nenhum dia'}</span>
+                  <div className="text-[10px] text-gray-400 border-t border-gray-800/60 pt-1.5 space-y-1">
+                    <span className="font-semibold text-gray-500 block">Jornada de Trabalho:</span>
+                    <div className="flex flex-wrap gap-1">
+                      {ALL_DAYS.filter(d => pWorkDays.includes(d.id)).map(d => {
+                        const h = pWorkHours[d.id] || { open: '08:00', close: '18:00' };
+                        return (
+                          <span key={d.id} className="bg-gray-800 text-purple-300 border border-gray-700 px-1.5 py-0.5 rounded font-mono">
+                            {d.label}: {h.open}-{h.close}
+                          </span>
+                        );
+                      })}
                     </div>
-                    {p.bot_message_template && <span className="text-green-400 font-bold">🤖 Mensagem Própria Ativa</span>}
                   </div>
                 </div>
               );
@@ -1016,7 +1079,7 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* ABA 6: CONFIGURAÇÕES */}
+      {/* ABA 6: CONFIGURAÇÕES DA LOJA */}
       {activeTab === 'settings' && (
         <div className="space-y-6">
           <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
@@ -1036,43 +1099,6 @@ export default function AdminTenant() {
                   className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" 
                   onChange={(e) => setTenant({ ...tenant, instagram_url: e.target.value })} 
                 />
-              </div>
-
-              <div className="bg-gray-950 p-3 rounded-xl border border-gray-800 space-y-3">
-                <div className="flex justify-between items-center flex-wrap gap-1">
-                  <label className="text-[11px] font-bold text-orange-400 block">📆 Dias de Funcionamento da Loja:</label>
-                  <div className="flex space-x-1 text-[10px]">
-                    <button type="button" onClick={() => setTenant({ ...tenant, work_days: [1, 2, 3, 4, 5] })} className="bg-gray-800 hover:bg-gray-700 text-gray-300 px-2 py-0.5 rounded font-bold">Seg-Sex</button>
-                    <button type="button" onClick={() => setTenant({ ...tenant, work_days: [1, 2, 3, 4, 5, 6] })} className="bg-gray-800 hover:bg-gray-700 text-gray-300 px-2 py-0.5 rounded font-bold">Seg-Sáb</button>
-                    <button type="button" onClick={() => setTenant({ ...tenant, work_days: [0, 1, 2, 3, 4, 5, 6] })} className="bg-gray-800 hover:bg-gray-700 text-gray-300 px-2 py-0.5 rounded font-bold">Todos</button>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-7 gap-1">
-                  {ALL_DAYS.map(day => {
-                    const isSelected = (tenant.work_days || []).includes(day.id);
-                    return (
-                      <button
-                        key={day.id}
-                        type="button"
-                        onClick={() => setTenant({ ...tenant, work_days: toggleDaySelection(tenant.work_days, day.id) })}
-                        className={`py-1.5 rounded-lg text-[10px] font-bold border transition ${isSelected ? 'bg-orange-500 text-white border-orange-500' : 'bg-gray-900 text-gray-500 border-gray-800'}`}>
-                        {day.label}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <div className="grid grid-cols-2 gap-2 pt-1 border-t border-gray-800/80">
-                  <div>
-                    <label className="text-[11px] text-gray-400 block mb-1">Horário de Abertura:</label>
-                    <input type="time" value={tenant.opening_time || '08:00'} className="w-full bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, opening_time: e.target.value })} />
-                  </div>
-                  <div>
-                    <label className="text-[11px] text-gray-400 block mb-1">Horário de Fechamento:</label>
-                    <input type="time" value={tenant.closing_time || '20:00'} className="w-full bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, closing_time: e.target.value })} />
-                  </div>
-                </div>
               </div>
 
               <div>
@@ -1200,19 +1226,60 @@ export default function AdminTenant() {
             <input type="text" value={editingProf.avatar_url || ''} onChange={(e) => setEditingProf({ ...editingProf, avatar_url: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" placeholder="URL Avatar" />
             <input type="number" value={editingProf.commission_percentage || ''} onChange={(e) => setEditingProf({ ...editingProf, commission_percentage: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" placeholder="% Comissão" />
 
+            {/* EDIÇÃO DE DIAS E HORÁRIOS INDIVIDUAIS */}
             <div className="bg-gray-950 p-3 rounded-xl border border-gray-800 space-y-2">
-              <label className="text-[11px] font-bold text-purple-400 block">📅 Dias de Atendimento / Trabalho:</label>
-              <div className="grid grid-cols-7 gap-1">
+              <label className="text-[11px] font-bold text-purple-400 block">📅 Dias e Horários de Atendimento:</label>
+              <div className="space-y-2">
                 {ALL_DAYS.map(day => {
                   const isSelected = (editingProf.work_days || []).includes(day.id);
+                  const dayHours = (editingProf.work_hours || DEFAULT_WORK_HOURS)[day.id] || { open: '08:00', close: '18:00' };
+
                   return (
-                    <button
-                      key={day.id}
-                      type="button"
-                      onClick={() => setEditingProf({ ...editingProf, work_days: toggleDaySelection(editingProf.work_days, day.id) })}
-                      className={`py-1.5 rounded-lg text-[10px] font-bold border transition ${isSelected ? 'bg-purple-600 text-white border-purple-500' : 'bg-gray-900 text-gray-500 border-gray-800'}`}>
-                      {day.label}
-                    </button>
+                    <div key={day.id} className={`p-2 rounded-lg border transition text-xs flex items-center justify-between ${isSelected ? 'bg-purple-950/40 border-purple-500/50' : 'bg-gray-900 border-gray-800 opacity-60'}`}>
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => {
+                            const updatedDays = toggleDaySelection(editingProf.work_days, day.id);
+                            setEditingProf({ ...editingProf, work_days: updatedDays });
+                          }}
+                          className="accent-purple-500 w-4 h-4 cursor-pointer"
+                        />
+                        <span className="font-bold text-white w-8">{day.label}</span>
+                      </div>
+
+                      {isSelected && (
+                        <div className="flex items-center space-x-1.5 text-[10px]">
+                          <span className="text-gray-400">De:</span>
+                          <input
+                            type="time"
+                            value={dayHours.open || '08:00'}
+                            onChange={(e) => {
+                              const updatedHours = {
+                                ...(editingProf.work_hours || DEFAULT_WORK_HOURS),
+                                [day.id]: { ...dayHours, open: e.target.value }
+                              };
+                              setEditingProf({ ...editingProf, work_hours: updatedHours });
+                            }}
+                            className="bg-gray-800 border border-gray-700 p-1 rounded text-white font-mono"
+                          />
+                          <span className="text-gray-400">Até:</span>
+                          <input
+                            type="time"
+                            value={dayHours.close || '18:00'}
+                            onChange={(e) => {
+                              const updatedHours = {
+                                ...(editingProf.work_hours || DEFAULT_WORK_HOURS),
+                                [day.id]: { ...dayHours, close: e.target.value }
+                              };
+                              setEditingProf({ ...editingProf, work_hours: updatedHours });
+                            }}
+                            className="bg-gray-800 border border-gray-700 p-1 rounded text-white font-mono"
+                          />
+                        </div>
+                      )}
+                    </div>
                   );
                 })}
               </div>

@@ -311,6 +311,7 @@ export default function AgendamentoCliente() {
     setSelectedTime('');
   };
 
+  // CÁLCULO DE SLOTS DISPONÍVEIS PUXANDO OS HORARIOS INDIVIDUAIS DO PROFISSIONAL
   const getSlotAvailability = () => {
     if (selectedServices.length === 0 || !selectedDate) {
       return { slots: [], status: 'select_service', message: 'Selecione ao menos um serviço.' };
@@ -323,20 +324,31 @@ export default function AgendamentoCliente() {
     const dateObj = new Date(selectedDate + 'T00:00:00');
     const dayOfWeek = dateObj.getDay();
 
-    const tenantWorkDays = tenant?.work_days || [1, 2, 3, 4, 5, 6];
-    if (!tenantWorkDays.includes(dayOfWeek)) {
-      return { slots: [], status: 'store_closed', message: '🚪 O estabelecimento não funciona neste dia da semana.' };
-    }
-
     const profObj = professionals.find(p => String(p.id) === String(selectedProf));
     if (!profObj) {
       return { slots: [], status: 'no_prof', message: 'Profissional não encontrado.' };
     }
 
-    const pDays = profObj.work_days || [1, 2, 3, 4, 5, 6];
+    let pDays = profObj.work_days || [1, 2, 3, 4, 5, 6];
+    if (typeof pDays === 'string') {
+      try { pDays = JSON.parse(pDays); } catch (e) { pDays = [1, 2, 3, 4, 5, 6]; }
+    }
+
     if (!pDays.includes(dayOfWeek)) {
       return { slots: [], status: 'prof_off', message: `💈 ${profObj.name} não atende neste dia da semana.` };
     }
+
+    let profWorkHours = profObj.work_hours || {};
+    if (typeof profWorkHours === 'string') {
+      try { profWorkHours = JSON.parse(profWorkHours); } catch (e) { profWorkHours = {}; }
+    }
+
+    const dayHours = profWorkHours[dayOfWeek] || { open: '08:00', close: '18:00' };
+
+    const openHour = parseInt((dayHours.open || '08:00').split(':')[0]);
+    const openMin = parseInt((dayHours.open || '08:00').split(':')[1] || '0');
+    const closeHour = parseInt((dayHours.close || '18:00').split(':')[0]);
+    const closeMin = parseInt((dayHours.close || '18:00').split(':')[1] || '0');
 
     const dayBlocks = blockedTimes.filter(b => {
       const isProfTarget = b.professional_id === null || String(b.professional_id) === String(selectedProf);
@@ -347,11 +359,6 @@ export default function AgendamentoCliente() {
       if (b.reason && b.reason.includes('[RECORRENTE]') && b.recurring_day === dayOfWeek) return true;
       return false;
     });
-
-    const openHour = parseInt((tenant.opening_time || '08:00').split(':')[0]);
-    const openMin = parseInt((tenant.opening_time || '08:00').split(':')[1] || '0');
-    const closeHour = parseInt((tenant.closing_time || '20:00').split(':')[0]);
-    const closeMin = parseInt((tenant.closing_time || '20:00').split(':')[1] || '0');
 
     let currentMin = openHour * 60 + openMin;
     const endMin = closeHour * 60 + closeMin;

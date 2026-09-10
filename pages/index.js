@@ -16,7 +16,7 @@ export default function HomePortalAgendamento() {
   const [copiedPix, setCopiedPix] = useState(false);
   const [stats, setStats] = useState({ appointmentsCount: 0, totalRevenue: 0 });
 
-  // DOMÍNIO OFICIAL, PIX ESTÁTICO (R$ 99,99) E WHATSAPP SUPORTE
+  // DOMÍNIO OFICIAL, PIX ESTÁTICO E WHATSAPP SUPORTE
   const DOMAIN_URL = 'https://agendamento.sinergemkt.com';
   const PIX_COPIA_COLA = "00020101021126330014br.gov.bcb.pix011107758777945520400005303986540599.995802BR5925HENRIQUE GONCALVES DE OLI6009SAO PAULO622905251M24TWWDEN5A3XEVQZMREE1D56304C896";
   const SUPPORT_WHATSAPP = "5547996302864";
@@ -36,7 +36,7 @@ export default function HomePortalAgendamento() {
         setTenant(saved);
         
         if (saved && saved.id) {
-          // Busca dados mais recentes da loja e estatísticas de agendamentos
+          // Busca dados mais recentes da loja e estatísticas de agendamentos no banco
           supabase
             .from('tenants')
             .select('*')
@@ -125,7 +125,13 @@ export default function HomePortalAgendamento() {
     setTimeout(() => setCopiedPix(false), 2500);
   };
 
-  // CÁLCULO DE VENCIMENTO
+  // FORMATADOR DE MOEDA BRASILEIRA (EX: R$ 99,99)
+  const formatCurrency = (amount) => {
+    const val = Number(amount || 99.99);
+    return val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  };
+
+  // CÁLCULO DE VENCIMENTO DO CLIENTE
   const getDueDateInfo = (dueDateStr) => {
     if (!dueDateStr) return { diffDays: 999, isExpiring: false, isExpired: false, label: 'Mensalidade em dia' };
 
@@ -149,7 +155,7 @@ export default function HomePortalAgendamento() {
   const cardBgColor = tenant?.card_bg_color || '#111827';
   const textColor = tenant?.text_color || '#FFFFFF';
 
-  // LOGO (FILTRA FOTOS DE ALIMENTAÇÃO)
+  // LOGO
   const isFoodLogo = tenant?.logo_url && (tenant.logo_url.includes('photo-1550547660') || tenant.logo_url.includes('photo-1555396273'));
   const logoUrl = (tenant?.logo_url && !isFoodLogo && tenant.logo_url.trim() !== '')
     ? tenant.logo_url
@@ -282,7 +288,7 @@ export default function HomePortalAgendamento() {
 
                 <div className="p-3 rounded-2xl border" style={{ backgroundColor: secondaryColor, borderColor: 'rgba(255,255,255,0.05)' }}>
                   <span className="opacity-60 block text-[10px]">Movimentação Prevista:</span>
-                  <span className="text-base font-bold text-green-400">R$ {stats.totalRevenue.toFixed(2)}</span>
+                  <span className="text-base font-bold text-green-400">{formatCurrency(stats.totalRevenue)}</span>
                 </div>
 
                 <div className="p-3 rounded-2xl border col-span-2 sm:col-span-1 flex justify-between items-center" style={{ backgroundColor: secondaryColor, borderColor: 'rgba(255,255,255,0.05)' }}>
@@ -312,7 +318,7 @@ export default function HomePortalAgendamento() {
                   <h3 className="font-bold text-sm" style={{ color: textColor }}>Status da Assinatura SaaS</h3>
                 </div>
                 <p className="text-xs opacity-80">
-                  {dueInfo.label} • Valor: <b className="text-green-400">R$ {Number(tenant.monthly_fee || 99.99).toFixed(2)}/mês</b>
+                  {dueInfo.label} • Valor: <b className="text-green-400">{formatCurrency(tenant.monthly_fee)}/mês</b>
                 </p>
               </div>
 
@@ -470,7 +476,7 @@ export default function HomePortalAgendamento() {
               <h3 className="font-bold text-base text-white">Pagamento de Mensalidade via PIX</h3>
               <p className="text-xs text-gray-400 mt-0.5">
                 Favorecido: <b className="text-white">Henrique Gonçalves de Olinda</b><br />
-                Valor: <b className="text-green-400">R$ {Number(tenant.monthly_fee || 99.99).toFixed(2)}</b>
+                Valor da Mensalidade: <b className="text-green-400">{formatCurrency(tenant.monthly_fee)}</b>
               </p>
             </div>
 
@@ -503,7 +509,7 @@ export default function HomePortalAgendamento() {
 
             <a 
               href={`https://wa.me/${SUPPORT_WHATSAPP}?text=${encodeURIComponent(
-                `Olá! Realizei o pagamento da mensalidade do sistema de agendamento *${tenant.name}* (R$ ${Number(tenant.monthly_fee || 99.99).toFixed(2)}). Segue o comprovante em anexo!`
+                `Olá! Realizei o pagamento da mensalidade do sistema de agendamento *${tenant.name}* (${formatCurrency(tenant.monthly_fee)}). Segue o comprovante em anexo!`
               )}`} 
               target="_blank" 
               rel="noopener noreferrer"

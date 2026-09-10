@@ -8,7 +8,7 @@ export default function AdminTenant() {
 
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [password, setPassword] = useState('');
-  const [activeTab, setActiveTab] = useState('services'); // services, professionals, reports, links, settings
+  const [activeTab, setActiveTab] = useState('services'); // services, professionals, reports, links, bot, settings
   const [loading, setLoading] = useState(true);
 
   const [tenant, setTenant] = useState(null);
@@ -61,7 +61,8 @@ export default function AdminTenant() {
     instagram_url: '',
     commission_percentage: '50',
     work_days: [1, 2, 3, 4, 5, 6],
-    pin: '1234'
+    pin: '1234',
+    bot_message_template: ''
   });
   const [editingProf, setEditingProf] = useState(null);
 
@@ -80,7 +81,12 @@ export default function AdminTenant() {
       setTenant({
         ...tData,
         work_days: tData.work_days || [1, 2, 3, 4, 5, 6],
-        share_template: tData.share_template || 'Olá! Agende seu horário no *{empresa}* com *{profissional}* acessando: {link}'
+        share_template: tData.share_template || 'Olá! Agende seu horário no *{empresa}* com *{profissional}* acessando: {link}',
+        bot_enabled: tData.bot_enabled || false,
+        bot_send_time: tData.bot_send_time || '08:00',
+        bot_message_template: tData.bot_message_template || 'Olá {cliente}! 👋 Passando para lembrar do seu agendamento de *{servico}* amanhã ({data}) às *{horario}* no *{empresa}* com *{profissional}*.',
+        bot_whatsapp_instance: tData.bot_whatsapp_instance || '',
+        bot_whatsapp_token: tData.bot_whatsapp_token || ''
       });
 
       const savedPass = localStorage.getItem('sinerge_tenant_pass');
@@ -115,7 +121,12 @@ export default function AdminTenant() {
       setTenant({
         ...tData,
         work_days: tData.work_days || [1, 2, 3, 4, 5, 6],
-        share_template: tData.share_template || 'Olá! Agende seu horário no *{empresa}* com *{profissional}* acessando: {link}'
+        share_template: tData.share_template || 'Olá! Agende seu horário no *{empresa}* com *{profissional}* acessando: {link}',
+        bot_enabled: tData.bot_enabled || false,
+        bot_send_time: tData.bot_send_time || '08:00',
+        bot_message_template: tData.bot_message_template || 'Olá {cliente}! 👋 Passando para lembrar do seu agendamento de *{servico}* amanhã ({data}) às *{horario}* no *{empresa}* com *{profissional}*.',
+        bot_whatsapp_instance: tData.bot_whatsapp_instance || '',
+        bot_whatsapp_token: tData.bot_whatsapp_token || ''
       });
     }
     if (sData) setServices(sData);
@@ -124,7 +135,7 @@ export default function AdminTenant() {
   };
 
   const handleSaveTenantSettings = async (e) => {
-    e.preventDefault();
+    if (e) e.preventDefault();
     const cleanWhatsapp = tenant.whatsapp ? tenant.whatsapp.replace(/\D/g, '') : '';
     const { error } = await supabase.from('tenants').update({
       name: tenant.name,
@@ -142,7 +153,12 @@ export default function AdminTenant() {
       admin_password: tenant.admin_password,
       pix_enabled: tenant.pix_enabled || false,
       pix_provider: tenant.pix_provider || 'mercadopago',
-      pix_access_token: tenant.pix_access_token || ''
+      pix_access_token: tenant.pix_access_token || '',
+      bot_enabled: tenant.bot_enabled || false,
+      bot_send_time: tenant.bot_send_time || '08:00',
+      bot_message_template: tenant.bot_message_template || '',
+      bot_whatsapp_instance: tenant.bot_whatsapp_instance || '',
+      bot_whatsapp_token: tenant.bot_whatsapp_token || ''
     }).eq('id', tenant.id);
 
     if (error) alert("Erro ao salvar configurações: " + error.message);
@@ -225,6 +241,7 @@ export default function AdminTenant() {
       commission_percentage: parseFloat(newProf.commission_percentage || 50),
       work_days: newProf.work_days || [1, 2, 3, 4, 5, 6],
       pin: newProf.pin || '1234',
+      bot_message_template: newProf.bot_message_template ? newProf.bot_message_template.trim() : '',
       active: true
     }]);
 
@@ -232,7 +249,7 @@ export default function AdminTenant() {
       alert("Erro ao cadastrar profissional: " + error.message);
     } else {
       alert("Profissional cadastrado com sucesso!");
-      setNewProf({ name: '', phone: '', specialty: '', avatar_url: '', instagram_url: '', commission_percentage: '50', work_days: [1, 2, 3, 4, 5, 6], pin: '1234' });
+      setNewProf({ name: '', phone: '', specialty: '', avatar_url: '', instagram_url: '', commission_percentage: '50', work_days: [1, 2, 3, 4, 5, 6], pin: '1234', bot_message_template: '' });
       fetchData();
     }
   };
@@ -247,7 +264,8 @@ export default function AdminTenant() {
       instagram_url: editingProf.instagram_url ? editingProf.instagram_url.trim() : '',
       commission_percentage: parseFloat(editingProf.commission_percentage || 50),
       work_days: editingProf.work_days || [1, 2, 3, 4, 5, 6],
-      pin: editingProf.pin || '1234'
+      pin: editingProf.pin || '1234',
+      bot_message_template: editingProf.bot_message_template ? editingProf.bot_message_template.trim() : ''
     }).eq('id', editingProf.id);
 
     if (error) {
@@ -396,6 +414,7 @@ export default function AdminTenant() {
         <button onClick={() => setActiveTab('services')} className={`flex-1 py-2 px-2 rounded-lg whitespace-nowrap ${activeTab === 'services' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>💈 Serviços</button>
         <button onClick={() => setActiveTab('professionals')} className={`flex-1 py-2 px-2 rounded-lg whitespace-nowrap ${activeTab === 'professionals' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>👨‍🔬 Equipe</button>
         <button onClick={() => setActiveTab('reports')} className={`flex-1 py-2 px-2 rounded-lg whitespace-nowrap ${activeTab === 'reports' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>📊 Financeiro</button>
+        <button onClick={() => setActiveTab('bot')} className={`flex-1 py-2 px-2 rounded-lg whitespace-nowrap ${activeTab === 'bot' ? 'bg-green-600 text-white' : 'text-gray-400'}`}>🤖 Robô Zap</button>
         <button onClick={() => setActiveTab('links')} className={`flex-1 py-2 px-2 rounded-lg whitespace-nowrap ${activeTab === 'links' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>🔗 Divulgação</button>
         <button onClick={() => setActiveTab('settings')} className={`flex-1 py-2 px-2 rounded-lg whitespace-nowrap ${activeTab === 'settings' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>⚙️ Config</button>
       </div>
@@ -503,7 +522,7 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* ABA 2: EQUIPE + ESPECIALIDADE, INSTAGRAM INDIVIDUAL, WHATSAPP E PIN */}
+      {/* ABA 2: EQUIPE + ESPECIALIDADE, INSTAGRAM INDIVIDUAL, WHATSAPP, PIN E MENSAGEM DO ROBÔ */}
       {activeTab === 'professionals' && (
         <div className="space-y-6">
           <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
@@ -531,6 +550,12 @@ export default function AdminTenant() {
               <div>
                 <label className="text-[10px] text-gray-400 block mb-1">PIN / Senha Secreta (Para extrato individual):</label>
                 <input type="text" placeholder="Ex: 1234" value={newProf.pin} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProf({ ...newProf, pin: e.target.value })} />
+              </div>
+
+              <div>
+                <label className="text-[10px] text-green-400 font-bold block mb-1">🤖 Mensagem Personalizada do Robô para este Profissional (Opcional):</label>
+                <textarea rows={2} placeholder="Ex: Olá {cliente}! Lembrete do seu horário comigo ({profissional}) amanhã..." value={newProf.bot_message_template} className="w-full bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white focus:outline-none font-mono" onChange={(e) => setNewProf({ ...newProf, bot_message_template: e.target.value })} />
+                <span className="text-[9px] text-gray-500 block mt-0.5">Se ficar vazio, o robô usará o modelo padrão geral do estabelecimento.</span>
               </div>
 
               <input type="text" placeholder="URL da Foto de Perfil (Avatar)" value={newProf.avatar_url} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProf({ ...newProf, avatar_url: e.target.value })} />
@@ -585,14 +610,17 @@ export default function AdminTenant() {
                       </div>
                     </div>
                     <div className="flex space-x-1.5">
-                      <button onClick={() => setEditingProf({ ...p, work_days: p.work_days || [1, 2, 3, 4, 5, 6], pin: p.pin || '1234', instagram_url: p.instagram_url || '', specialty: p.specialty || '' })} className="bg-blue-600/20 text-blue-400 p-1.5 rounded-lg font-bold border border-blue-500/30">✏️ Editar</button>
+                      <button onClick={() => setEditingProf({ ...p, work_days: p.work_days || [1, 2, 3, 4, 5, 6], pin: p.pin || '1234', instagram_url: p.instagram_url || '', specialty: p.specialty || '', bot_message_template: p.bot_message_template || '' })} className="bg-blue-600/20 text-blue-400 p-1.5 rounded-lg font-bold border border-blue-500/30">✏️ Editar</button>
                       <button onClick={async () => { if (confirm("Excluir profissional?")) { await supabase.from('professionals').delete().eq('id', p.id); fetchData(); } }} className="text-red-400 font-bold p-1.5">🗑</button>
                     </div>
                   </div>
 
-                  <div className="text-[10px] text-gray-400 border-t border-gray-800/60 pt-1.5">
-                    <span className="font-semibold text-gray-500">Dias que trabalha: </span>
-                    <span className="text-purple-300 font-medium">{pWorkDaysLabels || 'Nenhum dia selecionado'}</span>
+                  <div className="text-[10px] text-gray-400 border-t border-gray-800/60 pt-1.5 flex justify-between">
+                    <div>
+                      <span className="font-semibold text-gray-500">Dias que trabalha: </span>
+                      <span className="text-purple-300 font-medium">{pWorkDaysLabels || 'Nenhum dia'}</span>
+                    </div>
+                    {p.bot_message_template && <span className="text-green-400 font-bold">🤖 Mensagem Própria Ativa</span>}
                   </div>
                 </div>
               );
@@ -802,7 +830,101 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* ABA 4: DIVULGAÇÃO & LINKS PERSONALIZADOS */}
+      {/* ABA 4: ROBÔ WHATSAPP / LEMBRETES AUTOMÁTICOS */}
+      {activeTab === 'bot' && (
+        <div className="space-y-6">
+          <section className="bg-gray-900 p-5 rounded-2xl border border-green-500/30 space-y-4 shadow-xl">
+            <div className="flex justify-between items-center">
+              <div>
+                <h3 className="font-bold text-sm text-green-400 flex items-center space-x-1.5">
+                  <span>🤖 Robô Lembrete de Agendamento</span>
+                </h3>
+                <p className="text-[11px] text-gray-400">Envia mensagens automáticas de lembrete 1 dia antes da agenda.</p>
+              </div>
+
+              <input
+                type="checkbox"
+                checked={tenant.bot_enabled || false}
+                onChange={(e) => setTenant({ ...tenant, bot_enabled: e.target.checked })}
+                className="w-5 h-5 accent-green-500 cursor-pointer"
+              />
+            </div>
+
+            {tenant.bot_enabled && (
+              <div className="space-y-4 pt-3 border-t border-gray-800">
+                <div>
+                  <label className="text-[11px] text-gray-300 font-bold block mb-1">⏰ Horário Diário de Disparo:</label>
+                  <input
+                    type="time"
+                    value={tenant.bot_send_time || '08:00'}
+                    onChange={(e) => setTenant({ ...tenant, bot_send_time: e.target.value })}
+                    className="bg-gray-950 border border-gray-800 p-2.5 rounded-xl text-xs text-white focus:outline-none"
+                  />
+                  <span className="text-[10px] text-gray-500 block mt-1">Neste horário, o robô enviará mensagem para os clientes com horário marcado para amanhã.</span>
+                </div>
+
+                <div>
+                  <label className="text-[11px] text-gray-300 font-bold block mb-1">✍️ Modelo Padrão da Mensagem (Geral do Salão):</label>
+                  <textarea
+                    rows="4"
+                    value={tenant.bot_message_template || ''}
+                    onChange={(e) => setTenant({ ...tenant, bot_message_template: e.target.value })}
+                    className="w-full bg-gray-950 border border-gray-800 p-3 rounded-xl text-xs text-white focus:outline-none font-mono"
+                    placeholder="Digite a mensagem padrão do robô..."
+                  />
+                  <div className="text-[10px] text-gray-400 mt-1 flex flex-wrap gap-1">
+                    <span>Variáveis:</span>
+                    <b className="text-green-400 font-mono">{'{cliente}'}</b>
+                    <b className="text-green-400 font-mono">{'{servico}'}</b>
+                    <b className="text-green-400 font-mono">{'{data}'}</b>
+                    <b className="text-green-400 font-mono">{'{horario}'}</b>
+                    <b className="text-green-400 font-mono">{'{empresa}'}</b>
+                    <b className="text-green-400 font-mono">{'{profissional}'}</b>
+                  </div>
+                </div>
+
+                <div className="bg-gray-950 p-3.5 rounded-xl border border-gray-800 space-y-3">
+                  <h4 className="font-bold text-xs text-green-400">🔑 Credenciais da API do WhatsApp (Gateway)</h4>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[10px] text-gray-400 block mb-1">Instância / Session ID:</label>
+                      <input
+                        type="text"
+                        placeholder="Ex: salao-lanna-wp"
+                        value={tenant.bot_whatsapp_instance || ''}
+                        onChange={(e) => setTenant({ ...tenant, bot_whatsapp_instance: e.target.value })}
+                        className="w-full bg-gray-900 border border-gray-800 p-2 rounded-xl text-xs text-white font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-gray-400 block mb-1">Token de Acesso (API Key):</label>
+                      <input
+                        type="password"
+                        placeholder="Token do Gateway"
+                        value={tenant.bot_whatsapp_token || ''}
+                        onChange={(e) => setTenant({ ...tenant, bot_whatsapp_token: e.target.value })}
+                        className="w-full bg-gray-900 border border-gray-800 p-2 rounded-xl text-xs text-white font-mono"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-gray-950 p-3 rounded-xl border border-gray-800/80">
+                  <p className="text-[11px] text-gray-400 leading-relaxed">
+                    💡 <b className="text-white">Multi-Profissional:</b> Cada agendamento fica isolado por profissional. O robô substituirá automaticamente as variáveis <b className="text-green-400">{'{profissional}'}</b> com quem a cliente agendou. Além disso, você pode definir um texto exclusivo para cada profissional na aba <b>👨‍🔬 Equipe</b>.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            <button onClick={handleSaveTenantSettings} className="w-full bg-green-600 hover:bg-green-700 font-bold py-3 rounded-xl text-xs text-white transition shadow-lg">
+              💾 Salvar Configurações do Robô
+            </button>
+          </section>
+        </div>
+      )}
+
+      {/* ABA 5: DIVULGAÇÃO & LINKS PERSONALIZADOS */}
       {activeTab === 'links' && (
         <div className="space-y-6">
           <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
@@ -867,7 +989,7 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* ABA 5: CONFIGURAÇÕES */}
+      {/* ABA 6: CONFIGURAÇÕES */}
       {activeTab === 'settings' && (
         <div className="space-y-6">
           <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
@@ -945,7 +1067,7 @@ export default function AdminTenant() {
                 <div className="flex justify-between items-center">
                   <div>
                     <h4 className="font-bold text-xs text-green-400">⚡ Pagamento via PIX Automático</h4>
-                    <p className="text-[10px] text-gray-400">Confirms agendamentos com sinal/pré-pagamento.</p>
+                    <p className="text-[10px] text-gray-400">Confirma agendamentos com sinal/pré-pagamento.</p>
                   </div>
                   <input type="checkbox" checked={tenant.pix_enabled || false} onChange={(e) => setTenant({ ...tenant, pix_enabled: e.target.checked })} className="w-4 h-4 accent-green-500 cursor-pointer" />
                 </div>
@@ -1035,13 +1157,19 @@ export default function AdminTenant() {
       {/* MODAL EDIÇÃO DE PROFISSIONAL */}
       {editingProf && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-          <form onSubmit={handleUpdateProf} className="bg-gray-900 w-full max-w-sm rounded-2xl p-5 border border-blue-500/40 space-y-3">
+          <form onSubmit={handleUpdateProf} className="bg-gray-900 w-full max-w-sm rounded-2xl p-5 border border-blue-500/40 space-y-3 max-h-[90vh] overflow-y-auto">
             <h3 className="font-bold text-sm text-blue-400">✏️ Editar Profissional</h3>
             <input type="text" value={editingProf.name} onChange={(e) => setEditingProf({ ...editingProf, name: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" placeholder="Nome Completo" />
             <input type="text" value={editingProf.specialty || ''} onChange={(e) => setEditingProf({ ...editingProf, specialty: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" placeholder="Especialidade (Ex: Pé e mão, Cabelos)" />
             <input type="text" value={editingProf.phone || ''} onChange={(e) => setEditingProf({ ...editingProf, phone: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" placeholder="WhatsApp Individual" />
             <input type="text" value={editingProf.instagram_url || ''} onChange={(e) => setEditingProf({ ...editingProf, instagram_url: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" placeholder="Instagram (Ex: @ana_designer)" />
             <input type="text" value={editingProf.pin || ''} onChange={(e) => setEditingProf({ ...editingProf, pin: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" placeholder="PIN de 4 Dígitos" />
+            
+            <div>
+              <label className="text-[10px] text-green-400 font-bold block mb-1">🤖 Mensagem Personalizada do Robô para este Profissional (Opcional):</label>
+              <textarea rows={2} placeholder="Ex: Olá {cliente}! Lembrete do seu horário comigo ({profissional}) amanhã..." value={editingProf.bot_message_template || ''} className="w-full bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white focus:outline-none font-mono" onChange={(e) => setEditingProf({ ...editingProf, bot_message_template: e.target.value })} />
+            </div>
+
             <input type="text" value={editingProf.avatar_url || ''} onChange={(e) => setEditingProf({ ...editingProf, avatar_url: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" placeholder="URL Avatar" />
             <input type="number" value={editingProf.commission_percentage || ''} onChange={(e) => setEditingProf({ ...editingProf, commission_percentage: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" placeholder="% Comissão" />
 

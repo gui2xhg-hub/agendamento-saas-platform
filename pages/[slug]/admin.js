@@ -186,6 +186,9 @@ export default function AdminTenant() {
     if (!newService.name || !newService.price) return alert("Preencha nome e preço do serviço!");
     const formattedPrice = parseFloat(String(newService.price).replace(',', '.'));
     
+    let cleanImage = (newService.image_url || '').trim();
+    if (cleanImage.startsWith('blob:')) cleanImage = '';
+
     const { error } = await supabase.from('services').insert([{
       tenant_id: tenant.id,
       name: newService.name.trim(),
@@ -193,7 +196,7 @@ export default function AdminTenant() {
       duration_minutes: parseInt(newService.duration_minutes || 30),
       category: newService.category || 'Geral',
       professional_ids: newService.professional_ids || [],
-      image_url: newService.image_url ? newService.image_url.trim() : '',
+      image_url: cleanImage,
       active: true
     }]);
 
@@ -210,13 +213,16 @@ export default function AdminTenant() {
     e.preventDefault();
     const formattedPrice = parseFloat(String(editingService.price).replace(',', '.'));
     
+    let cleanImage = (editingService.image_url || editingService.image || '').trim();
+    if (cleanImage.startsWith('blob:')) cleanImage = '';
+
     const { error } = await supabase.from('services').update({
       name: editingService.name.trim(),
       price: formattedPrice,
       duration_minutes: parseInt(editingService.duration_minutes || 30),
       category: editingService.category || 'Geral',
       professional_ids: editingService.professional_ids || [],
-      image_url: editingService.image_url ? editingService.image_url.trim() : ''
+      image_url: cleanImage
     }).eq('id', editingService.id);
 
     if (error) {
@@ -229,24 +235,35 @@ export default function AdminTenant() {
 
   const handleAddProf = async (e) => {
     e.preventDefault();
-    if (!newProf.name) return alert("Digite o nome do profissional!");
+    if (!newProf.name || !newProf.name.trim()) return alert("Digite o nome do profissional!");
     
-    const { error } = await supabase.from('professionals').insert([{
+    // Remove qualquer link blob: temporário do navegador
+    let cleanAvatar = (newProf.avatar_url || '').trim();
+    if (cleanAvatar.startsWith('blob:')) {
+      cleanAvatar = '';
+    }
+
+    const payload = {
       tenant_id: tenant.id,
       name: newProf.name.trim(),
       phone: newProf.phone ? newProf.phone.replace(/\D/g, '') : '',
       specialty: newProf.specialty ? newProf.specialty.trim() : '',
-      avatar_url: newProf.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80',
+      avatar_url: cleanAvatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80',
+      photo_url: cleanAvatar,
+      photo: cleanAvatar,
       instagram_url: newProf.instagram_url ? newProf.instagram_url.trim() : '',
       commission_percentage: parseFloat(newProf.commission_percentage || 50),
       work_days: newProf.work_days || [1, 2, 3, 4, 5, 6],
-      pin: newProf.pin || '1234',
+      pin: newProf.pin ? String(newProf.pin).trim() : '1234',
       bot_message_template: newProf.bot_message_template ? newProf.bot_message_template.trim() : '',
       active: true
-    }]);
+    };
+
+    const { error } = await supabase.from('professionals').insert([payload]);
 
     if (error) {
-      alert("Erro ao cadastrar profissional: " + error.message);
+      console.error("Erro no Supabase ao adicionar profissional:", error);
+      alert("Erro no Supabase ao cadastrar profissional: " + error.message);
     } else {
       alert("Profissional cadastrado com sucesso!");
       setNewProf({ name: '', phone: '', specialty: '', avatar_url: '', instagram_url: '', commission_percentage: '50', work_days: [1, 2, 3, 4, 5, 6], pin: '1234', bot_message_template: '' });
@@ -256,19 +273,29 @@ export default function AdminTenant() {
 
   const handleUpdateProf = async (e) => {
     e.preventDefault();
+    if (!editingProf.name || !editingProf.name.trim()) return alert("Digite o nome do profissional!");
+
+    let cleanAvatar = (editingProf.avatar_url || '').trim();
+    if (cleanAvatar.startsWith('blob:')) {
+      cleanAvatar = '';
+    }
+
     const { error } = await supabase.from('professionals').update({
       name: editingProf.name.trim(),
       phone: editingProf.phone ? editingProf.phone.replace(/\D/g, '') : '',
       specialty: editingProf.specialty ? editingProf.specialty.trim() : '',
-      avatar_url: editingProf.avatar_url,
+      avatar_url: cleanAvatar,
+      photo_url: cleanAvatar,
+      photo: cleanAvatar,
       instagram_url: editingProf.instagram_url ? editingProf.instagram_url.trim() : '',
       commission_percentage: parseFloat(editingProf.commission_percentage || 50),
       work_days: editingProf.work_days || [1, 2, 3, 4, 5, 6],
-      pin: editingProf.pin || '1234',
+      pin: editingProf.pin ? String(editingProf.pin).trim() : '1234',
       bot_message_template: editingProf.bot_message_template ? editingProf.bot_message_template.trim() : ''
     }).eq('id', editingProf.id);
 
     if (error) {
+      console.error("Erro no Supabase ao atualizar profissional:", error);
       alert("Erro ao atualizar profissional: " + error.message);
     } else {
       setEditingProf(null);
@@ -522,7 +549,7 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* ABA 2: EQUIPE + ESPECIALIDADE, INSTAGRAM INDIVIDUAL, WHATSAPP, PIN E MENSAGEM DO ROBÔ */}
+      {/* ABA 2: EQUIPE */}
       {activeTab === 'professionals' && (
         <div className="space-y-6">
           <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
@@ -599,7 +626,7 @@ export default function AdminTenant() {
                 <div key={p.id} className="bg-gray-900 p-3 rounded-xl border border-gray-800 space-y-2 text-xs">
                   <div className="flex justify-between items-center">
                     <div className="flex items-center space-x-3">
-                      <img src={p.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80'} alt={p.name} className="w-9 h-9 rounded-full object-cover border border-gray-700" />
+                      <img src={p.avatar_url || p.photo_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80'} alt={p.name} className="w-9 h-9 rounded-full object-cover border border-gray-700" />
                       <div>
                         <span className="font-bold block text-white">
                           {p.name} {p.specialty && <span className="text-purple-400 text-[10px] font-normal">({p.specialty})</span>}

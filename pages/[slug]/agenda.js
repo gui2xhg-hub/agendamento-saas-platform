@@ -36,6 +36,9 @@ export default function AgendaTenant() {
   const [selectedProf, setSelectedProf] = useState('');
   const [showTomorrowSummary, setShowTomorrowSummary] = useState(false);
 
+  // NOVO: FILTRO DE CLIENTES NO MODAL ('prof' = Apenas da Profissional, 'all' = Todos os Clientes)
+  const [customerFilterMode, setCustomerFilterMode] = useState('prof');
+
   // NORMAS DE DIAS DA SEMANA (0 = Domingo, 1 = Segunda, ..., 6 = Sábado)
   const ALL_DAYS = [
     { id: 1, label: 'Seg' },
@@ -204,36 +207,48 @@ export default function AgendaTenant() {
     if (tApps) setTomorrowApps(tApps);
   };
 
-  // BUSCA DIRETÓRIO DE CLIENTES PARA AUTOCOMPLETE
+  // BUSCA DIRETÓRIO DE CLIENTES COM VÍNCULO POR PROFISSIONAL E ORDEM ALFABÉTICA
   const fetchCustomersDirectory = async (tenantId = tenant?.id) => {
     if (!tenantId) return;
 
-    const { data: custs, error } = await supabase
-      .from('tenant_customers')
-      .select('customer_name, customer_phone')
-      .eq('tenant_id', tenantId);
+    const { data: apps, error } = await supabase
+      .from('appointments')
+      .select('customer_name, customer_phone, professional_id')
+      .eq('tenant_id', tenantId)
+      .neq('status', 'cancelado');
 
-    if (!error && custs && custs.length > 0) {
-      setCustomerList(custs);
-    } else {
-      // Fallback para agendamentos existentes se a view ainda não existir
-      const { data: apps } = await supabase
-        .from('appointments')
-        .select('customer_name, customer_phone')
-        .eq('tenant_id', tenantId)
-        .neq('status', 'cancelado');
+    if (!error && apps) {
+      const customerMap = {};
 
-      if (apps) {
-        const uniqueMap = {};
-        apps.forEach(a => {
-          if (a.customer_phone) uniqueMap[a.customer_phone] = a.customer_name;
-        });
-        const formatted = Object.keys(uniqueMap).map(phone => ({
-          customer_name: uniqueMap[phone],
-          customer_phone: phone
-        }));
-        setCustomerList(formatted);
-      }
+      apps.forEach(a => {
+        const phone = (a.customer_phone || '').replace(/\D/g, '');
+        const name = (a.customer_name || '').trim();
+        if (!phone || !name) return;
+
+        if (!customerMap[phone]) {
+          customerMap[phone] = {
+            customer_name: name,
+            customer_phone: phone,
+            profIds: new Set()
+          };
+        }
+        if (a.professional_id) {
+          customerMap[phone].profIds.add(String(a.professional_id));
+        }
+      });
+
+      const formattedList = Object.values(customerMap).map(c => ({
+        customer_name: c.customer_name,
+        customer_phone: c.customer_phone,
+        profIds: Array.from(c.profIds)
+      }));
+
+      // ORDENAÇÃO ALFABÉTICA (A-Z)
+      formattedList.sort((a, b) => 
+        a.customer_name.localeCompare(b.customer_name, 'pt-BR', { sensitivity: 'base' })
+      );
+
+      setCustomerList(formattedList);
     }
   };
 
@@ -684,6 +699,14 @@ export default function AgendaTenant() {
   // Serviços filtrados para o modal manual
   const manualFilteredServices = getManualServicesForProf(manualProfId);
 
+  // FILTRAGEM DA LISTA DE CLIENTES NO MODAL (POR PROFISSIONAL OU TODOS)
+  const filteredCustomerList = customerList.filter(c => {
+    if (customerFilterMode === 'all') return true;
+    return c.profIds.includes(String(manualProfId));
+  });
+
+  const activeManualProfObj = professionals.find(p => String(p.id) === String(manualProfId));
+
   return (
     <div className="min-h-screen bg-gray-950 text-white p-4 max-w-5xl mx-auto font-sans pb-20">
       <header className="flex flex-col md:flex-row justify-between items-start md:items-center py-4 border-b border-gray-800 mb-4 gap-4">
@@ -1020,22 +1043,49 @@ export default function AgendaTenant() {
 
             <form onSubmit={handleCreateManualApp} className="space-y-3 text-xs">
               
-              {/* AUTOCOMPLETE DE CLIENTES EXISTENTES */}
-              {customerList.length > 0 && (
-                <div>
-                  <label className="text-gray-400 block mb-1">📋 Selecionar Cliente Cadastrado (Opcional):</label>
-                  <select 
-                    onChange={(e) => handleSelectExistingCustomer(e.target.value)}
-                    className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-white focus:outline-none cursor-pointer">
-                    <option value="">-- Selecione um cliente da lista --</option>
-                    {customerList.map((c, i) => (
-                      <option key={i} value={c.customer_phone}>
-                        {c.customer_name} ({c.customer_phone})
-                      </option>
-                    ))}
-                  </select>
+              {/* CAMPO DE SELEÇÃO DE CLIENTE COM FILTROS DE ALTERNÂNCIA E ORDEM ALFABÉTICA */}
+              <div>
+                <div className="flex justify-between items-center mb-1">
+                  <label className="text-gray-400 block text-[11px]">📋 Selecionar Cliente Cadastrado:</label>
+                  <div className="flex space-x-1 bg-gray-950 p-0.5 rounded-lg border border-gray-800">
+                    <button
+                      type="button"
+                      onClick={() => setCustomerFilterMode('prof')}
+                      className={`px-2 py-0.5 rounded text-[10px] font-bold transition ${
+                        customerFilterMode === 'prof'
+                          ? 'bg-orange-500 text-white shadow'
+                          : 'text-gray-400 hover:text-white'
+                      }`}>
+                      De {activeManualProfObj?.name ? activeManualProfObj.name.split(' ')[0] : 'Profissional'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCustomerFilterMode('all')}
+                      className={`px-2 py-0.5 rounded text-[10px] font-bold transition ${
+                        customerFilterMode === 'all'
+                          ? 'bg-orange-500 text-white shadow'
+                          : 'text-gray-400 hover:text-white'
+                      }`}>
+                      Todos ({customerList.length})
+                    </button>
+                  </div>
                 </div>
-              )}
+
+                <select 
+                  onChange={(e) => handleSelectExistingCustomer(e.target.value)}
+                  className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-white focus:outline-none cursor-pointer">
+                  <option value="">
+                    {filteredCustomerList.length === 0 
+                      ? '-- Nenhum cliente encontrado para este filtro --' 
+                      : '-- Selecione um cliente da lista (A-Z) --'}
+                  </option>
+                  {filteredCustomerList.map((c, i) => (
+                    <option key={i} value={c.customer_phone}>
+                      {c.customer_name} ({c.customer_phone})
+                    </option>
+                  ))}
+                </select>
+              </div>
 
               <div>
                 <label className="text-gray-400 block mb-1">Profissional Atendente:</label>

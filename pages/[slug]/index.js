@@ -38,7 +38,7 @@ export default function AgendamentoCliente() {
 
   // ESTADOS DO AGENDAMENTO
   const [selectedProf, setSelectedProf] = useState('');
-  const [selectedServices, setSelectedServices] = useState([]);
+  const [selectedServices, setSelectedServices] = useState([]); // Guarda 0 ou 1 serviço
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [selectedTime, setSelectedTime] = useState('');
   const [existingAppointments, setExistingAppointments] = useState([]);
@@ -340,20 +340,20 @@ export default function AgendamentoCliente() {
     setSelectedTime('');
   };
 
+  // LÓGICA DE SELEÇÃO ÚNICA DE SERVIÇO
   const handleToggleService = (srv) => {
-    const exists = selectedServices.some(s => s.id === srv.id);
-    if (exists) {
-      setSelectedServices(selectedServices.filter(s => s.id !== srv.id));
+    const isSelected = selectedServices.some(s => s.id === srv.id);
+    if (isSelected) {
+      setSelectedServices([]);
     } else {
-      setSelectedServices([...selectedServices, srv]);
+      setSelectedServices([srv]); // Substitui qualquer serviço anterior
     }
     setSelectedTime('');
   };
 
-  // FUNÇÃO ÚNICA DE HORÁRIOS DISPONÍVEIS (SUPORTA FLUXO NORMAL E REAGENDAMENTO)
   const getSlotAvailability = (targetProfId = selectedProf, targetServices = selectedServices, targetDate = selectedDate, ignoreAppId = null) => {
     if (targetServices.length === 0 || !targetDate) {
-      return { slots: [], status: 'select_service', message: 'Selecione ao menos um serviço.' };
+      return { slots: [], status: 'select_service', message: 'Selecione o serviço desejado.' };
     }
 
     if (!targetProfId) {
@@ -461,7 +461,7 @@ export default function AgendamentoCliente() {
     const cleanPhone = customerPhone.replace(/\D/g, '');
 
     if (!selectedProf) return alert("Selecione a profissional!");
-    if (selectedServices.length === 0) return alert("Selecione pelo menos 1 serviço!");
+    if (selectedServices.length === 0) return alert("Selecione o serviço desejado!");
     if (!selectedTime) return alert("Selecione o horário desejado!");
     if (!customerName || cleanPhone.length < 10) return alert("Preencha seu Nome e WhatsApp válido!");
 
@@ -521,7 +521,7 @@ export default function AgendamentoCliente() {
     msg += `*Cliente:* ${customerName}\n*Telefone:* ${customerPhone}\n`;
     msg += `*Data:* ${formattedDate} às *${selectedTime}*\n`;
     msg += `*Profissional:* ${chosenProfName}\n\n`;
-    msg += `*SERVIÇOS:*\n${servicesListText}\n\n`;
+    msg += `*SERVIÇO:*\n${servicesListText}\n\n`;
     msg += `*Tempo Total:* ${formatDuration(totalDuration)}\n`;
     msg += `*TOTAL:* *R$ ${totalPrice.toFixed(2)}* (${paymentMethod})`;
 
@@ -630,16 +630,16 @@ export default function AgendamentoCliente() {
           </div>
         )}
 
-        {/* PASSO 2: ESCOLHA OS SERVIÇOS DELE(A) */}
+        {/* PASSO 2: ESCOLHA O SERVIÇO (SELEÇÃO ÚNICA) */}
         {selectedProf ? (
           <div className="space-y-2 pt-2 border-t border-black/10">
             <div className="flex justify-between items-center">
               <label className="text-xs font-bold block uppercase tracking-wider opacity-80">
-                {professionals.length > 1 ? `2. Serviços de ${selectedProfObj?.name}` : `1. Escolha os Serviços de ${selectedProfObj?.name}`}
+                {professionals.length > 1 ? `2. Serviço de ${selectedProfObj?.name}` : `1. Escolha o Serviço de ${selectedProfObj?.name}`}
               </label>
               {selectedServices.length > 0 && (
                 <span className="text-[10px] font-bold opacity-80" style={{ color: accentPriceColor }}>
-                  {selectedServices.length} selecionado(s) ({formatDuration(totalDuration)})
+                  1 selecionado ({formatDuration(totalDuration)})
                 </span>
               )}
             </div>
@@ -682,7 +682,7 @@ export default function AgendamentoCliente() {
                           R$ {Number(srv.price).toFixed(2)}
                         </span>
                         <span className="block text-[10px] font-bold mt-0.5" style={{ color: isSelected ? accentPriceColor : 'rgba(0,0,0,0.4)' }}>
-                          {isSelected ? '✓ Selecionado' : '+ Adicionar'}
+                          {isSelected ? '✓ Selecionado' : 'Selecionar'}
                         </span>
                       </div>
                     </div>
@@ -729,12 +729,7 @@ export default function AgendamentoCliente() {
                 </p>
               ) : availableSlots.length === 0 ? (
                 <div className="text-xs text-red-500 bg-red-500/10 p-3.5 rounded-xl border border-red-500/20 text-center space-y-1">
-                  <p className="font-bold">Nenhum horário contínuo de {formatDuration(totalDuration)} disponível nesta data.</p>
-                  {selectedServices.length > 1 && (
-                    <p className="text-[10px] opacity-80">
-                      💡 Tente selecionar outra data ou agendar os procedimentos separadamente.
-                    </p>
-                  )}
+                  <p className="font-bold">Nenhum horário disponível nesta data para este procedimento.</p>
                 </div>
               ) : (
                 <div className="grid grid-cols-4 gap-2 max-h-40 overflow-y-auto pt-1">

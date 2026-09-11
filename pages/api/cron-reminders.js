@@ -2,9 +2,15 @@ import { supabase } from '../../lib/supabase';
 
 export default async function handler(req, res) {
   const { secret } = req.query;
-  
-  // Validação da sua chave de segurança
-  if (secret !== 'sinerge2026') {
+  const authHeader = req.headers.authorization;
+  const envSecret = process.env.CRON_SECRET;
+
+  // Aceita tanto a chave fixa 'sinerge2026' quanto a variável CRON_SECRET da Vercel
+  const isAuthorized = 
+    secret === 'sinerge2026' || 
+    (envSecret && (secret === envSecret || authHeader === `Bearer ${envSecret}`));
+
+  if (!isAuthorized) {
     return res.status(401).json({ error: 'Acesso não autorizado.' });
   }
 
@@ -50,10 +56,7 @@ export default async function handler(req, res) {
       const startTime = app.start_time || app.appointment_time || app.time || '';
       const profName = prof?.name || 'Nossa Equipe';
 
-      // REGRA DE MENSAGEM:
-      // 1º Usa a mensagem própria do profissional (se ele cadastrou uma)
-      // 2º Se vazia, usa a mensagem padrão da loja
-      // 3º Se vazia, usa o modelo fallback padrão
+      // REGRA DE MENSAGEM
       let template = (prof?.bot_message_template && prof.bot_message_template.trim() !== '')
         ? prof.bot_message_template
         : (tenant?.bot_message_template || `Olá *{cliente}*! 👋 Passando para lembrar que seu atendimento de *{servico}* está marcado para amanhã ({data}) às *{horario}* no *{empresa}* com *{profissional}*.\n\nTe aguardamos!`);
@@ -70,8 +73,7 @@ export default async function handler(req, res) {
       const formattedPhone = cleanPhone.startsWith('55') ? cleanPhone : `55${cleanPhone}`;
 
       try {
-        // Disparo para a API de WhatsApp (Evolution API / Z-API)
-        // Lembre-se de ajustar 'https://api.seugateway.com' para a URL real da sua API
+        // Disparo para a API de WhatsApp
         await fetch(`https://api.seugateway.com/message/sendText/${instanceId}`, {
           method: 'POST',
           headers: {
@@ -84,7 +86,7 @@ export default async function handler(req, res) {
           })
         });
 
-        // Marca como lembrete enviado para não disparar novamente
+        // Marca como lembrete enviado
         await supabase
           .from('appointments')
           .update({ reminder_sent: true })

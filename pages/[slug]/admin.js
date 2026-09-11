@@ -31,7 +31,7 @@ export default function AdminTenant() {
 
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [password, setPassword] = useState('');
-  const [activeTab, setActiveTab] = useState('services'); // services, professionals, reports, links, bot, settings
+  const [activeTab, setActiveTab] = useState('services'); // services, professionals, customers, reports, links, bot, settings
   const [loading, setLoading] = useState(true);
 
   const [tenant, setTenant] = useState(null);
@@ -39,6 +39,12 @@ export default function AdminTenant() {
   const [professionals, setProfessionals] = useState([]);
   const [appointments, setAppointments] = useState([]);
   const [reportFilter, setReportFilter] = useState('all');
+
+  // GESTÃO DE CLIENTES & OBSERVAÇÕES
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [customerProfFilter, setCustomerProfFilter] = useState('');
+  const [customerNotesMap, setCustomerNotesMap] = useState({});
+  const [savingNotePhone, setSavingNotePhone] = useState(null);
 
   // CONTROLE DO FINANCEIRO GERAL / SENHA ADMIN
   const [isGlobalFinUnlocked, setIsGlobalFinUnlocked] = useState(false);
@@ -138,7 +144,10 @@ export default function AdminTenant() {
     const { data: tData } = await supabase.from('tenants').select('*').eq('id', tenantId).single();
     const { data: sData } = await supabase.from('services').select('*').eq('tenant_id', tenantId).order('id', { ascending: true });
     const { data: pData } = await supabase.from('professionals').select('*').eq('tenant_id', tenantId).order('id', { ascending: true });
-    const { data: aData } = await supabase.from('appointments').select('*').eq('tenant_id', tenantId).order('created_at', { ascending: false });
+    const { data: aData } = await supabase.from('appointments').select('*').eq('tenant_id', tenantId).order('appointment_date', { ascending: false });
+    
+    // Busca Observações Salvas dos Clientes
+    const { data: cNotes } = await supabase.from('tenant_customers').select('customer_phone, notes').eq('tenant_id', tenantId);
 
     if (tData) {
       setTenant({
@@ -154,6 +163,39 @@ export default function AdminTenant() {
     if (sData) setServices(sData);
     if (pData) setProfessionals(pData);
     if (aData) setAppointments(aData);
+
+    if (cNotes) {
+      const nMap = {};
+      cNotes.forEach(cn => {
+        if (cn.customer_phone) nMap[cn.customer_phone.replace(/\D/g, '')] = cn.notes || '';
+      });
+      setCustomerNotesMap(nMap);
+    }
+  };
+
+  const handleSaveCustomerNote = async (phone, name, noteText) => {
+    const cleanPhone = phone.replace(/\D/g, '');
+    if (!cleanPhone) return;
+
+    setSavingNotePhone(cleanPhone);
+
+    const { error } = await supabase
+      .from('tenant_customers')
+      .upsert({
+        tenant_id: tenant.id,
+        customer_phone: cleanPhone,
+        customer_name: name,
+        notes: noteText
+      }, { onConflict: 'tenant_id,customer_phone' });
+
+    setSavingNotePhone(null);
+
+    if (error) {
+      alert("Erro ao salvar observação: " + error.message);
+    } else {
+      setCustomerNotesMap(prev => ({ ...prev, [cleanPhone]: noteText }));
+      alert("✓ Observação do cliente salva com sucesso!");
+    }
   };
 
   const handleSaveTenantSettings = async (e) => {
@@ -371,6 +413,80 @@ export default function AdminTenant() {
     }
   });
 
+  // MONTAGEM DO DIRETÓRIO DE CLIENTES AGRUPADO
+  const getProcessedCustomers = () => {
+    const custMap = {};
+
+    appointments.forEach(app => {
+      if (app.status === 'cancelado') return;
+
+      const rawPhone = app.customer_phone || app.client_phone || app.phone || '';
+      const cleanPhone = rawPhone.replace(/\D/g, '');
+      const name = app.customer_name || app.client_name || 'Cliente';
+
+      if (!cleanPhone) return;
+
+      if (!custMap[cleanPhone]) {
+        custMap[cleanPhone] = {
+          name: name,
+          phone: cleanPhone,
+          total_spent: 0,
+          total_visits: 0,
+          prof_ids: new Set(),
+          appointments: []
+        };
+      }
+
+      custMap[cleanPhone].total_spent += Number(app.total_price || app.price || 0);
+      custMap[cleanPhone].total_visits += 1;
+      if (app.professional_id) custMap[cleanPhone].prof_ids.add(String(app.professional_id));
+      custMap[cleanPhone].appointments.push(app);
+    });
+
+    let list = Object.values(custMap).map(c => {
+      // Ordena os agendamentos do cliente do mais recente para o mais antigo
+      const sortedApps = c.appointments.sort((a, b) => 
+        new Date(b.appointment_date || b.created_at) - new Date(a.appointment_date || a.created_at)
+      );
+
+      const lastApp = sortedApps[0] || {};
+      const lastServices = Array.isArray(lastApp.services_json) 
+        ? lastApp.services_json.map(s => s.name).join(', ')
+        : (lastApp.service_name || 'Atendimento');
+
+      return {
+        ...c,
+        prof_ids: Array.from(c.prof_ids),
+        last_date: lastApp.appointment_date ? lastApp.appointment_date.split('-').reverse().join('/') : '—',
+        last_services: lastServices,
+        notes: customerNotesMap[c.phone] || ''
+      };
+    });
+
+    // FILTRO POR PROFISSIONAL
+    if (customerProfFilter) {
+      list = list.filter(c => c.prof_ids.includes(String(customerProfFilter)));
+    }
+
+    // BUSCA POR NOME OU WHATSAPP
+    if (customerSearch) {
+      const q = customerSearch.toLowerCase().trim();
+      list = list.filter(c => c.name.toLowerCase().includes(q) || c.phone.includes(q));
+    }
+
+    // ORDENAÇÃO POR NOME (A-Z)
+    list.sort((a, b) => a.name.localeCompare(b.name, 'pt-BR', { sensitivity: 'base' }));
+
+    return list;
+  };
+
+  const processedCustomers = getProcessedCustomers();
+
+  // OBTÉM AS TOP CLIENTES (MAIOR VALOR GASTO)
+  const topVipCustomers = [...processedCustomers]
+    .sort((a, b) => b.total_spent - a.total_spent)
+    .slice(0, 3);
+
   const handleUnlockGlobalFin = (e) => {
     e.preventDefault();
     if (tenant && (adminFinPass === tenant.admin_password || adminFinPass === 'master123')) {
@@ -434,7 +550,7 @@ export default function AdminTenant() {
   const profCommEarned = profTotalRev * (Number(unlockedProfData?.commission_percentage || 50) / 100);
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white p-4 max-w-md mx-auto font-sans pb-12">
+    <div className="min-h-screen bg-gray-950 text-white p-4 max-w-4xl mx-auto font-sans pb-12">
       <style jsx global>{`
         @media print {
           body * { visibility: hidden !important; }
@@ -453,7 +569,7 @@ export default function AdminTenant() {
           </button>
           <div>
             <h1 className="font-bold text-lg text-orange-500">{tenant.name}</h1>
-            <p className="text-xs text-gray-400">Gestão de Agendamentos</p>
+            <p className="text-xs text-gray-400">Gestão do Estabelecimento</p>
           </div>
         </div>
         <button 
@@ -468,13 +584,14 @@ export default function AdminTenant() {
       </header>
 
       {/* BARRA DE TABS */}
-      <div className="flex space-x-1 bg-gray-900 p-1 rounded-xl border border-gray-800 mb-6 text-[11px] font-bold overflow-x-auto">
-        <button onClick={() => setActiveTab('services')} className={`flex-1 py-2 px-2 rounded-lg whitespace-nowrap ${activeTab === 'services' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>💈 Serviços</button>
-        <button onClick={() => setActiveTab('professionals')} className={`flex-1 py-2 px-2 rounded-lg whitespace-nowrap ${activeTab === 'professionals' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>👨‍🔬 Equipe</button>
-        <button onClick={() => setActiveTab('reports')} className={`flex-1 py-2 px-2 rounded-lg whitespace-nowrap ${activeTab === 'reports' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>📊 Financeiro</button>
-        <button onClick={() => setActiveTab('bot')} className={`flex-1 py-2 px-2 rounded-lg whitespace-nowrap ${activeTab === 'bot' ? 'bg-green-600 text-white' : 'text-gray-400'}`}>🤖 Robô Zap</button>
-        <button onClick={() => setActiveTab('links')} className={`flex-1 py-2 px-2 rounded-lg whitespace-nowrap ${activeTab === 'links' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>🔗 Divulgação</button>
-        <button onClick={() => setActiveTab('settings')} className={`flex-1 py-2 px-2 rounded-lg whitespace-nowrap ${activeTab === 'settings' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>⚙️ Config</button>
+      <div className="flex space-x-1 bg-gray-900 p-1 rounded-xl border border-gray-800 mb-6 text-[11px] font-bold overflow-x-auto scrollbar-none">
+        <button onClick={() => setActiveTab('services')} className={`flex-1 py-2 px-3 rounded-lg whitespace-nowrap transition ${activeTab === 'services' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>💈 Serviços</button>
+        <button onClick={() => setActiveTab('professionals')} className={`flex-1 py-2 px-3 rounded-lg whitespace-nowrap transition ${activeTab === 'professionals' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>👨‍🔬 Equipe</button>
+        <button onClick={() => setActiveTab('customers')} className={`flex-1 py-2 px-3 rounded-lg whitespace-nowrap transition ${activeTab === 'customers' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>👥 Clientes</button>
+        <button onClick={() => setActiveTab('reports')} className={`flex-1 py-2 px-3 rounded-lg whitespace-nowrap transition ${activeTab === 'reports' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>📊 Financeiro</button>
+        <button onClick={() => setActiveTab('bot')} className={`flex-1 py-2 px-3 rounded-lg whitespace-nowrap transition ${activeTab === 'bot' ? 'bg-green-600 text-white' : 'text-gray-400'}`}>🤖 Robô Zap</button>
+        <button onClick={() => setActiveTab('links')} className={`flex-1 py-2 px-3 rounded-lg whitespace-nowrap transition ${activeTab === 'links' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>🔗 Divulgação</button>
+        <button onClick={() => setActiveTab('settings')} className={`flex-1 py-2 px-3 rounded-lg whitespace-nowrap transition ${activeTab === 'settings' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>⚙️ Config</button>
       </div>
 
       {/* ABA 1: SERVIÇOS */}
@@ -526,7 +643,7 @@ export default function AdminTenant() {
                   </label>
                   <p className="text-[10px] text-gray-500 mb-2">*(Se nenhum for marcado, toda a equipe fará)*</p>
                   
-                  <div className="grid grid-cols-2 gap-2 max-h-36 overflow-y-auto">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-36 overflow-y-auto">
                     {professionals.map(p => {
                       const isChecked = (newService.professional_ids || []).includes(p.id);
                       return (
@@ -752,7 +869,157 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* ABA 3: FINANCEIRO */}
+      {/* ABA 3: GESTÃO DE CLIENTES */}
+      {activeTab === 'customers' && (
+        <div className="space-y-6">
+          {/* DESTAQUE TOP CLIENTES VIP */}
+          {topVipCustomers.length > 0 && (
+            <section className="bg-gradient-to-r from-orange-950/40 via-gray-900 to-amber-950/40 p-4 rounded-2xl border border-orange-500/30 space-y-3 shadow-xl">
+              <div className="flex items-center space-x-2">
+                <span className="text-lg">🏆</span>
+                <div>
+                  <h3 className="font-bold text-xs text-orange-400 uppercase tracking-wider">Top Clientes VIPs</h3>
+                  <p className="text-[10px] text-gray-400">Clientes com maior faturamento acumulado na loja</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
+                {topVipCustomers.map((vip, i) => (
+                  <div key={i} className="bg-gray-950/80 p-3 rounded-xl border border-orange-500/20 text-xs relative overflow-hidden">
+                    <span className="absolute -top-1 -right-1 bg-orange-500 text-white font-bold text-[9px] px-2 py-0.5 rounded-bl-lg">
+                      #{i + 1} VIP
+                    </span>
+                    <span className="font-bold text-white block truncate pr-8">{vip.name}</span>
+                    <span className="text-[10px] text-gray-400 block font-mono">📱 {vip.phone}</span>
+                    <div className="flex justify-between items-center mt-2 pt-1 border-t border-gray-800 text-[11px]">
+                      <span className="text-gray-400">{vip.total_visits} visitas</span>
+                      <span className="font-bold text-green-400">R$ {vip.total_spent.toFixed(2)}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* FILTROS E BUSCA DE CLIENTES */}
+          <section className="bg-gray-900 p-4 rounded-2xl border border-gray-800 space-y-3">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+              <h3 className="font-bold text-xs text-gray-300 uppercase tracking-wider">
+                👥 Diretório de Clientes ({processedCustomers.length})
+              </h3>
+
+              <div className="flex items-center space-x-2 w-full sm:w-auto">
+                <select
+                  value={customerProfFilter}
+                  onChange={(e) => setCustomerProfFilter(e.target.value)}
+                  className="bg-gray-800 border border-gray-700 p-2 rounded-xl text-xs text-white focus:outline-none cursor-pointer w-1/2 sm:w-auto">
+                  <option value="">-- Todos os Profissionais --</option>
+                  {professionals.map(p => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+
+                <input
+                  type="text"
+                  placeholder="🔍 Buscar cliente..."
+                  value={customerSearch}
+                  onChange={(e) => setCustomerSearch(e.target.value)}
+                  className="bg-gray-800 border border-gray-700 p-2 rounded-xl text-xs text-white focus:outline-none w-1/2 sm:w-auto"
+                />
+              </div>
+            </div>
+
+            {/* LISTAGEM DE CLIENTES */}
+            <div className="space-y-3 pt-2">
+              {processedCustomers.length === 0 ? (
+                <p className="text-xs text-gray-500 text-center py-6">Nenhum cliente encontrado com os filtros aplicados.</p>
+              ) : (
+                processedCustomers.map((cust, idx) => {
+                  const isSavingThisNote = savingNotePhone === cust.phone;
+
+                  return (
+                    <div key={idx} className="bg-gray-950 p-4 rounded-2xl border border-gray-800 space-y-3 text-xs shadow-md">
+                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-gray-800 pb-2.5">
+                        <div className="flex items-center space-x-3">
+                          <div className="w-10 h-10 rounded-full bg-orange-500/10 border border-orange-500/30 text-orange-400 font-bold flex items-center justify-center text-sm shrink-0">
+                            {cust.name.charAt(0).toUpperCase()}
+                          </div>
+                          <div>
+                            <h4 className="font-bold text-white text-xs flex items-center space-x-2">
+                              <span>{cust.name}</span>
+                              <a
+                                href={`https://wa.me/55${cust.phone}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[10px] bg-green-500/20 hover:bg-green-500/40 text-green-400 border border-green-500/30 px-2 py-0.5 rounded-full font-normal">
+                                💬 WhatsApp
+                              </a>
+                            </h4>
+                            <span className="text-[10px] text-gray-400 block font-mono">📱 {cust.phone}</span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center space-x-3 text-[11px]">
+                          <div className="text-right">
+                            <span className="text-gray-400 block text-[10px]">Visitas:</span>
+                            <span className="font-bold text-white">{cust.total_visits}x</span>
+                          </div>
+                          <div className="text-right border-l border-gray-800 pl-3">
+                            <span className="text-gray-400 block text-[10px]">Total Gasto:</span>
+                            <span className="font-bold text-green-400">R$ {cust.total_spent.toFixed(2)}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* ÚLTIMO PROCEDIMENTO REALIZADO */}
+                      <div className="bg-gray-900 p-2.5 rounded-xl border border-gray-800/80 text-[11px] flex justify-between items-center">
+                        <div>
+                          <span className="text-gray-400 text-[10px] block">Último Procedimento:</span>
+                          <span className="font-bold text-orange-300">{cust.last_services}</span>
+                        </div>
+                        <span className="text-[10px] text-gray-400 bg-gray-800 px-2 py-1 rounded-lg">
+                          📅 {cust.last_date}
+                        </span>
+                      </div>
+
+                      {/* CAMPO DE OBSERVAÇÃO INDIVIDUAL DO CLIENTE */}
+                      <div className="space-y-1.5 pt-1">
+                        <div className="flex justify-between items-center">
+                          <label className="text-[10px] font-bold text-purple-300 block">
+                            📌 Observações Internas da Cliente:
+                          </label>
+                          {isSavingThisNote && <span className="text-[10px] text-orange-400 animate-pulse">Salvando...</span>}
+                        </div>
+
+                        <div className="flex space-x-2">
+                          <input
+                            type="text"
+                            placeholder="Ex: Prefere café sem açúcar, alergia a esmalte X, tom de tinta 6.0..."
+                            value={cust.notes}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setCustomerNotesMap(prev => ({ ...prev, [cust.phone]: val }));
+                            }}
+                            className="w-full bg-gray-900 border border-gray-800 p-2 rounded-xl text-xs text-gray-200 focus:outline-none focus:border-purple-500"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleSaveCustomerNote(cust.phone, cust.name, cust.notes)}
+                            className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap">
+                            💾 Salvar
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </section>
+        </div>
+      )}
+
+      {/* ABA 4: FINANCEIRO */}
       {activeTab === 'reports' && (
         <div className="space-y-4">
           <div className="flex space-x-2 bg-gray-900 p-1.5 rounded-xl border border-gray-800 text-xs font-bold">
@@ -953,7 +1220,7 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* ABA 4: ROBÔ WHATSAPP / LEMBRETES AUTOMÁTICOS */}
+      {/* ABA 5: ROBÔ WHATSAPP / LEMBRETES AUTOMÁTICOS */}
       {activeTab === 'bot' && (
         <div className="space-y-6">
           <section className="bg-gray-900 p-5 rounded-2xl border border-green-500/30 space-y-4 shadow-xl">
@@ -1047,7 +1314,7 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* ABA 5: DIVULGAÇÃO & LINKS PERSONALIZADOS */}
+      {/* ABA 6: DIVULGAÇÃO & LINKS PERSONALIZADOS */}
       {activeTab === 'links' && (
         <div className="space-y-6">
           <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
@@ -1112,7 +1379,7 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* ABA 6: CONFIGURAÇÕES DA LOJA */}
+      {/* ABA 7: CONFIGURAÇÕES DA LOJA */}
       {activeTab === 'settings' && (
         <div className="space-y-6">
           <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">

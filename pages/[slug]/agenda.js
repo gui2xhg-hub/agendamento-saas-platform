@@ -27,11 +27,14 @@ export default function AgendaTenant() {
   const [services, setServices] = useState([]);
   const [appointments, setAppointments] = useState([]);
   const [blockedTimes, setBlockedTimes] = useState([]);
+  const [tomorrowApps, setTomorrowApps] = useState([]);
+  const [customerList, setCustomerList] = useState([]);
   const [loading, setLoading] = useState(true);
 
   // FILTROS DE DATA E PROFISSIONAL
   const [selectedDate, setSelectedDate] = useState(getTodayLocal());
   const [selectedProf, setSelectedProf] = useState('');
+  const [showTomorrowSummary, setShowTomorrowSummary] = useState(false);
 
   // NORMAS DE DIAS DA SEMANA (0 = Domingo, 1 = Segunda, ..., 6 = Sábado)
   const ALL_DAYS = [
@@ -85,8 +88,10 @@ export default function AgendaTenant() {
   useEffect(() => {
     if (tenant?.id && selectedDate) {
       fetchAppointmentsAndBlocks();
+      fetchTomorrowAppointments();
+      fetchCustomersDirectory();
     }
-  }, [tenant?.id, selectedDate]);
+  }, [tenant?.id, selectedDate, selectedProf]);
 
   // FUNÇÃO DE FILTRO: RETORNA APENAS OS SERVIÇOS DO PROFISSIONAL SELECIONADO
   const getManualServicesForProf = (profId) => {
@@ -142,6 +147,8 @@ export default function AgendaTenant() {
       }
       
       await fetchAppointmentsAndBlocks(tData.id);
+      await fetchTomorrowAppointments(tData.id);
+      await fetchCustomersDirectory(tData.id);
     }
     setLoading(false);
   };
@@ -176,6 +183,60 @@ export default function AgendaTenant() {
     }
   };
 
+  // BUSCA AGENDAMENTOS DO DIA SEGUINTE PARA LEMBRETE
+  const fetchTomorrowAppointments = async (tenantId = tenant?.id) => {
+    if (!tenantId) return;
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowStr = tomorrow.toLocaleDateString('sv-SE');
+
+    let query = supabase.from('appointments')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .eq('appointment_date', tomorrowStr)
+      .neq('status', 'cancelado');
+
+    if (selectedProf) {
+      query = query.eq('professional_id', selectedProf);
+    }
+
+    const { data: tApps } = await query.order('start_time', { ascending: true });
+    if (tApps) setTomorrowApps(tApps);
+  };
+
+  // BUSCA DIRETÓRIO DE CLIENTES PARA AUTOCOMPLETE
+  const fetchCustomersDirectory = async (tenantId = tenant?.id) => {
+    if (!tenantId) return;
+
+    const { data: custs, error } = await supabase
+      .from('tenant_customers')
+      .select('customer_name, customer_phone')
+      .eq('tenant_id', tenantId);
+
+    if (!error && custs && custs.length > 0) {
+      setCustomerList(custs);
+    } else {
+      // Fallback para agendamentos existentes se a view ainda não existir
+      const { data: apps } = await supabase
+        .from('appointments')
+        .select('customer_name, customer_phone')
+        .eq('tenant_id', tenantId)
+        .neq('status', 'cancelado');
+
+      if (apps) {
+        const uniqueMap = {};
+        apps.forEach(a => {
+          if (a.customer_phone) uniqueMap[a.customer_phone] = a.customer_name;
+        });
+        const formatted = Object.keys(uniqueMap).map(phone => ({
+          customer_name: uniqueMap[phone],
+          customer_phone: phone
+        }));
+        setCustomerList(formatted);
+      }
+    }
+  };
+
   const getWeekDays = (baseDateStr) => {
     const baseDate = new Date(baseDateStr + 'T00:00:00');
     const dayOfWeek = baseDate.getDay();
@@ -203,6 +264,29 @@ export default function AgendaTenant() {
   };
 
   const currentWeekDays = getWeekDays(selectedDate);
+
+  const handleSelectExistingCustomer = (phone) => {
+    const found = customerList.find(c => c.customer_phone === phone);
+    if (found) {
+      setManualCustomerName(found.customer_name);
+      setManualCustomerPhone(found.customer_phone);
+    }
+  };
+
+  const handleSendWhatsappReminder = (app) => {
+    const cleanPhone = (app.customer_phone || '').replace(/\D/g, '');
+    if (!cleanPhone) return alert("Cliente não possui WhatsApp válido.");
+
+    const formattedDate = app.appointment_date.split('-').reverse().join('/');
+    const profObj = professionals.find(p => String(p.id) === String(app.professional_id));
+    const profName = profObj ? profObj.name : tenant.name;
+
+    const msg = `*LEMBRETE DE AGENDAMENTO - ${tenant.name.toUpperCase()}* 🗓️\n\n` +
+      `Olá *${app.customer_name}*, passando para lembrar do seu agendamento *Amanhã (${formattedDate})* às *${app.start_time}* com ${profName}.\n\n` +
+      `Podemos confirmar sua presença? Responda este WhatsApp para confirmar! 😊`;
+
+    window.open(`https://wa.me/55${cleanPhone}?text=${encodeURIComponent(msg)}`, '_blank');
+  };
 
   const handleCreateManualApp = async (e) => {
     e.preventDefault();
@@ -257,8 +341,7 @@ export default function AgendaTenant() {
           `Seu agendamento no *${tenant.name}* foi confirmado com sucesso!\n\n` +
           `📅 *Data:* ${formattedDate} às *${manualStartTime}*\n` +
           `👤 *Profissional:* ${chosenProfObj?.name || 'Equipe'}\n` +
-          `✂️ *Procedimento:* ${serviceObj?.name || 'Atendimento'}\n` +
-          `💰 *Valor:* R$ ${price.toFixed(2)}\n\n` +
+          `✂️ *Procedimento:* ${serviceObj?.name || 'Atendimento'}\n\n` +
           `Te aguardamos! Se precisar alterar, nos avise por aqui.`;
 
         window.open(`https://wa.me/55${cleanPhone}?text=${encodeURIComponent(msg)}`, '_blank');
@@ -268,6 +351,8 @@ export default function AgendaTenant() {
       setManualCustomerName('');
       setManualCustomerPhone('');
       fetchAppointmentsAndBlocks();
+      fetchTomorrowAppointments();
+      fetchCustomersDirectory();
     }
   };
 
@@ -414,6 +499,7 @@ export default function AgendaTenant() {
 
       setEditingApp(null);
       fetchAppointmentsAndBlocks();
+      fetchTomorrowAppointments();
     }
   };
 
@@ -452,6 +538,7 @@ export default function AgendaTenant() {
       }
 
       fetchAppointmentsAndBlocks();
+      fetchTomorrowAppointments();
     }
   };
 
@@ -587,7 +674,6 @@ export default function AgendaTenant() {
 
   const currentProf = professionals.find(p => String(p.id) === String(selectedProf));
   const displayedAppointments = appointments.filter(a => String(a.professional_id) === String(selectedProf));
-  const totalAmount = displayedAppointments.reduce((acc, app) => acc + Number(app.total_price || 0), 0);
   const completedCount = displayedAppointments.filter(app => app.status === 'concluido').length;
   const pendingCount = displayedAppointments.filter(app => app.status === 'agendado').length;
 
@@ -638,6 +724,45 @@ export default function AgendaTenant() {
           </button>
         </div>
       </header>
+
+      {/* PAINEL DE LEMBRETES DO DIA SEGUINTE */}
+      <div className="mb-6 bg-gray-900 border border-purple-500/30 rounded-2xl p-4 space-y-3 shadow-lg">
+        <div className="flex justify-between items-center cursor-pointer" onClick={() => setShowTomorrowSummary(!showTomorrowSummary)}>
+          <div className="flex items-center space-x-2">
+            <span className="text-base">🔔</span>
+            <h2 className="font-bold text-xs text-purple-300">
+              Lembretes de Amanhã ({tomorrowApps.length} agendamentos)
+            </h2>
+          </div>
+          <button className="text-xs text-purple-400 font-bold">
+            {showTomorrowSummary ? '▲ Ocultar' : '▼ Visualizar & Enviar'}
+          </button>
+        </div>
+
+        {showTomorrowSummary && (
+          <div className="space-y-2 pt-2 border-t border-gray-800 max-h-60 overflow-y-auto">
+            {tomorrowApps.length === 0 ? (
+              <p className="text-xs text-gray-500 text-center py-2">Nenhum agendamento para amanhã nesta agenda.</p>
+            ) : (
+              tomorrowApps.map(app => (
+                <div key={app.id} className="bg-gray-950 p-3 rounded-xl border border-gray-800 flex justify-between items-center text-xs">
+                  <div>
+                    <span className="font-bold text-orange-400 block">{app.start_time} — {app.customer_name}</span>
+                    <span className="text-[10px] text-gray-400 block">
+                      {Array.isArray(app.services_json) ? app.services_json.map(s => s.name).join(', ') : 'Serviços'}
+                    </span>
+                  </div>
+                  <button 
+                    onClick={() => handleSendWhatsappReminder(app)}
+                    className="bg-green-600/20 hover:bg-green-600/30 text-green-400 border border-green-500/30 px-3 py-1.5 rounded-lg text-[10px] font-bold flex items-center space-x-1 transition">
+                    <span>📲 Enviar Lembrete</span>
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+      </div>
 
       {/* DIAS DA SEMANA */}
       <div className="mb-6">
@@ -710,8 +835,8 @@ export default function AgendaTenant() {
         </div>
       </div>
 
-      {/* MÉTRICAS */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+      {/* MÉTRICAS (SEM EXIBIÇÃO FINANCEIRA) */}
+      <div className="grid grid-cols-3 gap-3 mb-6">
         <div className="bg-gray-900 border border-gray-800 p-3 rounded-2xl">
           <span className="text-[10px] font-bold text-gray-400 uppercase block">Atendimentos</span>
           <span className="text-base font-bold text-white">{displayedAppointments.length}</span>
@@ -723,10 +848,6 @@ export default function AgendaTenant() {
         <div className="bg-gray-900 border border-gray-800 p-3 rounded-2xl">
           <span className="text-[10px] font-bold text-green-400 uppercase block">Concluídos</span>
           <span className="text-base font-bold text-green-400">{completedCount}</span>
-        </div>
-        <div className="bg-gray-900 border border-gray-800 p-3 rounded-2xl">
-          <span className="text-[10px] font-bold text-gray-400 uppercase block">Total Previsto</span>
-          <span className="text-base font-bold text-green-400">R$ {totalAmount.toFixed(2)}</span>
         </div>
       </div>
 
@@ -823,18 +944,11 @@ export default function AgendaTenant() {
                   </span>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs bg-gray-950 p-3 rounded-xl border border-gray-800/80">
-                  <div>
-                    <span className="text-gray-400 block text-[10px]">Serviço(s) Solicitado(s):</span>
-                    <span className="font-bold text-orange-300">
-                      {servicesList.map(s => s.name).join(', ') || 'Atendimento Geral'}
-                    </span>
-                  </div>
-
-                  <div className="text-right">
-                    <span className="text-gray-400 block text-[10px]">Valor Total:</span>
-                    <span className="font-bold text-green-400 text-sm">R$ {Number(app.total_price || 0).toFixed(2)} ({app.payment_method || 'No Local'})</span>
-                  </div>
+                <div className="bg-gray-950 p-3 rounded-xl border border-gray-800/80 text-xs">
+                  <span className="text-gray-400 block text-[10px]">Serviço(s) Solicitado(s):</span>
+                  <span className="font-bold text-orange-300">
+                    {servicesList.map(s => s.name).join(', ') || 'Atendimento Geral'}
+                  </span>
                 </div>
 
                 <div className="flex justify-end space-x-2 pt-1">
@@ -896,7 +1010,7 @@ export default function AgendaTenant() {
       {/* MODAL DE AGENDAMENTO MANUAL PELO PROFISSIONAL */}
       {showManualAppModal && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-900 border border-gray-800 w-full max-w-md rounded-2xl p-5 space-y-4 shadow-2xl">
+          <div className="bg-gray-900 border border-gray-800 w-full max-w-md rounded-2xl p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center border-b border-gray-800 pb-2">
               <h3 className="font-bold text-sm text-green-400 flex items-center space-x-1">
                 <span>➕ Agendar Atendimento Manual</span>
@@ -905,6 +1019,24 @@ export default function AgendaTenant() {
             </div>
 
             <form onSubmit={handleCreateManualApp} className="space-y-3 text-xs">
+              
+              {/* AUTOCOMPLETE DE CLIENTES EXISTENTES */}
+              {customerList.length > 0 && (
+                <div>
+                  <label className="text-gray-400 block mb-1">📋 Selecionar Cliente Cadastrado (Opcional):</label>
+                  <select 
+                    onChange={(e) => handleSelectExistingCustomer(e.target.value)}
+                    className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-white focus:outline-none cursor-pointer">
+                    <option value="">-- Selecione um cliente da lista --</option>
+                    {customerList.map((c, i) => (
+                      <option key={i} value={c.customer_phone}>
+                        {c.customer_name} ({c.customer_phone})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               <div>
                 <label className="text-gray-400 block mb-1">Profissional Atendente:</label>
                 <select
@@ -961,7 +1093,7 @@ export default function AgendaTenant() {
                   ) : (
                     manualFilteredServices.map(s => (
                       <option key={s.id} value={s.id}>
-                        {s.name} — R$ {Number(s.price).toFixed(2)} ({formatDuration(s.duration_minutes)})
+                        {s.name} ({formatDuration(s.duration_minutes)})
                       </option>
                     ))
                   )}
@@ -1084,7 +1216,7 @@ export default function AgendaTenant() {
       {/* MODAL FECHAR AGENDA / BLOQUEAR HORÁRIO */}
       {showBlockModal && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-900 border border-gray-800 w-full max-w-md rounded-2xl p-5 space-y-4 shadow-2xl">
+          <div className="bg-gray-900 border border-gray-800 w-full max-w-md rounded-2xl p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center border-b border-gray-800 pb-2">
               <h3 className="font-bold text-sm text-purple-400 flex items-center space-x-1">
                 <span>🔒 Fechar Agenda / Bloquear Horário</span>

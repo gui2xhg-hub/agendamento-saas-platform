@@ -130,13 +130,15 @@ export default function AgendaTenant() {
   const [isSavingManualApp, setIsSavingManualApp] = useState(false);
 
   useEffect(() => {
-    // Carrega tema preferido salvo localmente
-    const savedTheme = localStorage.getItem('agenda_custom_theme');
-    if (savedTheme && THEME_PRESETS[savedTheme]) {
-      setAgendaTheme(savedTheme);
-    }
-
     if (router.isReady && slug) {
+      // Carrega o tema salvo especificamente para este slug
+      const savedTheme = localStorage.getItem(`agenda_custom_theme_${slug}`);
+      if (savedTheme && THEME_PRESETS[savedTheme]) {
+        setAgendaTheme(savedTheme);
+      } else {
+        setAgendaTheme('dark');
+      }
+
       fetchTenantAndData();
     }
   }, [router.isReady, slug]);
@@ -149,9 +151,12 @@ export default function AgendaTenant() {
     }
   }, [tenant?.id, selectedDate, selectedProf]);
 
+  // FUNÇÃO DE TROCA DE TEMA ISOLADA POR SLUG
   const handleThemeChange = (newThemeKey) => {
     setAgendaTheme(newThemeKey);
-    localStorage.setItem('agenda_custom_theme', newThemeKey);
+    if (slug) {
+      localStorage.setItem(`agenda_custom_theme_${slug}`, newThemeKey);
+    }
   };
 
   // FUNÇÃO DE FILTRO: RETORNA APENAS OS SERVIÇOS DO PROFISSIONAL SELECIONADO

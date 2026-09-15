@@ -1420,7 +1420,7 @@ export default function AdminTenant() {
                 <div className="flex justify-between items-center">
                   <div>
                     <h4 className="font-bold text-xs text-green-400">⚡ Pagamento via PIX Automático</h4>
-                    <p className="text-[10px] text-gray-400">Confirma agendamentos com sinal/pré-pagamento.</p>
+                    <p className="text-[10px] text-gray-400">Confirms agendamentos com sinal/pré-pagamento.</p>
                   </div>
                   <input type="checkbox" checked={tenant.pix_enabled || false} onChange={(e) => setTenant({ ...tenant, pix_enabled: e.target.checked })} className="w-4 h-4 accent-green-500 cursor-pointer" />
                 </div>

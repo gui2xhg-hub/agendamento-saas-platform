@@ -2,6 +2,50 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../../lib/supabase';
 
+// PRESETS DE CORES EXCLUSIVOS E PREDEFINIDOS PARA A AGENDA
+const THEME_PRESETS = {
+  dark: {
+    name: 'Dark 🌙',
+    primary: '#FF8C00',
+    secondary: '#090D16',
+    cardBg: '#111827',
+    text: '#FFFFFF',
+    border: 'rgba(255, 255, 255, 0.1)'
+  },
+  rosa: {
+    name: 'Rosa 🌸',
+    primary: '#EC4899',
+    secondary: '#1A0B13',
+    cardBg: '#2A1220',
+    text: '#FDF2F8',
+    border: 'rgba(236, 72, 153, 0.2)'
+  },
+  roxo: {
+    name: 'Roxo 🔮',
+    primary: '#A855F7',
+    secondary: '#0F091A',
+    cardBg: '#1D1230',
+    text: '#F3E8FF',
+    border: 'rgba(168, 85, 247, 0.2)'
+  },
+  azul: {
+    name: 'Azul 💎',
+    primary: '#3B82F6',
+    secondary: '#0B132B',
+    cardBg: '#1C2541',
+    text: '#EFF6FF',
+    border: 'rgba(59, 130, 246, 0.2)'
+  },
+  claro: {
+    name: 'Claro ☀️',
+    primary: '#2563EB',
+    secondary: '#F3F4F6',
+    cardBg: '#FFFFFF',
+    text: '#111827',
+    border: 'rgba(0, 0, 0, 0.1)'
+  }
+};
+
 // FUNÇÃO AUXILIAR PARA FORMATAR MINUTOS EM HORAS E MINUTOS
 const formatDuration = (minutes) => {
   const mins = Number(minutes) || 0;
@@ -30,6 +74,9 @@ export default function AgendaTenant() {
   const [tomorrowApps, setTomorrowApps] = useState([]);
   const [customerList, setCustomerList] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  // SELETOR DE TEMA PRÓPRIO DA AGENDA (INICIA EM 'dark')
+  const [agendaTheme, setAgendaTheme] = useState('dark');
 
   // FILTROS DE DATA E PROFISSIONAL
   const [selectedDate, setSelectedDate] = useState(getTodayLocal());
@@ -83,6 +130,12 @@ export default function AgendaTenant() {
   const [isSavingManualApp, setIsSavingManualApp] = useState(false);
 
   useEffect(() => {
+    // Carrega tema preferido salvo localmente
+    const savedTheme = localStorage.getItem('agenda_custom_theme');
+    if (savedTheme && THEME_PRESETS[savedTheme]) {
+      setAgendaTheme(savedTheme);
+    }
+
     if (router.isReady && slug) {
       fetchTenantAndData();
     }
@@ -95,6 +148,11 @@ export default function AgendaTenant() {
       fetchCustomersDirectory();
     }
   }, [tenant?.id, selectedDate, selectedProf]);
+
+  const handleThemeChange = (newThemeKey) => {
+    setAgendaTheme(newThemeKey);
+    localStorage.setItem('agenda_custom_theme', newThemeKey);
+  };
 
   // FUNÇÃO DE FILTRO: RETORNA APENAS OS SERVIÇOS DO PROFISSIONAL SELECIONADO
   const getManualServicesForProf = (profId) => {
@@ -682,11 +740,13 @@ export default function AgendaTenant() {
   if (loading) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><p className="text-xs text-gray-400">Carregando Agenda...</p></div>;
   if (!tenant) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><h1 className="text-xl font-bold text-orange-500">Estabelecimento não encontrado</h1></div>;
 
-  // VARIÁVEIS DE TEMA DINÂMICAS OBTIDAS DO TENANT
-  const primaryColor = tenant.primary_color || '#FF8C00';
-  const secondaryColor = tenant.secondary_color || '#090D16';
-  const cardBgColor = tenant.card_bg_color || '#111827';
-  const textColor = tenant.text_color || '#FFFFFF';
+  // EXTRAÇÃO DO PRESET SELECIONADO DA AGENDA
+  const activeTheme = THEME_PRESETS[agendaTheme] || THEME_PRESETS.dark;
+  const primaryColor = activeTheme.primary;
+  const secondaryColor = activeTheme.secondary;
+  const cardBgColor = activeTheme.cardBg;
+  const textColor = activeTheme.text;
+  const borderColor = activeTheme.border;
 
   const currentProf = professionals.find(p => String(p.id) === String(selectedProf));
   const displayedAppointments = appointments.filter(a => String(a.professional_id) === String(selectedProf));
@@ -711,7 +771,35 @@ export default function AgendaTenant() {
       className="min-h-screen p-4 max-w-5xl mx-auto font-sans pb-20 transition-colors duration-300"
       style={{ backgroundColor: secondaryColor, color: textColor }}
     >
-      <header className="flex flex-col md:flex-row justify-between items-start md:items-center py-4 border-b border-black/10 mb-4 gap-4">
+      {/* BARRA DE SELEÇÃO DE TEMA EXCLUSIVA DA AGENDA */}
+      <div className="flex flex-col sm:flex-row justify-between items-center p-3 rounded-2xl mb-4 border space-y-2 sm:space-y-0" style={{ backgroundColor: cardBgColor, borderColor: borderColor }}>
+        <span className="text-xs font-bold opacity-80 flex items-center space-x-1">
+          <span>🎨 Aparência da Agenda:</span>
+        </span>
+        <div className="flex space-x-1.5 overflow-x-auto max-w-full pb-1 sm:pb-0">
+          {Object.entries(THEME_PRESETS).map(([key, themeObj]) => {
+            const isActive = agendaTheme === key;
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => handleThemeChange(key)}
+                className={`px-3 py-1.5 rounded-xl text-[11px] font-bold transition flex items-center space-x-1 ${
+                  isActive ? 'shadow-md scale-105' : 'opacity-60 hover:opacity-100'
+                }`}
+                style={{
+                  backgroundColor: isActive ? themeObj.primary : secondaryColor,
+                  color: isActive ? '#FFFFFF' : textColor,
+                  border: `1px solid ${isActive ? themeObj.primary : borderColor}`
+                }}>
+                <span>{themeObj.name}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <header className="flex flex-col md:flex-row justify-between items-start md:items-center py-4 border-b mb-4 gap-4" style={{ borderColor: borderColor }}>
         <div>
           <h1 className="font-bold text-xl" style={{ color: primaryColor }}>
             📅 Gestão da Agenda — {tenant.name}
@@ -724,8 +812,8 @@ export default function AgendaTenant() {
             type="date"
             value={selectedDate}
             onChange={(e) => setSelectedDate(e.target.value)}
-            className="border border-black/20 p-2.5 rounded-xl text-xs font-bold focus:outline-none cursor-pointer"
-            style={{ backgroundColor: cardBgColor, color: textColor }}
+            className="border p-2.5 rounded-xl text-xs font-bold focus:outline-none cursor-pointer"
+            style={{ backgroundColor: cardBgColor, color: textColor, borderColor: borderColor }}
           />
 
           <button
@@ -748,8 +836,8 @@ export default function AgendaTenant() {
 
           <button 
             onClick={() => fetchAppointmentsAndBlocks()} 
-            className="border border-black/20 p-2.5 rounded-xl text-xs font-bold transition"
-            style={{ backgroundColor: cardBgColor, color: textColor }}>
+            className="border p-2.5 rounded-xl text-xs font-bold transition"
+            style={{ backgroundColor: cardBgColor, color: textColor, borderColor: borderColor }}>
             🔄
           </button>
         </div>
@@ -757,30 +845,30 @@ export default function AgendaTenant() {
 
       {/* PAINEL DE LEMBRETES DO DIA SEGUINTE */}
       <div 
-        className="mb-6 border border-purple-500/30 rounded-2xl p-4 space-y-3 shadow-lg"
-        style={{ backgroundColor: cardBgColor }}>
+        className="mb-6 border rounded-2xl p-4 space-y-3 shadow-lg"
+        style={{ backgroundColor: cardBgColor, borderColor: borderColor }}>
         <div className="flex justify-between items-center cursor-pointer" onClick={() => setShowTomorrowSummary(!showTomorrowSummary)}>
           <div className="flex items-center space-x-2">
             <span className="text-base">🔔</span>
-            <h2 className="font-bold text-xs text-purple-400">
+            <h2 className="font-bold text-xs" style={{ color: primaryColor }}>
               Lembretes de Amanhã ({tomorrowApps.length} agendamentos)
             </h2>
           </div>
-          <button className="text-xs text-purple-400 font-bold">
+          <button className="text-xs font-bold" style={{ color: primaryColor }}>
             {showTomorrowSummary ? '▲ Ocultar' : '▼ Visualizar & Enviar'}
           </button>
         </div>
 
         {showTomorrowSummary && (
-          <div className="space-y-2 pt-2 border-t border-black/10 max-h-60 overflow-y-auto">
+          <div className="space-y-2 pt-2 border-t max-h-60 overflow-y-auto" style={{ borderColor: borderColor }}>
             {tomorrowApps.length === 0 ? (
               <p className="text-xs opacity-60 text-center py-2">Nenhum agendamento para amanhã nesta agenda.</p>
             ) : (
               tomorrowApps.map(app => (
                 <div 
                   key={app.id} 
-                  className="p-3 rounded-xl border border-black/10 flex justify-between items-center text-xs"
-                  style={{ backgroundColor: secondaryColor }}>
+                  className="p-3 rounded-xl border flex justify-between items-center text-xs"
+                  style={{ backgroundColor: secondaryColor, borderColor: borderColor }}>
                   <div>
                     <span className="font-bold block" style={{ color: primaryColor }}>{app.start_time} — {app.customer_name}</span>
                     <span className="text-[10px] opacity-70 block">
@@ -816,7 +904,7 @@ export default function AgendaTenant() {
                 className="py-2.5 px-1 rounded-xl border flex flex-col items-center justify-center transition"
                 style={{
                   backgroundColor: isSelected ? primaryColor : cardBgColor,
-                  borderColor: isSelected ? primaryColor : 'rgba(0,0,0,0.1)',
+                  borderColor: isSelected ? primaryColor : borderColor,
                   color: isSelected ? '#FFFFFF' : textColor
                 }}>
                 <span className="text-[10px] uppercase">{item.name}</span>
@@ -848,14 +936,15 @@ export default function AgendaTenant() {
                 }}
                 className="p-3 rounded-2xl border flex items-center space-x-3 min-w-[170px] transition text-left relative"
                 style={{
-                  backgroundColor: isSelected ? `${primaryColor}15` : cardBgColor,
-                  borderColor: isSelected ? primaryColor : 'rgba(0,0,0,0.1)',
+                  backgroundColor: isSelected ? `${primaryColor}20` : cardBgColor,
+                  borderColor: isSelected ? primaryColor : borderColor,
                   color: textColor
                 }}>
                 <img
                   src={prof.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80'}
                   alt={prof.name}
-                  className="w-10 h-10 rounded-full object-cover border border-black/20"
+                  className="w-10 h-10 rounded-full object-cover border"
+                  style={{ borderColor: borderColor }}
                 />
                 <div className="truncate">
                   <span className="font-bold text-xs block truncate" style={{ color: textColor }}>{prof.name}</span>
@@ -876,15 +965,15 @@ export default function AgendaTenant() {
 
       {/* MÉTRICAS */}
       <div className="grid grid-cols-3 gap-3 mb-6">
-        <div className="border border-black/10 p-3 rounded-2xl" style={{ backgroundColor: cardBgColor }}>
+        <div className="border p-3 rounded-2xl" style={{ backgroundColor: cardBgColor, borderColor: borderColor }}>
           <span className="text-[10px] font-bold opacity-70 uppercase block">Atendimentos</span>
           <span className="text-base font-bold" style={{ color: textColor }}>{displayedAppointments.length}</span>
         </div>
-        <div className="border border-black/10 p-3 rounded-2xl" style={{ backgroundColor: cardBgColor }}>
+        <div className="border p-3 rounded-2xl" style={{ backgroundColor: cardBgColor, borderColor: borderColor }}>
           <span className="text-[10px] font-bold text-yellow-500 uppercase block">Pendentes</span>
           <span className="text-base font-bold text-yellow-500">{pendingCount}</span>
         </div>
-        <div className="border border-black/10 p-3 rounded-2xl" style={{ backgroundColor: cardBgColor }}>
+        <div className="border p-3 rounded-2xl" style={{ backgroundColor: cardBgColor, borderColor: borderColor }}>
           <span className="text-[10px] font-bold text-green-500 uppercase block">Concluídos</span>
           <span className="text-base font-bold text-green-500">{completedCount}</span>
         </div>
@@ -915,10 +1004,10 @@ export default function AgendaTenant() {
             return (
               <div 
                 key={`free-${selectedProf}-${item.time}`} 
-                className={`border border-dashed border-black/20 p-3 rounded-2xl flex justify-between items-center transition hover:border-black/40 ${item.isPast ? 'opacity-50' : ''}`}
-                style={{ backgroundColor: cardBgColor }}>
+                className={`border border-dashed p-3 rounded-2xl flex justify-between items-center transition ${item.isPast ? 'opacity-50' : ''}`}
+                style={{ backgroundColor: cardBgColor, borderColor: borderColor }}>
                 <div className="flex items-center space-x-3">
-                  <span className="text-xs font-bold px-2.5 py-1 rounded-lg border border-black/10" style={{ backgroundColor: secondaryColor }}>
+                  <span className="text-xs font-bold px-2.5 py-1 rounded-lg border" style={{ backgroundColor: secondaryColor, borderColor: borderColor }}>
                     ⏰ {item.time}
                   </span>
                   {item.isPast ? (
@@ -956,13 +1045,13 @@ export default function AgendaTenant() {
             return (
               <div 
                 key={`app-${app.id}-${idx}`} 
-                className={`border border-black/10 p-4 rounded-2xl space-y-3 shadow-lg border-l-4 ${item.isPast ? 'opacity-80' : ''}`}
-                style={{ backgroundColor: cardBgColor, borderLeftColor: primaryColor }}>
-                <div className="flex justify-between items-start border-b border-black/10 pb-2.5">
+                className={`border p-4 rounded-2xl space-y-3 shadow-lg border-l-4 ${item.isPast ? 'opacity-80' : ''}`}
+                style={{ backgroundColor: cardBgColor, borderColor: borderColor, borderLeftColor: primaryColor }}>
+                <div className="flex justify-between items-start border-b pb-2.5" style={{ borderColor: borderColor }}>
                   <div className="flex items-center space-x-3">
                     <span 
-                      className="px-3 py-1.5 rounded-xl font-bold text-xs border border-black/10"
-                      style={{ backgroundColor: `${primaryColor}15`, color: primaryColor }}>
+                      className="px-3 py-1.5 rounded-xl font-bold text-xs border"
+                      style={{ backgroundColor: `${primaryColor}20`, color: primaryColor, borderColor: borderColor }}>
                       ⏰ {app.start_time} - {app.end_time}
                     </span>
                     <div>
@@ -991,7 +1080,7 @@ export default function AgendaTenant() {
                   </span>
                 </div>
 
-                <div className="p-3 rounded-xl border border-black/10 text-xs" style={{ backgroundColor: secondaryColor }}>
+                <div className="p-3 rounded-xl border text-xs" style={{ backgroundColor: secondaryColor, borderColor: borderColor }}>
                   <span className="opacity-60 block text-[10px]">Serviço(s) Solicitado(s):</span>
                   <span className="font-bold" style={{ color: primaryColor }}>
                     {servicesList.map(s => s.name).join(', ') || 'Atendimento Geral'}
@@ -1057,8 +1146,8 @@ export default function AgendaTenant() {
       {/* MODAL DE AGENDAMENTO MANUAL */}
       {showManualAppModal && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-          <div className="border border-black/20 w-full max-w-md rounded-2xl p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto" style={{ backgroundColor: cardBgColor, color: textColor }}>
-            <div className="flex justify-between items-center border-b border-black/10 pb-2">
+          <div className="border w-full max-w-md rounded-2xl p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto" style={{ backgroundColor: cardBgColor, color: textColor, borderColor: borderColor }}>
+            <div className="flex justify-between items-center border-b pb-2" style={{ borderColor: borderColor }}>
               <h3 className="font-bold text-sm text-green-500 flex items-center space-x-1">
                 <span>➕ Agendar Atendimento Manual</span>
               </h3>
@@ -1069,7 +1158,7 @@ export default function AgendaTenant() {
               <div>
                 <div className="flex justify-between items-center mb-1">
                   <label className="opacity-70 block text-[11px]">📋 Selecionar Cliente Cadastrado:</label>
-                  <div className="flex space-x-1 p-0.5 rounded-lg border border-black/10" style={{ backgroundColor: secondaryColor }}>
+                  <div className="flex space-x-1 p-0.5 rounded-lg border" style={{ backgroundColor: secondaryColor, borderColor: borderColor }}>
                     <button
                       type="button"
                       onClick={() => setCustomerFilterMode('prof')}
@@ -1093,8 +1182,8 @@ export default function AgendaTenant() {
 
                 <select 
                   onChange={(e) => handleSelectExistingCustomer(e.target.value)}
-                  className="w-full border border-black/20 p-2.5 rounded-xl focus:outline-none cursor-pointer"
-                  style={{ backgroundColor: secondaryColor, color: textColor }}>
+                  className="w-full border p-2.5 rounded-xl focus:outline-none cursor-pointer"
+                  style={{ backgroundColor: secondaryColor, color: textColor, borderColor: borderColor }}>
                   <option value="">
                     {filteredCustomerList.length === 0 
                       ? '-- Nenhum cliente encontrado para este filtro --' 
@@ -1122,8 +1211,8 @@ export default function AgendaTenant() {
                       setManualSelectedServiceId('');
                     }
                   }}
-                  className="w-full border border-black/20 p-2.5 rounded-xl focus:outline-none cursor-pointer"
-                  style={{ backgroundColor: secondaryColor, color: textColor }}>
+                  className="w-full border p-2.5 rounded-xl focus:outline-none cursor-pointer"
+                  style={{ backgroundColor: secondaryColor, color: textColor, borderColor: borderColor }}>
                   {professionals.map(p => (
                     <option key={p.id} value={p.id}>{p.name}</option>
                   ))}
@@ -1138,8 +1227,8 @@ export default function AgendaTenant() {
                   placeholder="Ex: Maria Oliveira"
                   value={manualCustomerName}
                   onChange={(e) => setManualCustomerName(e.target.value)}
-                  className="w-full border border-black/20 p-2.5 rounded-xl focus:outline-none"
-                  style={{ backgroundColor: secondaryColor, color: textColor }}
+                  className="w-full border p-2.5 rounded-xl focus:outline-none"
+                  style={{ backgroundColor: secondaryColor, color: textColor, borderColor: borderColor }}
                 />
               </div>
 
@@ -1151,8 +1240,8 @@ export default function AgendaTenant() {
                   placeholder="Ex: 47999999999"
                   value={manualCustomerPhone}
                   onChange={(e) => setManualCustomerPhone(e.target.value)}
-                  className="w-full border border-black/20 p-2.5 rounded-xl focus:outline-none"
-                  style={{ backgroundColor: secondaryColor, color: textColor }}
+                  className="w-full border p-2.5 rounded-xl focus:outline-none"
+                  style={{ backgroundColor: secondaryColor, color: textColor, borderColor: borderColor }}
                 />
               </div>
 
@@ -1161,8 +1250,8 @@ export default function AgendaTenant() {
                 <select
                   value={manualSelectedServiceId}
                   onChange={(e) => setManualSelectedServiceId(e.target.value)}
-                  className="w-full border border-black/20 p-2.5 rounded-xl focus:outline-none cursor-pointer"
-                  style={{ backgroundColor: secondaryColor, color: textColor }}>
+                  className="w-full border p-2.5 rounded-xl focus:outline-none cursor-pointer"
+                  style={{ backgroundColor: secondaryColor, color: textColor, borderColor: borderColor }}>
                   {manualFilteredServices.length === 0 ? (
                     <option value="">Nenhum procedimento atribuído a esta profissional</option>
                   ) : (
@@ -1183,8 +1272,8 @@ export default function AgendaTenant() {
                     required
                     value={manualDate}
                     onChange={(e) => setManualDate(e.target.value)}
-                    className="w-full border border-black/20 p-2.5 rounded-xl focus:outline-none cursor-pointer"
-                    style={{ backgroundColor: secondaryColor, color: textColor }}
+                    className="w-full border p-2.5 rounded-xl focus:outline-none cursor-pointer"
+                    style={{ backgroundColor: secondaryColor, color: textColor, borderColor: borderColor }}
                   />
                 </div>
 
@@ -1195,8 +1284,8 @@ export default function AgendaTenant() {
                     required
                     value={manualStartTime}
                     onChange={(e) => setManualStartTime(e.target.value)}
-                    className="w-full border border-black/20 p-2.5 rounded-xl focus:outline-none"
-                    style={{ backgroundColor: secondaryColor, color: textColor }}
+                    className="w-full border p-2.5 rounded-xl focus:outline-none"
+                    style={{ backgroundColor: secondaryColor, color: textColor, borderColor: borderColor }}
                   />
                 </div>
               </div>
@@ -1205,8 +1294,8 @@ export default function AgendaTenant() {
                 <button
                   type="button"
                   onClick={() => setShowManualAppModal(false)}
-                  className="w-1/2 border border-black/10 opacity-70 py-3 rounded-xl font-bold"
-                  style={{ backgroundColor: secondaryColor }}>
+                  className="w-1/2 border opacity-70 py-3 rounded-xl font-bold"
+                  style={{ backgroundColor: secondaryColor, borderColor: borderColor }}>
                   Cancelar
                 </button>
                 <button
@@ -1224,14 +1313,14 @@ export default function AgendaTenant() {
       {/* MODAL REAGENDAR ATENDIMENTO */}
       {editingApp && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-          <div className="border border-black/20 w-full max-w-md rounded-2xl p-5 space-y-4 shadow-2xl" style={{ backgroundColor: cardBgColor, color: textColor }}>
-            <div className="flex justify-between items-center border-b border-black/10 pb-2">
+          <div className="border w-full max-w-md rounded-2xl p-5 space-y-4 shadow-2xl" style={{ backgroundColor: cardBgColor, color: textColor, borderColor: borderColor }}>
+            <div className="flex justify-between items-center border-b pb-2" style={{ borderColor: borderColor }}>
               <h3 className="font-bold text-sm text-purple-400">✏️ Reagendar Atendimento #{editingApp.id}</h3>
               <button onClick={() => setEditingApp(null)} className="opacity-60 font-bold text-xs">✕ Fechar</button>
             </div>
 
             <form onSubmit={handleSaveReschedule} className="space-y-3 text-xs">
-              <div className="p-2.5 rounded-xl border border-black/10" style={{ backgroundColor: secondaryColor }}>
+              <div className="p-2.5 rounded-xl border" style={{ backgroundColor: secondaryColor, borderColor: borderColor }}>
                 <span className="font-bold block">Cliente: {editingApp.customer_name}</span>
                 <span className="opacity-70 text-[10px]">Horário Atual: {editingApp.appointment_date.split('-').reverse().join('/')} às {editingApp.start_time}</span>
               </div>
@@ -1241,8 +1330,8 @@ export default function AgendaTenant() {
                 <select
                   value={rescheduleProfId}
                   onChange={(e) => setRescheduleProfId(e.target.value)}
-                  className="w-full border border-black/20 p-2.5 rounded-xl focus:outline-none"
-                  style={{ backgroundColor: secondaryColor, color: textColor }}>
+                  className="w-full border p-2.5 rounded-xl focus:outline-none"
+                  style={{ backgroundColor: secondaryColor, color: textColor, borderColor: borderColor }}>
                   {professionals.map(p => (
                     <option key={p.id} value={p.id}>{p.name}</option>
                   ))}
@@ -1256,8 +1345,8 @@ export default function AgendaTenant() {
                   required
                   value={rescheduleDate}
                   onChange={(e) => setRescheduleDate(e.target.value)}
-                  className="w-full border border-black/20 p-2.5 rounded-xl focus:outline-none cursor-pointer"
-                  style={{ backgroundColor: secondaryColor, color: textColor }}
+                  className="w-full border p-2.5 rounded-xl focus:outline-none cursor-pointer"
+                  style={{ backgroundColor: secondaryColor, color: textColor, borderColor: borderColor }}
                 />
               </div>
 
@@ -1268,8 +1357,8 @@ export default function AgendaTenant() {
                   required
                   value={rescheduleTime}
                   onChange={(e) => setRescheduleTime(e.target.value)}
-                  className="w-full border border-black/20 p-2.5 rounded-xl focus:outline-none"
-                  style={{ backgroundColor: secondaryColor, color: textColor }}
+                  className="w-full border p-2.5 rounded-xl focus:outline-none"
+                  style={{ backgroundColor: secondaryColor, color: textColor, borderColor: borderColor }}
                 />
               </div>
 
@@ -1277,8 +1366,8 @@ export default function AgendaTenant() {
                 <button
                   type="button"
                   onClick={() => setEditingApp(null)}
-                  className="w-1/2 border border-black/10 opacity-70 py-3 rounded-xl font-bold"
-                  style={{ backgroundColor: secondaryColor }}>
+                  className="w-1/2 border opacity-70 py-3 rounded-xl font-bold"
+                  style={{ backgroundColor: secondaryColor, borderColor: borderColor }}>
                   Cancelar
                 </button>
                 <button
@@ -1296,8 +1385,8 @@ export default function AgendaTenant() {
       {/* MODAL FECHAR AGENDA / BLOQUEAR HORÁRIO */}
       {showBlockModal && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-          <div className="border border-black/20 w-full max-w-md rounded-2xl p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto" style={{ backgroundColor: cardBgColor, color: textColor }}>
-            <div className="flex justify-between items-center border-b border-black/10 pb-2">
+          <div className="border w-full max-w-md rounded-2xl p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto" style={{ backgroundColor: cardBgColor, color: textColor, borderColor: borderColor }}>
+            <div className="flex justify-between items-center border-b pb-2" style={{ borderColor: borderColor }}>
               <h3 className="font-bold text-sm text-purple-400 flex items-center space-x-1">
                 <span>🔒 Fechar Agenda / Bloquear Horário</span>
               </h3>
@@ -1310,8 +1399,8 @@ export default function AgendaTenant() {
                 <select
                   value={blockProfId}
                   onChange={(e) => setBlockProfId(e.target.value)}
-                  className="w-full border border-black/20 p-2.5 rounded-xl focus:outline-none"
-                  style={{ backgroundColor: secondaryColor, color: textColor }}>
+                  className="w-full border p-2.5 rounded-xl focus:outline-none"
+                  style={{ backgroundColor: secondaryColor, color: textColor, borderColor: borderColor }}>
                   {professionals.map(p => (
                     <option key={p.id} value={p.id}>{p.name}</option>
                   ))}
@@ -1325,12 +1414,12 @@ export default function AgendaTenant() {
                   required
                   value={blockDate}
                   onChange={(e) => setBlockDate(e.target.value)}
-                  className="w-full border border-black/20 p-2.5 rounded-xl focus:outline-none cursor-pointer"
-                  style={{ backgroundColor: secondaryColor, color: textColor }}
+                  className="w-full border p-2.5 rounded-xl focus:outline-none cursor-pointer"
+                  style={{ backgroundColor: secondaryColor, color: textColor, borderColor: borderColor }}
                 />
               </div>
 
-              <div className="flex items-center justify-between p-3 rounded-xl border border-black/10" style={{ backgroundColor: secondaryColor }}>
+              <div className="flex items-center justify-between p-3 rounded-xl border" style={{ backgroundColor: secondaryColor, borderColor: borderColor }}>
                 <div>
                   <span className="font-bold block">📅 Bloquear o Dia Inteiro</span>
                   <span className="text-[10px] opacity-70">Bloqueia do horário de abertura ao fechamento</span>
@@ -1380,9 +1469,12 @@ export default function AgendaTenant() {
                             className={`py-1.5 rounded-lg text-[10px] font-bold border transition ${
                               isSelected 
                                 ? 'bg-purple-600 text-white border-purple-400' 
-                                : 'opacity-50 border-black/10'
+                                : 'opacity-50'
                             }`}
-                            style={{ backgroundColor: !isSelected ? secondaryColor : undefined }}>
+                            style={{ 
+                              backgroundColor: !isSelected ? secondaryColor : undefined,
+                              borderColor: !isSelected ? borderColor : undefined
+                            }}>
                             {day.label}
                           </button>
                         );
@@ -1401,8 +1493,8 @@ export default function AgendaTenant() {
                       required={!isFullDayBlock}
                       value={blockStartTime}
                       onChange={(e) => setBlockStartTime(e.target.value)}
-                      className="w-full border border-black/20 p-2.5 rounded-xl focus:outline-none"
-                      style={{ backgroundColor: secondaryColor, color: textColor }}
+                      className="w-full border p-2.5 rounded-xl focus:outline-none"
+                      style={{ backgroundColor: secondaryColor, color: textColor, borderColor: borderColor }}
                     />
                   </div>
 
@@ -1413,8 +1505,8 @@ export default function AgendaTenant() {
                       required={!isFullDayBlock}
                       value={blockEndTime}
                       onChange={(e) => setBlockEndTime(e.target.value)}
-                      className="w-full border border-black/20 p-2.5 rounded-xl focus:outline-none"
-                      style={{ backgroundColor: secondaryColor, color: textColor }}
+                      className="w-full border p-2.5 rounded-xl focus:outline-none"
+                      style={{ backgroundColor: secondaryColor, color: textColor, borderColor: borderColor }}
                     />
                   </div>
                 </div>
@@ -1427,8 +1519,8 @@ export default function AgendaTenant() {
                   placeholder="Ex: Almoço / Intervalo, Curso..."
                   value={blockReason}
                   onChange={(e) => setBlockReason(e.target.value)}
-                  className="w-full border border-black/20 p-2.5 rounded-xl focus:outline-none"
-                  style={{ backgroundColor: secondaryColor, color: textColor }}
+                  className="w-full border p-2.5 rounded-xl focus:outline-none"
+                  style={{ backgroundColor: secondaryColor, color: textColor, borderColor: borderColor }}
                 />
               </div>
 
@@ -1436,8 +1528,8 @@ export default function AgendaTenant() {
                 <button
                   type="button"
                   onClick={() => setShowBlockModal(false)}
-                  className="w-1/2 border border-black/10 opacity-70 py-3 rounded-xl font-bold"
-                  style={{ backgroundColor: secondaryColor }}>
+                  className="w-1/2 border opacity-70 py-3 rounded-xl font-bold"
+                  style={{ backgroundColor: secondaryColor, borderColor: borderColor }}>
                   Cancelar
                 </button>
                 <button

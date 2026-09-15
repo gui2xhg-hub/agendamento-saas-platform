@@ -278,7 +278,7 @@ export default function AgendamentoCliente() {
   if (loading) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><p className="text-xs text-gray-400">Carregando...</p></div>;
   if (!tenant) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><h1 className="text-xl font-bold text-orange-500">Estabelecimento não encontrado</h1></div>;
 
-  // MAPEMENTO DAS 6 CORES DO PAINEL MASTER
+  // MAPEAMENTO DAS 6 CORES CONFIGURADAS NO PAINEL MASTER
   const primaryColor = tenant.primary_color || tenant.button_color || '#121212';     // 1. Cor do Botão
   const btnTextColor = tenant.button_text_color || '#FFFFFF';                          // 2. Texto do Botão
   const bgColor = tenant.background_color || tenant.secondary_color || '#6C7B5B';     // 3. Fundo do Site
@@ -324,7 +324,6 @@ export default function AgendamentoCliente() {
     setSelectedTime('');
   };
 
-  // LÓGICA DE SELEÇÃO ÚNICA DE SERVIÇO
   const handleToggleService = (srv) => {
     const isSelected = selectedServices.some(s => s.id === srv.id);
     if (isSelected) {
@@ -435,7 +434,6 @@ export default function AgendamentoCliente() {
   const slotData = getSlotAvailability(selectedProf, selectedServices, selectedDate);
   const availableSlots = slotData.slots;
 
-  // HORÁRIOS PARA O REAGENDAMENTO
   const rescheduleSlotData = editingUserApp 
     ? getSlotAvailability(editingUserApp.professional_id, editingUserApp.services_json || [{ duration_minutes: editingUserApp.total_duration_minutes }], userNewDate, editingUserApp.id)
     : { slots: [] };
@@ -529,268 +527,312 @@ export default function AgendamentoCliente() {
   };
 
   return (
-    <div className="min-h-screen font-sans pb-12 max-w-md mx-auto transition-colors duration-300" style={{ backgroundColor: bgColor, color: textColor }}>
+    <div className="min-h-screen font-sans pb-12 max-w-md mx-auto transition-colors duration-300 flex flex-col justify-between" style={{ backgroundColor: bgColor, color: textColor }}>
       
-      {/* CAPA, INSTAGRAM & MEUS AGENDAMENTOS */}
-      <div className="relative h-36 bg-gray-900 border-b border-black/10">
-        <img src={tenant.banner_url || 'https://images.unsplash.com/photo-1503951914875-452162b0f3f1?w=800&auto=format&fit=crop&q=80'} alt="Capa" className="w-full h-full object-cover opacity-50" />
+      <div>
+        {/* CAPA, INSTAGRAM & MEUS AGENDAMENTOS */}
+        <div className="relative h-36 bg-gray-900 border-b border-black/10">
+          <img src={tenant.banner_url || 'https://images.unsplash.com/photo-1503951914875-452162b0f3f1?w=800&auto=format&fit=crop&q=80'} alt="Capa" className="w-full h-full object-cover opacity-50" />
+
+          {formattedInstagramUrl && (
+            <a
+              href={formattedInstagramUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="absolute top-3 left-3 bg-gradient-to-r from-purple-600 via-pink-600 to-orange-500 text-white font-bold text-[10px] px-3 py-1.5 rounded-full shadow-lg transition flex items-center space-x-1 hover:opacity-90 z-10">
+              <span>📸 Instagram</span>
+            </a>
+          )}
+
+          <button
+            onClick={() => {
+              setShowMyAppsModal(true);
+              if (searchPhone) handleSearchMyAppointments();
+            }}
+            style={{ backgroundColor: primaryColor, color: btnTextColor }}
+            className="absolute top-3 right-3 font-bold text-[10px] px-3 py-1.5 rounded-full shadow-lg transition z-10">
+            📋 Meus Agendamentos
+          </button>
+
+          <div className="absolute -bottom-5 left-4 flex items-center space-x-3">
+            <img 
+              src={selectedProfObj?.avatar_url || tenant.logo_url || 'https://images.unsplash.com/photo-1585747860715-2ba37e788b70?w=150&auto=format&fit=crop&q=80'} 
+              alt="Foto Profissional" 
+              className="w-16 h-16 rounded-full border-2 border-black/40 object-cover bg-gray-800 shadow-lg" 
+            />
+            <div className="pt-4">
+              <h1 className="font-bold text-lg leading-tight" style={{ color: textColor }}>
+                {selectedProfObj ? selectedProfObj.name : tenant.name}
+              </h1>
+              <p className="text-[11px] opacity-70">
+                {selectedProfObj?.specialty ? selectedProfObj.specialty : (selectedProfObj ? `💈 ${tenant.name}` : '📅 Agendamento Online')}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-8 px-4 space-y-5">
+
+          {/* BANNER DE AVISO / MENSAGEM CUSTOMIZADA DO ESTABELECIMENTO */}
+          {tenant.custom_message && tenant.custom_message.trim() !== '' && (
+            <div 
+              style={{ backgroundColor: cardColor, color: textColor, borderColor: priceColor }} 
+              className="p-3.5 rounded-2xl border-l-4 shadow-sm space-y-1 text-xs">
+              <div className="flex items-center space-x-1.5 font-bold">
+                <span>📢</span>
+                <span style={{ color: priceColor }}>Aviso Importante</span>
+              </div>
+              <p className="opacity-90 leading-relaxed text-[11px]">
+                {tenant.custom_message}
+              </p>
+            </div>
+          )}
+
+          {/* PASSO 1: ESCOLHA O PROFISSIONAL */}
+          {professionals.length > 1 && (
+            <div className="space-y-2">
+              <label className="text-xs font-bold block uppercase tracking-wider opacity-80">1. Escolha a Profissional</label>
+              <div className="grid grid-cols-2 gap-2.5">
+                {professionals.map(p => {
+                  const isSelected = String(selectedProf) === String(p.id);
+
+                  return (
+                    <button
+                      type="button"
+                      key={p.id}
+                      onClick={() => handleSelectProf(p.id)}
+                      style={{ 
+                        backgroundColor: isSelected ? primaryColor : cardColor,
+                        color: isSelected ? btnTextColor : textColor,
+                        borderColor: isSelected ? primaryColor : 'rgba(0,0,0,0.1)'
+                      }}
+                      className="p-3 rounded-2xl border flex items-center space-x-2.5 text-left transition shadow-md relative overflow-hidden">
+                      <img 
+                        src={p.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80'} 
+                        alt={p.name} 
+                        className="w-10 h-10 rounded-full object-cover border border-black/20 shrink-0 bg-gray-800" 
+                      />
+                      <div className="truncate">
+                        <span className="font-bold text-xs block truncate">{p.name}</span>
+                        <span className="text-[10px] opacity-80 block truncate font-medium">
+                          {p.specialty || 'Atendimento'}
+                        </span>
+                      </div>
+                      {isSelected && (
+                        <span className="absolute top-1.5 right-2 text-[10px] font-bold">✓</span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* PASSO 2: ESCOLHA O SERVIÇO */}
+          {selectedProf ? (
+            <div className="space-y-2 pt-2 border-t border-black/10">
+              <div className="flex justify-between items-center">
+                <label className="text-xs font-bold block uppercase tracking-wider opacity-80">
+                  {professionals.length > 1 ? `2. Serviço de ${selectedProfObj?.name}` : `1. Escolha o Serviço de ${selectedProfObj?.name}`}
+                </label>
+                {selectedServices.length > 0 && (
+                  <span className="text-[10px] font-bold opacity-80" style={{ color: priceColor }}>
+                    1 selecionado ({formatDuration(totalDuration)})
+                  </span>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                {displayedServices.length === 0 ? (
+                  <p className="text-xs opacity-60 p-4 rounded-xl text-center border border-black/10" style={{ backgroundColor: cardColor, color: textColor }}>
+                    Nenhum serviço cadastrado para esta profissional.
+                  </p>
+                ) : (
+                  displayedServices.map(srv => {
+                    const isSelected = selectedServices.some(s => s.id === srv.id);
+                    const serviceImg = srv.image_url || srv.image;
+
+                    return (
+                      <div
+                        key={srv.id}
+                        onClick={() => handleToggleService(srv)}
+                        style={{
+                          backgroundColor: cardColor,
+                          borderColor: isSelected ? primaryColor : 'rgba(0,0,0,0.1)',
+                          color: textColor
+                        }}
+                        className="p-3 rounded-xl border flex justify-between items-center cursor-pointer transition shadow-sm">
+                        <div className="flex items-center space-x-3">
+                          {serviceImg && (
+                            <img 
+                              src={serviceImg} 
+                              alt={srv.name} 
+                              className="w-12 h-12 rounded-xl object-cover border border-black/10 bg-gray-800 shrink-0" 
+                            />
+                          )}
+                          <div>
+                            <h3 className="font-bold text-xs">{srv.name}</h3>
+                            <p className="text-[10px] opacity-60">⏱️ {formatDuration(srv.duration_minutes)}</p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <span className="font-bold text-xs block" style={{ color: priceColor }}>
+                            R$ {Number(srv.price).toFixed(2)}
+                          </span>
+                          <span className="block text-[10px] font-bold mt-0.5" style={{ color: isSelected ? priceColor : 'rgba(0,0,0,0.4)' }}>
+                            {isSelected ? '✓ Selecionado' : 'Selecionar'}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="p-4 rounded-2xl border border-dashed border-black/20 text-center" style={{ backgroundColor: cardColor, color: textColor }}>
+              <span className="text-lg block mb-1">👆</span>
+              <p className="text-xs opacity-60">Selecione uma profissional acima para ver os serviços e valores.</p>
+            </div>
+          )}
+
+          {/* PASSO 3: DATA E HORÁRIO */}
+          {selectedProf && selectedServices.length > 0 && (
+            <div className="space-y-4 pt-2 border-t border-black/10">
+              <div className="space-y-1">
+                <label className="text-xs font-bold block uppercase tracking-wider opacity-80">
+                  {professionals.length > 1 ? '3. Escolha a Data' : '2. Escolha a Data'}
+                </label>
+                <input
+                  type="date"
+                  min={new Date().toISOString().split('T')[0]}
+                  value={selectedDate}
+                  onChange={(e) => {
+                    setSelectedDate(e.target.value);
+                    setSelectedTime('');
+                  }}
+                  style={{ backgroundColor: cardColor, color: textColor }}
+                  className="w-full border border-black/10 p-3 rounded-xl text-xs focus:outline-none cursor-pointer"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-bold block uppercase tracking-wider opacity-80">
+                  {professionals.length > 1 ? `4. Horários Disponíveis (${availableSlots.length})` : `3. Horários Disponíveis (${availableSlots.length})`}
+                </label>
+                
+                {slotData.status !== 'ok' ? (
+                  <p className="text-xs text-red-500 bg-red-500/10 p-3 rounded-xl border border-red-500/20 text-center font-semibold">
+                    {slotData.message}
+                  </p>
+                ) : availableSlots.length === 0 ? (
+                  <div className="text-xs text-red-500 bg-red-500/10 p-3.5 rounded-xl border border-red-500/20 text-center space-y-1">
+                    <p className="font-bold">Nenhum horário disponível nesta data para este procedimento.</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-4 gap-2 max-h-40 overflow-y-auto pt-1">
+                    {availableSlots.map(slot => {
+                      const isSelected = selectedTime === slot;
+                      return (
+                        <button
+                          type="button"
+                          key={slot}
+                          onClick={() => setSelectedTime(slot)}
+                          style={{ 
+                            backgroundColor: isSelected ? primaryColor : cardColor,
+                            color: isSelected ? btnTextColor : textColor
+                          }}
+                          className="py-2 rounded-lg border border-black/10 text-xs font-bold text-center transition">
+                          {slot}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* PASSO 4: CONFIRMAÇÃO DE DADOS */}
+          {selectedTime && (
+            <form onSubmit={handleConfirmAppointment} className="space-y-3 pt-4 border-t border-black/10">
+              <h3 className="font-bold text-xs uppercase tracking-wider opacity-80">
+                {professionals.length > 1 ? '5. Seus Dados' : '4. Seus Dados'}
+              </h3>
+              <input
+                type="text"
+                required
+                placeholder="Seu Nome Completo"
+                value={customerName}
+                onChange={(e) => setCustomerName(e.target.value)}
+                style={{ backgroundColor: cardColor, color: textColor }}
+                className="w-full border border-black/10 p-3 rounded-xl text-xs focus:outline-none"
+              />
+              <input
+                type="text"
+                required
+                placeholder="Seu WhatsApp (DDD + Número)"
+                value={customerPhone}
+                onChange={(e) => setCustomerPhone(maskPhone(e.target.value))}
+                style={{ backgroundColor: cardColor, color: textColor }}
+                className="w-full border border-black/10 p-3 rounded-xl text-xs focus:outline-none"
+              />
+
+              <select
+                value={paymentMethod}
+                onChange={(e) => setPaymentMethod(e.target.value)}
+                style={{ backgroundColor: cardColor, color: textColor }}
+                className="w-full border border-black/10 p-3 rounded-xl text-xs focus:outline-none">
+                <option value="No Local">Pagar no Local (Dinheiro / Cartão / PIX)</option>
+                <option value="PIX Antecipado">PIX Antecipado</option>
+              </select>
+
+              <div style={{ backgroundColor: cardColor, color: textColor }} className="p-3 rounded-xl border border-black/10 flex justify-between items-center text-xs">
+                <div>
+                  <span className="opacity-60 block text-[10px]">Duração: {formatDuration(totalDuration)}</span>
+                  <span className="font-bold text-sm">TOTAL: R$ {totalPrice.toFixed(2)}</span>
+                </div>
+                <span className="font-bold" style={{ color: priceColor }}>{selectedDate.split('-').reverse().join('/')} às {selectedTime}</span>
+              </div>
+
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                style={{ backgroundColor: primaryColor, color: btnTextColor }}
+                className="w-full font-bold py-3.5 rounded-xl text-xs shadow-lg transition hover:opacity-90">
+                {isSubmitting ? 'Agendando...' : 'Confirmar Agendamento no WhatsApp 🚀'}
+              </button>
+            </form>
+          )}
+        </div>
+      </div>
+
+      {/* RODAPÉ DO ESTABELECIMENTO */}
+      <footer className="mt-12 pt-6 border-t border-black/10 text-center space-y-2 px-4 pb-4 opacity-80">
+        <div className="flex justify-center items-center space-x-2">
+          {tenant.logo_url && (
+            <img src={tenant.logo_url} alt={tenant.name} className="w-5 h-5 rounded-full object-cover border border-black/10" />
+          )}
+          <span className="font-bold text-xs">{tenant.name}</span>
+        </div>
 
         {formattedInstagramUrl && (
           <a
             href={formattedInstagramUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="absolute top-3 left-3 bg-gradient-to-r from-purple-600 via-pink-600 to-orange-500 text-white font-bold text-[10px] px-3 py-1.5 rounded-full shadow-lg transition flex items-center space-x-1 hover:opacity-90 z-10">
-            <span>📸 Instagram</span>
+            className="inline-flex items-center space-x-1 text-[11px] font-semibold opacity-90 hover:underline">
+            <span>📸 Acompanhe no Instagram</span>
           </a>
         )}
 
-        <button
-          onClick={() => {
-            setShowMyAppsModal(true);
-            if (searchPhone) handleSearchMyAppointments();
-          }}
-          style={{ backgroundColor: primaryColor, color: btnTextColor }}
-          className="absolute top-3 right-3 font-bold text-[10px] px-3 py-1.5 rounded-full shadow-lg transition z-10">
-          📋 Meus Agendamentos
-        </button>
-
-        <div className="absolute -bottom-5 left-4 flex items-center space-x-3">
-          <img 
-            src={selectedProfObj?.avatar_url || tenant.logo_url || 'https://images.unsplash.com/photo-1585747860715-2ba37e788b70?w=150&auto=format&fit=crop&q=80'} 
-            alt="Foto Profissional" 
-            className="w-16 h-16 rounded-full border-2 border-black/40 object-cover bg-gray-800 shadow-lg" 
-          />
-          <div className="pt-4">
-            <h1 className="font-bold text-lg leading-tight" style={{ color: textColor }}>
-              {selectedProfObj ? selectedProfObj.name : tenant.name}
-            </h1>
-            <p className="text-[11px] opacity-70">
-              {selectedProfObj?.specialty ? selectedProfObj.specialty : (selectedProfObj ? `💈 ${tenant.name}` : '📅 Agendamento Online')}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-8 px-4 space-y-6">
-
-        {/* PASSO 1: ESCOLHA O PROFISSIONAL */}
-        {professionals.length > 1 && (
-          <div className="space-y-2">
-            <label className="text-xs font-bold block uppercase tracking-wider opacity-80">1. Escolha a Profissional</label>
-            <div className="grid grid-cols-2 gap-2.5">
-              {professionals.map(p => {
-                const isSelected = String(selectedProf) === String(p.id);
-
-                return (
-                  <button
-                    type="button"
-                    key={p.id}
-                    onClick={() => handleSelectProf(p.id)}
-                    style={{ 
-                      backgroundColor: isSelected ? primaryColor : cardColor,
-                      color: isSelected ? btnTextColor : textColor,
-                      borderColor: isSelected ? primaryColor : 'rgba(0,0,0,0.1)'
-                    }}
-                    className="p-3 rounded-2xl border flex items-center space-x-2.5 text-left transition shadow-md relative overflow-hidden">
-                    <img 
-                      src={p.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80'} 
-                      alt={p.name} 
-                      className="w-10 h-10 rounded-full object-cover border border-black/20 shrink-0 bg-gray-800" 
-                    />
-                    <div className="truncate">
-                      <span className="font-bold text-xs block truncate">{p.name}</span>
-                      <span className="text-[10px] opacity-80 block truncate font-medium">
-                        {p.specialty || 'Atendimento'}
-                      </span>
-                    </div>
-                    {isSelected && (
-                      <span className="absolute top-1.5 right-2 text-[10px] font-bold">✓</span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* PASSO 2: ESCOLHA O SERVIÇO (SELEÇÃO ÚNICA) */}
-        {selectedProf ? (
-          <div className="space-y-2 pt-2 border-t border-black/10">
-            <div className="flex justify-between items-center">
-              <label className="text-xs font-bold block uppercase tracking-wider opacity-80">
-                {professionals.length > 1 ? `2. Serviço de ${selectedProfObj?.name}` : `1. Escolha o Serviço de ${selectedProfObj?.name}`}
-              </label>
-              {selectedServices.length > 0 && (
-                <span className="text-[10px] font-bold opacity-80" style={{ color: priceColor }}>
-                  1 selecionado ({formatDuration(totalDuration)})
-                </span>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              {displayedServices.length === 0 ? (
-                <p className="text-xs opacity-60 p-4 rounded-xl text-center border border-black/10" style={{ backgroundColor: cardColor, color: textColor }}>
-                  Nenhum serviço cadastrado para esta profissional.
-                </p>
-              ) : (
-                displayedServices.map(srv => {
-                  const isSelected = selectedServices.some(s => s.id === srv.id);
-                  const serviceImg = srv.image_url || srv.image;
-
-                  return (
-                    <div
-                      key={srv.id}
-                      onClick={() => handleToggleService(srv)}
-                      style={{
-                        backgroundColor: cardColor,
-                        borderColor: isSelected ? primaryColor : 'rgba(0,0,0,0.1)',
-                        color: textColor
-                      }}
-                      className="p-3 rounded-xl border flex justify-between items-center cursor-pointer transition shadow-sm">
-                      <div className="flex items-center space-x-3">
-                        {serviceImg && (
-                          <img 
-                            src={serviceImg} 
-                            alt={srv.name} 
-                            className="w-12 h-12 rounded-xl object-cover border border-black/10 bg-gray-800 shrink-0" 
-                          />
-                        )}
-                        <div>
-                          <h3 className="font-bold text-xs">{srv.name}</h3>
-                          <p className="text-[10px] opacity-60">⏱️ {formatDuration(srv.duration_minutes)}</p>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <span className="font-bold text-xs block" style={{ color: priceColor }}>
-                          R$ {Number(srv.price).toFixed(2)}
-                        </span>
-                        <span className="block text-[10px] font-bold mt-0.5" style={{ color: isSelected ? priceColor : 'rgba(0,0,0,0.4)' }}>
-                          {isSelected ? '✓ Selecionado' : 'Selecionar'}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
-        ) : (
-          <div className="p-4 rounded-2xl border border-dashed border-black/20 text-center" style={{ backgroundColor: cardColor, color: textColor }}>
-            <span className="text-lg block mb-1">👆</span>
-            <p className="text-xs opacity-60">Selecione uma profissional acima para ver os serviços e valores.</p>
-          </div>
-        )}
-
-        {/* PASSO 3: DATA E HORÁRIO */}
-        {selectedProf && selectedServices.length > 0 && (
-          <div className="space-y-4 pt-2 border-t border-black/10">
-            <div className="space-y-1">
-              <label className="text-xs font-bold block uppercase tracking-wider opacity-80">
-                {professionals.length > 1 ? '3. Escolha a Data' : '2. Escolha a Data'}
-              </label>
-              <input
-                type="date"
-                min={new Date().toISOString().split('T')[0]}
-                value={selectedDate}
-                onChange={(e) => {
-                  setSelectedDate(e.target.value);
-                  setSelectedTime('');
-                }}
-                style={{ backgroundColor: cardColor, color: textColor }}
-                className="w-full border border-black/10 p-3 rounded-xl text-xs focus:outline-none cursor-pointer"
-              />
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-xs font-bold block uppercase tracking-wider opacity-80">
-                {professionals.length > 1 ? `4. Horários Disponíveis (${availableSlots.length})` : `3. Horários Disponíveis (${availableSlots.length})`}
-              </label>
-              
-              {slotData.status !== 'ok' ? (
-                <p className="text-xs text-red-500 bg-red-500/10 p-3 rounded-xl border border-red-500/20 text-center font-semibold">
-                  {slotData.message}
-                </p>
-              ) : availableSlots.length === 0 ? (
-                <div className="text-xs text-red-500 bg-red-500/10 p-3.5 rounded-xl border border-red-500/20 text-center space-y-1">
-                  <p className="font-bold">Nenhum horário disponível nesta data para este procedimento.</p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-4 gap-2 max-h-40 overflow-y-auto pt-1">
-                  {availableSlots.map(slot => {
-                    const isSelected = selectedTime === slot;
-                    return (
-                      <button
-                        type="button"
-                        key={slot}
-                        onClick={() => setSelectedTime(slot)}
-                        style={{ 
-                          backgroundColor: isSelected ? primaryColor : cardColor,
-                          color: isSelected ? btnTextColor : textColor
-                        }}
-                        className="py-2 rounded-lg border border-black/10 text-xs font-bold text-center transition">
-                        {slot}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* PASSO 4: CONFIRMAÇÃO DE DADOS */}
-        {selectedTime && (
-          <form onSubmit={handleConfirmAppointment} className="space-y-3 pt-4 border-t border-black/10">
-            <h3 className="font-bold text-xs uppercase tracking-wider opacity-80">
-              {professionals.length > 1 ? '5. Seus Dados' : '4. Seus Dados'}
-            </h3>
-            <input
-              type="text"
-              required
-              placeholder="Seu Nome Completo"
-              value={customerName}
-              onChange={(e) => setCustomerName(e.target.value)}
-              style={{ backgroundColor: cardColor, color: textColor }}
-              className="w-full border border-black/10 p-3 rounded-xl text-xs focus:outline-none"
-            />
-            <input
-              type="text"
-              required
-              placeholder="Seu WhatsApp (DDD + Número)"
-              value={customerPhone}
-              onChange={(e) => setCustomerPhone(maskPhone(e.target.value))}
-              style={{ backgroundColor: cardColor, color: textColor }}
-              className="w-full border border-black/10 p-3 rounded-xl text-xs focus:outline-none"
-            />
-
-            <select
-              value={paymentMethod}
-              onChange={(e) => setPaymentMethod(e.target.value)}
-              style={{ backgroundColor: cardColor, color: textColor }}
-              className="w-full border border-black/10 p-3 rounded-xl text-xs focus:outline-none">
-              <option value="No Local">Pagar no Local (Dinheiro / Cartão / PIX)</option>
-              <option value="PIX Antecipado">PIX Antecipado</option>
-            </select>
-
-            <div style={{ backgroundColor: cardColor, color: textColor }} className="p-3 rounded-xl border border-black/10 flex justify-between items-center text-xs">
-              <div>
-                <span className="opacity-60 block text-[10px]">Duração: {formatDuration(totalDuration)}</span>
-                <span className="font-bold text-sm">TOTAL: R$ {totalPrice.toFixed(2)}</span>
-              </div>
-              <span className="font-bold" style={{ color: priceColor }}>{selectedDate.split('-').reverse().join('/')} às {selectedTime}</span>
-            </div>
-
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              style={{ backgroundColor: primaryColor, color: btnTextColor }}
-              className="w-full font-bold py-3.5 rounded-xl text-xs shadow-lg transition hover:opacity-90">
-              {isSubmitting ? 'Agendando...' : 'Confirmar Agendamento no WhatsApp 🚀'}
-            </button>
-          </form>
-        )}
-      </div>
+        <p className="text-[10px] opacity-60">
+          © {new Date().getFullYear()} {tenant.name}. Todos os direitos reservados.
+        </p>
+        <p className="text-[9px] opacity-40">
+          Tecnologia por Sinerge MKT
+        </p>
+      </footer>
 
       {/* MODAL MEUS AGENDAMENTOS */}
       {showMyAppsModal && (

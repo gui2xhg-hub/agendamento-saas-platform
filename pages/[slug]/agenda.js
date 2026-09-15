@@ -36,7 +36,7 @@ export default function AgendaTenant() {
   const [selectedProf, setSelectedProf] = useState('');
   const [showTomorrowSummary, setShowTomorrowSummary] = useState(false);
 
-  // NOVO: FILTRO DE CLIENTES NO MODAL ('prof' = Apenas da Profissional, 'all' = Todos os Clientes)
+  // FILTRO DE CLIENTES NO MODAL ('prof' = Apenas da Profissional, 'all' = Todos os Clientes)
   const [customerFilterMode, setCustomerFilterMode] = useState('prof');
 
   // NORMAS DE DIAS DA SEMANA (0 = Domingo, 1 = Segunda, ..., 6 = Sábado)
@@ -107,7 +107,7 @@ export default function AgendaTenant() {
       if (Array.isArray(allowedProfIds) && allowedProfIds.length > 0) {
         return allowedProfIds.some(id => String(id) === String(profId));
       }
-      return true; // Se nenhum profissional for especificado, todos realizam
+      return true;
     });
   };
 
@@ -186,7 +186,6 @@ export default function AgendaTenant() {
     }
   };
 
-  // BUSCA AGENDAMENTOS DO DIA SEGUINTE PARA LEMBRETE
   const fetchTomorrowAppointments = async (tenantId = tenant?.id) => {
     if (!tenantId) return;
     const tomorrow = new Date();
@@ -207,7 +206,6 @@ export default function AgendaTenant() {
     if (tApps) setTomorrowApps(tApps);
   };
 
-  // BUSCA DIRETÓRIO DE CLIENTES COM VÍNCULO POR PROFISSIONAL E ORDEM ALFABÉTICA
   const fetchCustomersDirectory = async (tenantId = tenant?.id) => {
     if (!tenantId) return;
 
@@ -243,7 +241,6 @@ export default function AgendaTenant() {
         profIds: Array.from(c.profIds)
       }));
 
-      // ORDENAÇÃO ALFABÉTICA (A-Z)
       formattedList.sort((a, b) => 
         a.customer_name.localeCompare(b.customer_name, 'pt-BR', { sensitivity: 'base' })
       );
@@ -600,7 +597,6 @@ export default function AgendaTenant() {
     const selectedDayOfWeek = new Date(selectedDate + 'T00:00:00').getDay();
     const currentProf = professionals.find(p => String(p.id) === String(selectedProf));
 
-    // Sanitiza e valida os dias de trabalho do profissional
     let profWorkDays = currentProf?.work_days || [1, 2, 3, 4, 5, 6];
     if (typeof profWorkDays === 'string') {
       try { profWorkDays = JSON.parse(profWorkDays); } catch (e) { profWorkDays = [1, 2, 3, 4, 5, 6]; }
@@ -610,7 +606,6 @@ export default function AgendaTenant() {
       return [{ type: 'prof_off', reason: `${currentProf?.name || 'Profissional'} não atende neste dia da semana (Folga Recorrente).` }];
     }
 
-    // Puxa as horas específicas configuradas na aba "Equipe" para o dia da semana atual
     let profWorkHours = currentProf?.work_hours || {};
     if (typeof profWorkHours === 'string') {
       try { profWorkHours = JSON.parse(profWorkHours); } catch (e) { profWorkHours = {}; }
@@ -687,6 +682,12 @@ export default function AgendaTenant() {
   if (loading) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><p className="text-xs text-gray-400">Carregando Agenda...</p></div>;
   if (!tenant) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><h1 className="text-xl font-bold text-orange-500">Estabelecimento não encontrado</h1></div>;
 
+  // VARIÁVEIS DE TEMA DINÂMICAS OBTIDAS DO TENANT
+  const primaryColor = tenant.primary_color || '#FF8C00';
+  const secondaryColor = tenant.secondary_color || '#090D16';
+  const cardBgColor = tenant.card_bg_color || '#111827';
+  const textColor = tenant.text_color || '#FFFFFF';
+
   const currentProf = professionals.find(p => String(p.id) === String(selectedProf));
   const displayedAppointments = appointments.filter(a => String(a.professional_id) === String(selectedProf));
   const completedCount = displayedAppointments.filter(app => app.status === 'concluido').length;
@@ -696,10 +697,8 @@ export default function AgendaTenant() {
   const selectedDayOfWeekNum = new Date(blockDate + 'T00:00:00').getDay();
   const selectedDayLabel = ALL_DAYS.find(d => d.id === selectedDayOfWeekNum)?.label || '';
 
-  // Serviços filtrados para o modal manual
   const manualFilteredServices = getManualServicesForProf(manualProfId);
 
-  // FILTRAGEM DA LISTA DE CLIENTES NO MODAL (POR PROFISSIONAL OU TODOS)
   const filteredCustomerList = customerList.filter(c => {
     if (customerFilterMode === 'all') return true;
     return c.profIds.includes(String(manualProfId));
@@ -708,11 +707,16 @@ export default function AgendaTenant() {
   const activeManualProfObj = professionals.find(p => String(p.id) === String(manualProfId));
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white p-4 max-w-5xl mx-auto font-sans pb-20">
-      <header className="flex flex-col md:flex-row justify-between items-start md:items-center py-4 border-b border-gray-800 mb-4 gap-4">
+    <div 
+      className="min-h-screen p-4 max-w-5xl mx-auto font-sans pb-20 transition-colors duration-300"
+      style={{ backgroundColor: secondaryColor, color: textColor }}
+    >
+      <header className="flex flex-col md:flex-row justify-between items-start md:items-center py-4 border-b border-black/10 mb-4 gap-4">
         <div>
-          <h1 className="font-bold text-xl text-orange-500">📅 Gestão da Agenda — {tenant.name}</h1>
-          <p className="text-xs text-gray-400">Navegue pelos horários livres e compromissos marcados.</p>
+          <h1 className="font-bold text-xl" style={{ color: primaryColor }}>
+            📅 Gestão da Agenda — {tenant.name}
+          </h1>
+          <p className="text-xs opacity-70">Navegue pelos horários livres e compromissos marcados.</p>
         </div>
 
         <div className="flex items-center space-x-2 w-full md:w-auto flex-wrap gap-2">
@@ -720,8 +724,8 @@ export default function AgendaTenant() {
             type="date"
             value={selectedDate}
             onChange={(e) => setSelectedDate(e.target.value)}
-            className="bg-gray-900 border border-gray-800 p-2.5 rounded-xl text-xs font-bold text-white focus:outline-none cursor-pointer"
-            style={{ colorScheme: 'dark' }}
+            className="border border-black/20 p-2.5 rounded-xl text-xs font-bold focus:outline-none cursor-pointer"
+            style={{ backgroundColor: cardBgColor, color: textColor }}
           />
 
           <button
@@ -742,18 +746,23 @@ export default function AgendaTenant() {
             <span>🔒 Fechar Horário</span>
           </button>
 
-          <button onClick={() => fetchAppointmentsAndBlocks()} className="bg-gray-900 hover:bg-gray-800 border border-gray-800 p-2.5 rounded-xl text-xs font-bold transition">
+          <button 
+            onClick={() => fetchAppointmentsAndBlocks()} 
+            className="border border-black/20 p-2.5 rounded-xl text-xs font-bold transition"
+            style={{ backgroundColor: cardBgColor, color: textColor }}>
             🔄
           </button>
         </div>
       </header>
 
       {/* PAINEL DE LEMBRETES DO DIA SEGUINTE */}
-      <div className="mb-6 bg-gray-900 border border-purple-500/30 rounded-2xl p-4 space-y-3 shadow-lg">
+      <div 
+        className="mb-6 border border-purple-500/30 rounded-2xl p-4 space-y-3 shadow-lg"
+        style={{ backgroundColor: cardBgColor }}>
         <div className="flex justify-between items-center cursor-pointer" onClick={() => setShowTomorrowSummary(!showTomorrowSummary)}>
           <div className="flex items-center space-x-2">
             <span className="text-base">🔔</span>
-            <h2 className="font-bold text-xs text-purple-300">
+            <h2 className="font-bold text-xs text-purple-400">
               Lembretes de Amanhã ({tomorrowApps.length} agendamentos)
             </h2>
           </div>
@@ -763,21 +772,24 @@ export default function AgendaTenant() {
         </div>
 
         {showTomorrowSummary && (
-          <div className="space-y-2 pt-2 border-t border-gray-800 max-h-60 overflow-y-auto">
+          <div className="space-y-2 pt-2 border-t border-black/10 max-h-60 overflow-y-auto">
             {tomorrowApps.length === 0 ? (
-              <p className="text-xs text-gray-500 text-center py-2">Nenhum agendamento para amanhã nesta agenda.</p>
+              <p className="text-xs opacity-60 text-center py-2">Nenhum agendamento para amanhã nesta agenda.</p>
             ) : (
               tomorrowApps.map(app => (
-                <div key={app.id} className="bg-gray-950 p-3 rounded-xl border border-gray-800 flex justify-between items-center text-xs">
+                <div 
+                  key={app.id} 
+                  className="p-3 rounded-xl border border-black/10 flex justify-between items-center text-xs"
+                  style={{ backgroundColor: secondaryColor }}>
                   <div>
-                    <span className="font-bold text-orange-400 block">{app.start_time} — {app.customer_name}</span>
-                    <span className="text-[10px] text-gray-400 block">
+                    <span className="font-bold block" style={{ color: primaryColor }}>{app.start_time} — {app.customer_name}</span>
+                    <span className="text-[10px] opacity-70 block">
                       {Array.isArray(app.services_json) ? app.services_json.map(s => s.name).join(', ') : 'Serviços'}
                     </span>
                   </div>
                   <button 
                     onClick={() => handleSendWhatsappReminder(app)}
-                    className="bg-green-600/20 hover:bg-green-600/30 text-green-400 border border-green-500/30 px-3 py-1.5 rounded-lg text-[10px] font-bold flex items-center space-x-1 transition">
+                    className="bg-green-600/20 hover:bg-green-600/30 text-green-500 border border-green-500/30 px-3 py-1.5 rounded-lg text-[10px] font-bold flex items-center space-x-1 transition">
                     <span>📲 Enviar Lembrete</span>
                   </button>
                 </div>
@@ -789,7 +801,7 @@ export default function AgendaTenant() {
 
       {/* DIAS DA SEMANA */}
       <div className="mb-6">
-        <label className="text-[11px] font-bold text-gray-400 block uppercase tracking-wider mb-2">
+        <label className="text-[11px] font-bold opacity-70 block uppercase tracking-wider mb-2">
           📆 Dias da Semana
         </label>
 
@@ -801,11 +813,12 @@ export default function AgendaTenant() {
               <button
                 key={item.dateStr}
                 onClick={() => setSelectedDate(item.dateStr)}
-                className={`py-2.5 px-1 rounded-xl border flex flex-col items-center justify-center transition ${
-                  isSelected
-                    ? 'border-orange-500 bg-orange-500 text-white font-bold shadow-lg shadow-orange-500/20'
-                    : 'border-gray-800 bg-gray-900/80 hover:bg-gray-800 text-gray-300'
-                }`}>
+                className="py-2.5 px-1 rounded-xl border flex flex-col items-center justify-center transition"
+                style={{
+                  backgroundColor: isSelected ? primaryColor : cardBgColor,
+                  borderColor: isSelected ? primaryColor : 'rgba(0,0,0,0.1)',
+                  color: isSelected ? '#FFFFFF' : textColor
+                }}>
                 <span className="text-[10px] uppercase">{item.name}</span>
                 <span className="text-sm font-bold mt-0.5">{item.dayNum}</span>
               </button>
@@ -816,7 +829,7 @@ export default function AgendaTenant() {
 
       {/* SELEÇÃO DA EQUIPE */}
       <div className="mb-6">
-        <label className="text-[11px] font-bold text-gray-400 block uppercase tracking-wider mb-2">
+        <label className="text-[11px] font-bold opacity-70 block uppercase tracking-wider mb-2">
           💈 Selecione a Agenda do Profissional
         </label>
 
@@ -833,22 +846,25 @@ export default function AgendaTenant() {
                   setBlockProfId(prof.id);
                   setManualProfId(prof.id);
                 }}
-                className={`p-3 rounded-2xl border flex items-center space-x-3 min-w-[170px] transition text-left relative ${
-                  isSelected
-                    ? 'border-orange-500 bg-orange-500/10 shadow-lg shadow-orange-500/10'
-                    : 'border-gray-800 bg-gray-900/60 hover:bg-gray-900'
-                }`}>
+                className="p-3 rounded-2xl border flex items-center space-x-3 min-w-[170px] transition text-left relative"
+                style={{
+                  backgroundColor: isSelected ? `${primaryColor}15` : cardBgColor,
+                  borderColor: isSelected ? primaryColor : 'rgba(0,0,0,0.1)',
+                  color: textColor
+                }}>
                 <img
                   src={prof.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80'}
                   alt={prof.name}
-                  className="w-10 h-10 rounded-full object-cover border border-gray-700 bg-gray-800"
+                  className="w-10 h-10 rounded-full object-cover border border-black/20"
                 />
                 <div className="truncate">
-                  <span className="font-bold text-xs text-white block truncate">{prof.name}</span>
-                  <span className="text-[10px] text-gray-400 truncate">{prof.specialty || 'Profissional'}</span>
+                  <span className="font-bold text-xs block truncate" style={{ color: textColor }}>{prof.name}</span>
+                  <span className="text-[10px] opacity-70 truncate block">{prof.specialty || 'Profissional'}</span>
                 </div>
                 {profAppsCount > 0 && (
-                  <span className="absolute -top-1.5 -right-1.5 bg-orange-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow">
+                  <span 
+                    className="absolute -top-1.5 -right-1.5 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow"
+                    style={{ backgroundColor: primaryColor }}>
                     {profAppsCount}
                   </span>
                 )}
@@ -858,56 +874,59 @@ export default function AgendaTenant() {
         </div>
       </div>
 
-      {/* MÉTRICAS (SEM EXIBIÇÃO FINANCEIRA) */}
+      {/* MÉTRICAS */}
       <div className="grid grid-cols-3 gap-3 mb-6">
-        <div className="bg-gray-900 border border-gray-800 p-3 rounded-2xl">
-          <span className="text-[10px] font-bold text-gray-400 uppercase block">Atendimentos</span>
-          <span className="text-base font-bold text-white">{displayedAppointments.length}</span>
+        <div className="border border-black/10 p-3 rounded-2xl" style={{ backgroundColor: cardBgColor }}>
+          <span className="text-[10px] font-bold opacity-70 uppercase block">Atendimentos</span>
+          <span className="text-base font-bold" style={{ color: textColor }}>{displayedAppointments.length}</span>
         </div>
-        <div className="bg-gray-900 border border-gray-800 p-3 rounded-2xl">
-          <span className="text-[10px] font-bold text-yellow-400 uppercase block">Pendentes</span>
-          <span className="text-base font-bold text-yellow-400">{pendingCount}</span>
+        <div className="border border-black/10 p-3 rounded-2xl" style={{ backgroundColor: cardBgColor }}>
+          <span className="text-[10px] font-bold text-yellow-500 uppercase block">Pendentes</span>
+          <span className="text-base font-bold text-yellow-500">{pendingCount}</span>
         </div>
-        <div className="bg-gray-900 border border-gray-800 p-3 rounded-2xl">
-          <span className="text-[10px] font-bold text-green-400 uppercase block">Concluídos</span>
-          <span className="text-base font-bold text-green-400">{completedCount}</span>
+        <div className="border border-black/10 p-3 rounded-2xl" style={{ backgroundColor: cardBgColor }}>
+          <span className="text-[10px] font-bold text-green-500 uppercase block">Concluídos</span>
+          <span className="text-base font-bold text-green-500">{completedCount}</span>
         </div>
       </div>
 
       {/* LINHA DO TEMPO */}
       <div className="space-y-3">
         <div className="flex justify-between items-center mb-2">
-          <h2 className="text-xs font-bold text-gray-400 uppercase tracking-wider">
+          <h2 className="text-xs font-bold uppercase tracking-wider opacity-70">
             📋 Agenda do Dia — {currentProf?.name || 'Profissional'}
           </h2>
-          <span className="text-[10px] text-gray-500">Horários organizados</span>
+          <span className="text-[10px] opacity-50">Horários organizados</span>
         </div>
 
         {timelineItems.map((item, idx) => {
           if (item.type === 'prof_off') {
             return (
-              <div key={`off-${idx}`} className="bg-red-950/20 border border-red-500/40 p-6 rounded-3xl text-center space-y-2 my-4">
+              <div key={`off-${idx}`} className="bg-red-500/10 border border-red-500/30 p-6 rounded-3xl text-center space-y-2 my-4">
                 <span className="text-2xl block">🛑</span>
-                <h3 className="font-bold text-sm text-red-400">Agenda Indisponível neste dia</h3>
-                <p className="text-xs text-gray-300">{item.reason}</p>
-                <p className="text-[10px] text-gray-500">Você pode ajustar os dias de atendimento na aba Equipe do Admin.</p>
+                <h3 className="font-bold text-sm text-red-500">Agenda Indisponível neste dia</h3>
+                <p className="text-xs opacity-80">{item.reason}</p>
+                <p className="text-[10px] opacity-60">Você pode ajustar os dias de atendimento na aba Equipe do Admin.</p>
               </div>
             );
           }
 
           if (item.type === 'free') {
             return (
-              <div key={`free-${selectedProf}-${item.time}`} className={`bg-gray-900/40 border border-dashed border-gray-800/80 p-3 rounded-2xl flex justify-between items-center transition hover:border-gray-700 ${item.isPast ? 'opacity-60' : ''}`}>
+              <div 
+                key={`free-${selectedProf}-${item.time}`} 
+                className={`border border-dashed border-black/20 p-3 rounded-2xl flex justify-between items-center transition hover:border-black/40 ${item.isPast ? 'opacity-50' : ''}`}
+                style={{ backgroundColor: cardBgColor }}>
                 <div className="flex items-center space-x-3">
-                  <span className="text-xs font-bold text-gray-400 bg-gray-800 px-2.5 py-1 rounded-lg">
+                  <span className="text-xs font-bold px-2.5 py-1 rounded-lg border border-black/10" style={{ backgroundColor: secondaryColor }}>
                     ⏰ {item.time}
                   </span>
                   {item.isPast ? (
-                    <span className="text-xs font-bold text-gray-500 flex items-center space-x-1">
+                    <span className="text-xs font-bold opacity-50 flex items-center space-x-1">
                       <span>⏳ Horário Passado</span>
                     </span>
                   ) : (
-                    <span className="text-xs font-bold text-emerald-400 flex items-center space-x-1">
+                    <span className="text-xs font-bold text-emerald-500 flex items-center space-x-1">
                       <span>🟢 Horário Livre / Disponível</span>
                     </span>
                   )}
@@ -916,12 +935,12 @@ export default function AgendaTenant() {
                 <div className="flex space-x-1.5">
                   <button
                     onClick={() => handleQuickManualAppSlot(item.time)}
-                    className="bg-green-600/20 hover:bg-green-600/40 text-green-300 border border-green-500/30 px-3 py-1 rounded-xl text-[11px] font-bold transition">
+                    className="bg-green-600/20 hover:bg-green-600/40 text-green-500 border border-green-500/30 px-3 py-1 rounded-xl text-[11px] font-bold transition">
                     ➕ Agendar
                   </button>
                   <button
                     onClick={() => handleQuickBlockSlot(item.time)}
-                    className="bg-purple-600/20 hover:bg-purple-600/40 text-purple-300 border border-purple-500/30 px-3 py-1 rounded-xl text-[11px] font-bold transition">
+                    className="bg-purple-600/20 hover:bg-purple-600/40 text-purple-400 border border-purple-500/30 px-3 py-1 rounded-xl text-[11px] font-bold transition">
                     🔒 Bloquear
                   </button>
                 </div>
@@ -935,41 +954,46 @@ export default function AgendaTenant() {
             const cleanPhone = (app.customer_phone || '').replace(/\D/g, '');
 
             return (
-              <div key={`app-${app.id}-${idx}`} className={`bg-gray-900 border border-gray-800 p-4 rounded-2xl space-y-3 shadow-lg border-l-4 border-l-orange-500 ${item.isPast ? 'opacity-80' : ''}`}>
-                <div className="flex justify-between items-start border-b border-gray-800 pb-2.5">
+              <div 
+                key={`app-${app.id}-${idx}`} 
+                className={`border border-black/10 p-4 rounded-2xl space-y-3 shadow-lg border-l-4 ${item.isPast ? 'opacity-80' : ''}`}
+                style={{ backgroundColor: cardBgColor, borderLeftColor: primaryColor }}>
+                <div className="flex justify-between items-start border-b border-black/10 pb-2.5">
                   <div className="flex items-center space-x-3">
-                    <span className="bg-orange-500/10 border border-orange-500/30 text-orange-400 px-3 py-1.5 rounded-xl font-bold text-xs">
+                    <span 
+                      className="px-3 py-1.5 rounded-xl font-bold text-xs border border-black/10"
+                      style={{ backgroundColor: `${primaryColor}15`, color: primaryColor }}>
                       ⏰ {app.start_time} - {app.end_time}
                     </span>
                     <div>
-                      <h3 className="font-bold text-xs text-white flex items-center space-x-1">
+                      <h3 className="font-bold text-xs flex items-center space-x-1" style={{ color: textColor }}>
                         <span>{app.customer_name}</span>
                         {cleanPhone && (
                           <a
                             href={`https://wa.me/55${cleanPhone}`}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-[10px] bg-green-500/20 hover:bg-green-500/40 text-green-400 border border-green-500/30 px-2 py-0.5 rounded-full ml-1">
+                            className="text-[10px] bg-green-500/20 hover:bg-green-500/40 text-green-500 border border-green-500/30 px-2 py-0.5 rounded-full ml-1">
                             💬 WhatsApp
                           </a>
                         )}
                       </h3>
-                      <p className="text-[10px] text-gray-400">📱 {app.customer_phone}</p>
+                      <p className="text-[10px] opacity-70">📱 {app.customer_phone}</p>
                     </div>
                   </div>
 
                   <span className={`text-[10px] uppercase font-bold px-2.5 py-1 rounded-lg ${
-                    app.status === 'agendado' ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30' :
-                    app.status === 'concluido' ? 'bg-green-500/20 text-green-400 border border-green-500/30' :
-                    'bg-red-500/20 text-red-400 border border-red-500/30'
+                    app.status === 'agendado' ? 'bg-yellow-500/20 text-yellow-500 border border-yellow-500/30' :
+                    app.status === 'concluido' ? 'bg-green-500/20 text-green-500 border border-green-500/30' :
+                    'bg-red-500/20 text-red-500 border border-red-500/30'
                   }`}>
                     {app.status}
                   </span>
                 </div>
 
-                <div className="bg-gray-950 p-3 rounded-xl border border-gray-800/80 text-xs">
-                  <span className="text-gray-400 block text-[10px]">Serviço(s) Solicitado(s):</span>
-                  <span className="font-bold text-orange-300">
+                <div className="p-3 rounded-xl border border-black/10 text-xs" style={{ backgroundColor: secondaryColor }}>
+                  <span className="opacity-60 block text-[10px]">Serviço(s) Solicitado(s):</span>
+                  <span className="font-bold" style={{ color: primaryColor }}>
                     {servicesList.map(s => s.name).join(', ') || 'Atendimento Geral'}
                   </span>
                 </div>
@@ -979,17 +1003,17 @@ export default function AgendaTenant() {
                     <>
                       <button
                         onClick={() => handleOpenReschedule(app)}
-                        className="bg-purple-600/20 hover:bg-purple-600/40 text-purple-300 border border-purple-500/30 px-3 py-1.5 rounded-xl font-bold text-xs transition">
+                        className="bg-purple-600/20 hover:bg-purple-600/40 text-purple-400 border border-purple-500/30 px-3 py-1.5 rounded-xl font-bold text-xs transition">
                         ✏️ Reagendar
                       </button>
                       <button
                         onClick={() => handleUpdateAppStatus(app, 'concluido')}
-                        className="bg-green-600/20 hover:bg-green-600/40 text-green-300 border border-green-500/30 px-3.5 py-1.5 rounded-xl font-bold text-xs transition">
+                        className="bg-green-600/20 hover:bg-green-600/40 text-green-500 border border-green-500/30 px-3.5 py-1.5 rounded-xl font-bold text-xs transition">
                         ✅ Concluir
                       </button>
                       <button
                         onClick={() => handleUpdateAppStatus(app, 'cancelado')}
-                        className="bg-red-600/20 hover:bg-red-600/40 text-red-300 border border-red-500/30 px-3.5 py-1.5 rounded-xl font-bold text-xs transition">
+                        className="bg-red-600/20 hover:bg-red-600/40 text-red-500 border border-red-500/30 px-3.5 py-1.5 rounded-xl font-bold text-xs transition">
                         ❌ Cancelar
                       </button>
                     </>
@@ -1004,22 +1028,22 @@ export default function AgendaTenant() {
             const isRecurring = block.is_recurring || (block.reason && block.reason.includes('[RECORRENTE]'));
 
             return (
-              <div key={`block-${block.id}-${idx}`} className="bg-red-950/20 border border-red-500/30 p-3.5 rounded-2xl flex justify-between items-center text-xs">
+              <div key={`block-${block.id}-${idx}`} className="bg-red-500/10 border border-red-500/30 p-3.5 rounded-2xl flex justify-between items-center text-xs">
                 <div>
                   <div className="flex items-center space-x-1.5">
-                    <span className="text-red-400 font-bold block">🔒 Horário Bloqueado</span>
+                    <span className="text-red-500 font-bold block">🔒 Horário Bloqueado</span>
                     {isRecurring && (
-                      <span className="bg-purple-500/20 text-purple-300 border border-purple-500/30 text-[9px] font-bold px-2 py-0.5 rounded-full">
+                      <span className="bg-purple-500/20 text-purple-400 border border-purple-500/30 text-[9px] font-bold px-2 py-0.5 rounded-full">
                         🔁 Recorrente
                       </span>
                     )}
                   </div>
-                  <span className="text-red-300 text-xs font-bold">⏰ {block.start_time} às {block.end_time}</span>
-                  {block.reason && <span className="text-gray-400 text-[10px] block italic">{block.reason.replace(' [RECORRENTE]', '')}</span>}
+                  <span className="text-red-400 text-xs font-bold">⏰ {block.start_time} às {block.end_time}</span>
+                  {block.reason && <span className="opacity-70 text-[10px] block italic">{block.reason.replace(' [RECORRENTE]', '')}</span>}
                 </div>
                 <button
                   onClick={() => handleDeleteBlock(block.id)}
-                  className="bg-red-500/20 hover:bg-red-500/40 text-red-300 border border-red-500/30 px-3 py-1.5 rounded-xl font-bold text-[11px] transition">
+                  className="bg-red-500/20 hover:bg-red-500/40 text-red-500 border border-red-500/30 px-3 py-1.5 rounded-xl font-bold text-[11px] transition">
                   🔓 Desbloquear
                 </button>
               </div>
@@ -1030,42 +1054,38 @@ export default function AgendaTenant() {
         })}
       </div>
 
-      {/* MODAL DE AGENDAMENTO MANUAL PELO PROFISSIONAL */}
+      {/* MODAL DE AGENDAMENTO MANUAL */}
       {showManualAppModal && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-900 border border-gray-800 w-full max-w-md rounded-2xl p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center border-b border-gray-800 pb-2">
-              <h3 className="font-bold text-sm text-green-400 flex items-center space-x-1">
+          <div className="border border-black/20 w-full max-w-md rounded-2xl p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto" style={{ backgroundColor: cardBgColor, color: textColor }}>
+            <div className="flex justify-between items-center border-b border-black/10 pb-2">
+              <h3 className="font-bold text-sm text-green-500 flex items-center space-x-1">
                 <span>➕ Agendar Atendimento Manual</span>
               </h3>
-              <button onClick={() => setShowManualAppModal(false)} className="text-gray-400 font-bold text-xs hover:text-white">✕ Fechar</button>
+              <button onClick={() => setShowManualAppModal(false)} className="opacity-60 font-bold text-xs hover:opacity-100">✕ Fechar</button>
             </div>
 
             <form onSubmit={handleCreateManualApp} className="space-y-3 text-xs">
-              
-              {/* CAMPO DE SELEÇÃO DE CLIENTE COM FILTROS DE ALTERNÂNCIA E ORDEM ALFABÉTICA */}
               <div>
                 <div className="flex justify-between items-center mb-1">
-                  <label className="text-gray-400 block text-[11px]">📋 Selecionar Cliente Cadastrado:</label>
-                  <div className="flex space-x-1 bg-gray-950 p-0.5 rounded-lg border border-gray-800">
+                  <label className="opacity-70 block text-[11px]">📋 Selecionar Cliente Cadastrado:</label>
+                  <div className="flex space-x-1 p-0.5 rounded-lg border border-black/10" style={{ backgroundColor: secondaryColor }}>
                     <button
                       type="button"
                       onClick={() => setCustomerFilterMode('prof')}
                       className={`px-2 py-0.5 rounded text-[10px] font-bold transition ${
-                        customerFilterMode === 'prof'
-                          ? 'bg-orange-500 text-white shadow'
-                          : 'text-gray-400 hover:text-white'
-                      }`}>
+                        customerFilterMode === 'prof' ? 'text-white shadow' : 'opacity-60'
+                      }`}
+                      style={{ backgroundColor: customerFilterMode === 'prof' ? primaryColor : 'transparent' }}>
                       De {activeManualProfObj?.name ? activeManualProfObj.name.split(' ')[0] : 'Profissional'}
                     </button>
                     <button
                       type="button"
                       onClick={() => setCustomerFilterMode('all')}
                       className={`px-2 py-0.5 rounded text-[10px] font-bold transition ${
-                        customerFilterMode === 'all'
-                          ? 'bg-orange-500 text-white shadow'
-                          : 'text-gray-400 hover:text-white'
-                      }`}>
+                        customerFilterMode === 'all' ? 'text-white shadow' : 'opacity-60'
+                      }`}
+                      style={{ backgroundColor: customerFilterMode === 'all' ? primaryColor : 'transparent' }}>
                       Todos ({customerList.length})
                     </button>
                   </div>
@@ -1073,7 +1093,8 @@ export default function AgendaTenant() {
 
                 <select 
                   onChange={(e) => handleSelectExistingCustomer(e.target.value)}
-                  className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-white focus:outline-none cursor-pointer">
+                  className="w-full border border-black/20 p-2.5 rounded-xl focus:outline-none cursor-pointer"
+                  style={{ backgroundColor: secondaryColor, color: textColor }}>
                   <option value="">
                     {filteredCustomerList.length === 0 
                       ? '-- Nenhum cliente encontrado para este filtro --' 
@@ -1088,7 +1109,7 @@ export default function AgendaTenant() {
               </div>
 
               <div>
-                <label className="text-gray-400 block mb-1">Profissional Atendente:</label>
+                <label className="opacity-70 block mb-1">Profissional Atendente:</label>
                 <select
                   value={manualProfId}
                   onChange={(e) => {
@@ -1101,7 +1122,8 @@ export default function AgendaTenant() {
                       setManualSelectedServiceId('');
                     }
                   }}
-                  className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-white focus:outline-none cursor-pointer">
+                  className="w-full border border-black/20 p-2.5 rounded-xl focus:outline-none cursor-pointer"
+                  style={{ backgroundColor: secondaryColor, color: textColor }}>
                   {professionals.map(p => (
                     <option key={p.id} value={p.id}>{p.name}</option>
                   ))}
@@ -1109,35 +1131,38 @@ export default function AgendaTenant() {
               </div>
 
               <div>
-                <label className="text-gray-400 block mb-1">Nome Completo do Cliente:</label>
+                <label className="opacity-70 block mb-1">Nome Completo do Cliente:</label>
                 <input
                   type="text"
                   required
                   placeholder="Ex: Maria Oliveira"
                   value={manualCustomerName}
                   onChange={(e) => setManualCustomerName(e.target.value)}
-                  className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-white focus:outline-none"
+                  className="w-full border border-black/20 p-2.5 rounded-xl focus:outline-none"
+                  style={{ backgroundColor: secondaryColor, color: textColor }}
                 />
               </div>
 
               <div>
-                <label className="text-gray-400 block mb-1">WhatsApp do Cliente (DDD + Número):</label>
+                <label className="opacity-70 block mb-1">WhatsApp do Cliente (DDD + Número):</label>
                 <input
                   type="text"
                   required
                   placeholder="Ex: 47999999999"
                   value={manualCustomerPhone}
                   onChange={(e) => setManualCustomerPhone(e.target.value)}
-                  className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-white focus:outline-none"
+                  className="w-full border border-black/20 p-2.5 rounded-xl focus:outline-none"
+                  style={{ backgroundColor: secondaryColor, color: textColor }}
                 />
               </div>
 
               <div>
-                <label className="text-gray-400 block mb-1">Procedimento / Serviço:</label>
+                <label className="opacity-70 block mb-1">Procedimento / Serviço:</label>
                 <select
                   value={manualSelectedServiceId}
                   onChange={(e) => setManualSelectedServiceId(e.target.value)}
-                  className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-white focus:outline-none cursor-pointer">
+                  className="w-full border border-black/20 p-2.5 rounded-xl focus:outline-none cursor-pointer"
+                  style={{ backgroundColor: secondaryColor, color: textColor }}>
                   {manualFilteredServices.length === 0 ? (
                     <option value="">Nenhum procedimento atribuído a esta profissional</option>
                   ) : (
@@ -1152,25 +1177,26 @@ export default function AgendaTenant() {
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="text-gray-400 block mb-1">Data:</label>
+                  <label className="opacity-70 block mb-1">Data:</label>
                   <input
                     type="date"
                     required
                     value={manualDate}
                     onChange={(e) => setManualDate(e.target.value)}
-                    className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-white focus:outline-none cursor-pointer"
-                    style={{ colorScheme: 'dark' }}
+                    className="w-full border border-black/20 p-2.5 rounded-xl focus:outline-none cursor-pointer"
+                    style={{ backgroundColor: secondaryColor, color: textColor }}
                   />
                 </div>
 
                 <div>
-                  <label className="text-gray-400 block mb-1">Horário de Início:</label>
+                  <label className="opacity-70 block mb-1">Horário de Início:</label>
                   <input
                     type="time"
                     required
                     value={manualStartTime}
                     onChange={(e) => setManualStartTime(e.target.value)}
-                    className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-white focus:outline-none"
+                    className="w-full border border-black/20 p-2.5 rounded-xl focus:outline-none"
+                    style={{ backgroundColor: secondaryColor, color: textColor }}
                   />
                 </div>
               </div>
@@ -1179,14 +1205,15 @@ export default function AgendaTenant() {
                 <button
                   type="button"
                   onClick={() => setShowManualAppModal(false)}
-                  className="w-1/2 bg-gray-800 text-gray-300 py-3 rounded-xl font-bold">
+                  className="w-1/2 border border-black/10 opacity-70 py-3 rounded-xl font-bold"
+                  style={{ backgroundColor: secondaryColor }}>
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={isSavingManualApp || manualFilteredServices.length === 0}
                   className="w-1/2 bg-green-600 hover:bg-green-700 text-white py-3 rounded-xl font-bold transition disabled:opacity-50">
-                  {isSavingManualApp ? 'Agendando...' : 'Confirmar & Notificar WhatsApp 🚀'}
+                  {isSavingManualApp ? 'Agendando...' : 'Confirmar & Notificar 🚀'}
                 </button>
               </div>
             </form>
@@ -1197,24 +1224,25 @@ export default function AgendaTenant() {
       {/* MODAL REAGENDAR ATENDIMENTO */}
       {editingApp && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-900 border border-gray-800 w-full max-w-md rounded-2xl p-5 space-y-4 shadow-2xl">
-            <div className="flex justify-between items-center border-b border-gray-800 pb-2">
+          <div className="border border-black/20 w-full max-w-md rounded-2xl p-5 space-y-4 shadow-2xl" style={{ backgroundColor: cardBgColor, color: textColor }}>
+            <div className="flex justify-between items-center border-b border-black/10 pb-2">
               <h3 className="font-bold text-sm text-purple-400">✏️ Reagendar Atendimento #{editingApp.id}</h3>
-              <button onClick={() => setEditingApp(null)} className="text-gray-400 font-bold text-xs">✕ Fechar</button>
+              <button onClick={() => setEditingApp(null)} className="opacity-60 font-bold text-xs">✕ Fechar</button>
             </div>
 
             <form onSubmit={handleSaveReschedule} className="space-y-3 text-xs">
-              <div className="bg-gray-950 p-2.5 rounded-xl border border-gray-800">
-                <span className="text-gray-300 font-bold block">Cliente: {editingApp.customer_name}</span>
-                <span className="text-gray-400 text-[10px]">Horário Atual: {editingApp.appointment_date.split('-').reverse().join('/')} às {editingApp.start_time}</span>
+              <div className="p-2.5 rounded-xl border border-black/10" style={{ backgroundColor: secondaryColor }}>
+                <span className="font-bold block">Cliente: {editingApp.customer_name}</span>
+                <span className="opacity-70 text-[10px]">Horário Atual: {editingApp.appointment_date.split('-').reverse().join('/')} às {editingApp.start_time}</span>
               </div>
 
               <div>
-                <label className="text-gray-400 block mb-1">Profissional Atendente:</label>
+                <label className="opacity-70 block mb-1">Profissional Atendente:</label>
                 <select
                   value={rescheduleProfId}
                   onChange={(e) => setRescheduleProfId(e.target.value)}
-                  className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-white focus:outline-none">
+                  className="w-full border border-black/20 p-2.5 rounded-xl focus:outline-none"
+                  style={{ backgroundColor: secondaryColor, color: textColor }}>
                   {professionals.map(p => (
                     <option key={p.id} value={p.id}>{p.name}</option>
                   ))}
@@ -1222,25 +1250,26 @@ export default function AgendaTenant() {
               </div>
 
               <div>
-                <label className="text-gray-400 block mb-1">Nova Data:</label>
+                <label className="opacity-70 block mb-1">Nova Data:</label>
                 <input
                   type="date"
                   required
                   value={rescheduleDate}
                   onChange={(e) => setRescheduleDate(e.target.value)}
-                  className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-white focus:outline-none cursor-pointer"
-                  style={{ colorScheme: 'dark' }}
+                  className="w-full border border-black/20 p-2.5 rounded-xl focus:outline-none cursor-pointer"
+                  style={{ backgroundColor: secondaryColor, color: textColor }}
                 />
               </div>
 
               <div>
-                <label className="text-gray-400 block mb-1">Novo Horário de Início:</label>
+                <label className="opacity-70 block mb-1">Novo Horário de Início:</label>
                 <input
                   type="time"
                   required
                   value={rescheduleTime}
                   onChange={(e) => setRescheduleTime(e.target.value)}
-                  className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-white focus:outline-none"
+                  className="w-full border border-black/20 p-2.5 rounded-xl focus:outline-none"
+                  style={{ backgroundColor: secondaryColor, color: textColor }}
                 />
               </div>
 
@@ -1248,7 +1277,8 @@ export default function AgendaTenant() {
                 <button
                   type="button"
                   onClick={() => setEditingApp(null)}
-                  className="w-1/2 bg-gray-800 text-gray-300 py-3 rounded-xl font-bold">
+                  className="w-1/2 border border-black/10 opacity-70 py-3 rounded-xl font-bold"
+                  style={{ backgroundColor: secondaryColor }}>
                   Cancelar
                 </button>
                 <button
@@ -1266,21 +1296,22 @@ export default function AgendaTenant() {
       {/* MODAL FECHAR AGENDA / BLOQUEAR HORÁRIO */}
       {showBlockModal && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-900 border border-gray-800 w-full max-w-md rounded-2xl p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center border-b border-gray-800 pb-2">
+          <div className="border border-black/20 w-full max-w-md rounded-2xl p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto" style={{ backgroundColor: cardBgColor, color: textColor }}>
+            <div className="flex justify-between items-center border-b border-black/10 pb-2">
               <h3 className="font-bold text-sm text-purple-400 flex items-center space-x-1">
                 <span>🔒 Fechar Agenda / Bloquear Horário</span>
               </h3>
-              <button onClick={() => setShowBlockModal(false)} className="text-gray-400 font-bold text-xs hover:text-white">✕ Fechar</button>
+              <button onClick={() => setShowBlockModal(false)} className="opacity-60 font-bold text-xs hover:opacity-100">✕ Fechar</button>
             </div>
 
             <form onSubmit={handleCreateBlock} className="space-y-3 text-xs">
               <div>
-                <label className="text-gray-400 block mb-1">Selecione o Profissional:</label>
+                <label className="opacity-70 block mb-1">Selecione o Profissional:</label>
                 <select
                   value={blockProfId}
                   onChange={(e) => setBlockProfId(e.target.value)}
-                  className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-white focus:outline-none">
+                  className="w-full border border-black/20 p-2.5 rounded-xl focus:outline-none"
+                  style={{ backgroundColor: secondaryColor, color: textColor }}>
                   {professionals.map(p => (
                     <option key={p.id} value={p.id}>{p.name}</option>
                   ))}
@@ -1288,21 +1319,21 @@ export default function AgendaTenant() {
               </div>
 
               <div>
-                <label className="text-gray-400 block mb-1">Data de Referência:</label>
+                <label className="opacity-70 block mb-1">Data de Referência:</label>
                 <input
                   type="date"
                   required
                   value={blockDate}
                   onChange={(e) => setBlockDate(e.target.value)}
-                  className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-white focus:outline-none cursor-pointer"
-                  style={{ colorScheme: 'dark' }}
+                  className="w-full border border-black/20 p-2.5 rounded-xl focus:outline-none cursor-pointer"
+                  style={{ backgroundColor: secondaryColor, color: textColor }}
                 />
               </div>
 
-              <div className="flex items-center justify-between bg-gray-950 p-3 rounded-xl border border-gray-800">
+              <div className="flex items-center justify-between p-3 rounded-xl border border-black/10" style={{ backgroundColor: secondaryColor }}>
                 <div>
-                  <span className="font-bold text-white block">📅 Bloquear o Dia Inteiro</span>
-                  <span className="text-[10px] text-gray-400">Bloqueia do horário de abertura ao fechamento</span>
+                  <span className="font-bold block">📅 Bloquear o Dia Inteiro</span>
+                  <span className="text-[10px] opacity-70">Bloqueia do horário de abertura ao fechamento</span>
                 </div>
                 <input
                   type="checkbox"
@@ -1312,11 +1343,11 @@ export default function AgendaTenant() {
                 />
               </div>
 
-              <div className="bg-purple-950/20 p-3 rounded-xl border border-purple-500/30 space-y-2">
+              <div className="p-3 rounded-xl border border-purple-500/30 space-y-2 bg-purple-500/10">
                 <div className="flex items-center justify-between">
                   <div>
-                    <span className="font-bold text-purple-300 block">🔁 Repetir durante o mês todo (Recorrente)</span>
-                    <span className="text-[10px] text-purple-200/70">Ideal para Almoço, Intervalos e Cursos fixos</span>
+                    <span className="font-bold text-purple-400 block">🔁 Repetir durante o mês todo (Recorrente)</span>
+                    <span className="text-[10px] opacity-70">Ideal para Almoço, Intervalos e Cursos fixos</span>
                   </div>
                   <input
                     type="checkbox"
@@ -1328,7 +1359,7 @@ export default function AgendaTenant() {
 
                 {isRecurringBlock && (
                   <div className="pt-2 border-t border-purple-500/20 space-y-2">
-                    <div className="flex justify-between items-center text-[10px] text-gray-300">
+                    <div className="flex justify-between items-center text-[10px] opacity-80">
                       <span>Aplicar nos dias:</span>
                       <div className="flex space-x-1">
                         <button type="button" onClick={() => setBlockRepeatDays([1, 2, 3, 4, 5])} className="bg-purple-900/60 hover:bg-purple-800 text-purple-200 px-1.5 py-0.5 rounded font-bold">Seg-Sex</button>
@@ -1349,8 +1380,9 @@ export default function AgendaTenant() {
                             className={`py-1.5 rounded-lg text-[10px] font-bold border transition ${
                               isSelected 
                                 ? 'bg-purple-600 text-white border-purple-400' 
-                                : 'bg-gray-900 text-gray-500 border-gray-800'
-                            }`}>
+                                : 'opacity-50 border-black/10'
+                            }`}
+                            style={{ backgroundColor: !isSelected ? secondaryColor : undefined }}>
                             {day.label}
                           </button>
                         );
@@ -1363,37 +1395,40 @@ export default function AgendaTenant() {
               {!isFullDayBlock && (
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="text-gray-400 block mb-1">Hora de Início:</label>
+                    <label className="opacity-70 block mb-1">Hora de Início:</label>
                     <input
                       type="time"
                       required={!isFullDayBlock}
                       value={blockStartTime}
                       onChange={(e) => setBlockStartTime(e.target.value)}
-                      className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-white focus:outline-none"
+                      className="w-full border border-black/20 p-2.5 rounded-xl focus:outline-none"
+                      style={{ backgroundColor: secondaryColor, color: textColor }}
                     />
                   </div>
 
                   <div>
-                    <label className="text-gray-400 block mb-1">Hora de Fim:</label>
+                    <label className="opacity-70 block mb-1">Hora de Fim:</label>
                     <input
                       type="time"
                       required={!isFullDayBlock}
                       value={blockEndTime}
                       onChange={(e) => setBlockEndTime(e.target.value)}
-                      className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-white focus:outline-none"
+                      className="w-full border border-black/20 p-2.5 rounded-xl focus:outline-none"
+                      style={{ backgroundColor: secondaryColor, color: textColor }}
                     />
                   </div>
                 </div>
               )}
 
               <div>
-                <label className="text-gray-400 block mb-1">Motivo do Bloqueio:</label>
+                <label className="opacity-70 block mb-1">Motivo do Bloqueio:</label>
                 <input
                   type="text"
                   placeholder="Ex: Almoço / Intervalo, Curso..."
                   value={blockReason}
                   onChange={(e) => setBlockReason(e.target.value)}
-                  className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-xl text-white focus:outline-none"
+                  className="w-full border border-black/20 p-2.5 rounded-xl focus:outline-none"
+                  style={{ backgroundColor: secondaryColor, color: textColor }}
                 />
               </div>
 
@@ -1401,7 +1436,8 @@ export default function AgendaTenant() {
                 <button
                   type="button"
                   onClick={() => setShowBlockModal(false)}
-                  className="w-1/2 bg-gray-800 text-gray-300 py-3 rounded-xl font-bold">
+                  className="w-1/2 border border-black/10 opacity-70 py-3 rounded-xl font-bold"
+                  style={{ backgroundColor: secondaryColor }}>
                   Cancelar
                 </button>
                 <button

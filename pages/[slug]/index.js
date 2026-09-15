@@ -278,29 +278,13 @@ export default function AgendamentoCliente() {
   if (loading) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><p className="text-xs text-gray-400">Carregando...</p></div>;
   if (!tenant) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><h1 className="text-xl font-bold text-orange-500">Estabelecimento não encontrado</h1></div>;
 
-  const isColorDark = (hex) => {
-    if (!hex || hex.length < 6) return true;
-    const cleanHex = hex.replace('#', '');
-    const r = parseInt(cleanHex.substring(0, 2), 16) || 0;
-    const g = parseInt(cleanHex.substring(2, 4), 16) || 0;
-    const b = parseInt(cleanHex.substring(4, 6), 16) || 0;
-    const brightness = (r * 299 + g * 587 + b * 114) / 1000;
-    return brightness < 128;
-  };
-
-  // PADRONIZAÇÃO DAS CORES PUXADAS DO MASTER ADMIN
-  const primaryColor = tenant.primary_color || '#FF8C00';
-  const btnTextColor = tenant.button_text_color || '#FFFFFF';
-  const bgColor = tenant.secondary_color || tenant.background_color || '#090D16';
-  const cardColor = tenant.card_bg_color || tenant.card_color || '#111827';
-  const textColor = tenant.text_color || '#FFFFFF';
-
-  // CONTRASTE INTELIGENTE PARA TEXTOS DENTRO DO CARD
-  const cardTextColor = isColorDark(cardColor) ? textColor : (isColorDark(textColor) ? textColor : '#111827');
-
-  const accentPriceColor = tenant.price_color 
-    ? tenant.price_color 
-    : (isColorDark(primaryColor) ? (isColorDark(cardColor) ? '#FF8C00' : textColor) : primaryColor);
+  // MAPEMENTO DAS 6 CORES DO PAINEL MASTER
+  const primaryColor = tenant.primary_color || tenant.button_color || '#121212';     // 1. Cor do Botão
+  const btnTextColor = tenant.button_text_color || '#FFFFFF';                          // 2. Texto do Botão
+  const bgColor = tenant.background_color || tenant.secondary_color || '#6C7B5B';     // 3. Fundo do Site
+  const cardColor = tenant.card_color || tenant.card_bg_color || '#FFFFFF';            // 4. Fundo dos Cards
+  const textColor = tenant.text_color || '#192F19';                                   // 5. Cor da Fonte/Texto
+  const priceColor = tenant.price_color || '#6C7B5B';                                 // 6. Cor do Preço / Valores
 
   const totalDuration = selectedServices.reduce((acc, s) => acc + (s.duration_minutes || 30), 0);
   const totalPrice = selectedServices.reduce((acc, s) => acc + Number(s.price || 0), 0);
@@ -346,7 +330,7 @@ export default function AgendamentoCliente() {
     if (isSelected) {
       setSelectedServices([]);
     } else {
-      setSelectedServices([srv]); // Substitui qualquer serviço anterior
+      setSelectedServices([srv]);
     }
     setSelectedTime('');
   };
@@ -605,7 +589,7 @@ export default function AgendamentoCliente() {
                     onClick={() => handleSelectProf(p.id)}
                     style={{ 
                       backgroundColor: isSelected ? primaryColor : cardColor,
-                      color: isSelected ? btnTextColor : cardTextColor,
+                      color: isSelected ? btnTextColor : textColor,
                       borderColor: isSelected ? primaryColor : 'rgba(0,0,0,0.1)'
                     }}
                     className="p-3 rounded-2xl border flex items-center space-x-2.5 text-left transition shadow-md relative overflow-hidden">
@@ -638,7 +622,7 @@ export default function AgendamentoCliente() {
                 {professionals.length > 1 ? `2. Serviço de ${selectedProfObj?.name}` : `1. Escolha o Serviço de ${selectedProfObj?.name}`}
               </label>
               {selectedServices.length > 0 && (
-                <span className="text-[10px] font-bold opacity-80" style={{ color: accentPriceColor }}>
+                <span className="text-[10px] font-bold opacity-80" style={{ color: priceColor }}>
                   1 selecionado ({formatDuration(totalDuration)})
                 </span>
               )}
@@ -646,7 +630,7 @@ export default function AgendamentoCliente() {
 
             <div className="space-y-2">
               {displayedServices.length === 0 ? (
-                <p className="text-xs opacity-60 p-4 rounded-xl text-center border border-black/10" style={{ backgroundColor: cardColor, color: cardTextColor }}>
+                <p className="text-xs opacity-60 p-4 rounded-xl text-center border border-black/10" style={{ backgroundColor: cardColor, color: textColor }}>
                   Nenhum serviço cadastrado para esta profissional.
                 </p>
               ) : (
@@ -661,7 +645,7 @@ export default function AgendamentoCliente() {
                       style={{
                         backgroundColor: cardColor,
                         borderColor: isSelected ? primaryColor : 'rgba(0,0,0,0.1)',
-                        color: cardTextColor
+                        color: textColor
                       }}
                       className="p-3 rounded-xl border flex justify-between items-center cursor-pointer transition shadow-sm">
                       <div className="flex items-center space-x-3">
@@ -678,10 +662,10 @@ export default function AgendamentoCliente() {
                         </div>
                       </div>
                       <div className="text-right">
-                        <span className="font-bold text-xs block" style={{ color: accentPriceColor }}>
+                        <span className="font-bold text-xs block" style={{ color: priceColor }}>
                           R$ {Number(srv.price).toFixed(2)}
                         </span>
-                        <span className="block text-[10px] font-bold mt-0.5" style={{ color: isSelected ? accentPriceColor : 'rgba(0,0,0,0.4)' }}>
+                        <span className="block text-[10px] font-bold mt-0.5" style={{ color: isSelected ? priceColor : 'rgba(0,0,0,0.4)' }}>
                           {isSelected ? '✓ Selecionado' : 'Selecionar'}
                         </span>
                       </div>
@@ -692,7 +676,7 @@ export default function AgendamentoCliente() {
             </div>
           </div>
         ) : (
-          <div className="p-4 rounded-2xl border border-dashed border-black/20 text-center" style={{ backgroundColor: cardColor, color: cardTextColor }}>
+          <div className="p-4 rounded-2xl border border-dashed border-black/20 text-center" style={{ backgroundColor: cardColor, color: textColor }}>
             <span className="text-lg block mb-1">👆</span>
             <p className="text-xs opacity-60">Selecione uma profissional acima para ver os serviços e valores.</p>
           </div>
@@ -713,7 +697,7 @@ export default function AgendamentoCliente() {
                   setSelectedDate(e.target.value);
                   setSelectedTime('');
                 }}
-                style={{ backgroundColor: cardColor, color: cardTextColor }}
+                style={{ backgroundColor: cardColor, color: textColor }}
                 className="w-full border border-black/10 p-3 rounded-xl text-xs focus:outline-none cursor-pointer"
               />
             </div>
@@ -742,7 +726,7 @@ export default function AgendamentoCliente() {
                         onClick={() => setSelectedTime(slot)}
                         style={{ 
                           backgroundColor: isSelected ? primaryColor : cardColor,
-                          color: isSelected ? btnTextColor : cardTextColor
+                          color: isSelected ? btnTextColor : textColor
                         }}
                         className="py-2 rounded-lg border border-black/10 text-xs font-bold text-center transition">
                         {slot}
@@ -767,7 +751,7 @@ export default function AgendamentoCliente() {
               placeholder="Seu Nome Completo"
               value={customerName}
               onChange={(e) => setCustomerName(e.target.value)}
-              style={{ backgroundColor: cardColor, color: cardTextColor }}
+              style={{ backgroundColor: cardColor, color: textColor }}
               className="w-full border border-black/10 p-3 rounded-xl text-xs focus:outline-none"
             />
             <input
@@ -776,25 +760,25 @@ export default function AgendamentoCliente() {
               placeholder="Seu WhatsApp (DDD + Número)"
               value={customerPhone}
               onChange={(e) => setCustomerPhone(maskPhone(e.target.value))}
-              style={{ backgroundColor: cardColor, color: cardTextColor }}
+              style={{ backgroundColor: cardColor, color: textColor }}
               className="w-full border border-black/10 p-3 rounded-xl text-xs focus:outline-none"
             />
 
             <select
               value={paymentMethod}
               onChange={(e) => setPaymentMethod(e.target.value)}
-              style={{ backgroundColor: cardColor, color: cardTextColor }}
+              style={{ backgroundColor: cardColor, color: textColor }}
               className="w-full border border-black/10 p-3 rounded-xl text-xs focus:outline-none">
               <option value="No Local">Pagar no Local (Dinheiro / Cartão / PIX)</option>
               <option value="PIX Antecipado">PIX Antecipado</option>
             </select>
 
-            <div style={{ backgroundColor: cardColor, color: cardTextColor }} className="p-3 rounded-xl border border-black/10 flex justify-between items-center text-xs">
+            <div style={{ backgroundColor: cardColor, color: textColor }} className="p-3 rounded-xl border border-black/10 flex justify-between items-center text-xs">
               <div>
                 <span className="opacity-60 block text-[10px]">Duração: {formatDuration(totalDuration)}</span>
                 <span className="font-bold text-sm">TOTAL: R$ {totalPrice.toFixed(2)}</span>
               </div>
-              <span className="font-bold" style={{ color: accentPriceColor }}>{selectedDate.split('-').reverse().join('/')} às {selectedTime}</span>
+              <span className="font-bold" style={{ color: priceColor }}>{selectedDate.split('-').reverse().join('/')} às {selectedTime}</span>
             </div>
 
             <button
@@ -811,9 +795,9 @@ export default function AgendamentoCliente() {
       {/* MODAL MEUS AGENDAMENTOS */}
       {showMyAppsModal && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-          <div style={{ backgroundColor: cardColor, color: cardTextColor }} className="border border-black/10 w-full max-w-sm rounded-2xl p-5 space-y-4 shadow-2xl">
+          <div style={{ backgroundColor: cardColor, color: textColor }} className="border border-black/10 w-full max-w-sm rounded-2xl p-5 space-y-4 shadow-2xl">
             <div className="flex justify-between items-center border-b border-black/10 pb-2">
-              <h3 className="font-bold text-sm" style={{ color: accentPriceColor }}>📋 Meus Agendamentos</h3>
+              <h3 className="font-bold text-sm" style={{ color: priceColor }}>📋 Meus Agendamentos</h3>
               <button onClick={() => { setShowMyAppsModal(false); setEditingUserApp(null); }} className="opacity-60 font-bold text-xs">✕ Fechar</button>
             </div>
 
@@ -846,7 +830,7 @@ export default function AgendamentoCliente() {
                       return (
                         <div key={app.id} style={{ backgroundColor: bgColor, color: textColor }} className="p-3 rounded-xl border border-black/10 text-xs space-y-2">
                           <div className="flex justify-between font-bold">
-                            <span style={{ color: accentPriceColor }}>📅 {app.appointment_date.split('-').reverse().join('/')} às {app.start_time}</span>
+                            <span style={{ color: priceColor }}>📅 {app.appointment_date.split('-').reverse().join('/')} às {app.start_time}</span>
                             <span className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded ${
                               app.status === 'agendado' ? 'bg-yellow-500/20 text-yellow-500' :
                               app.status === 'concluido' ? 'bg-green-500/20 text-green-500' :
@@ -879,7 +863,7 @@ export default function AgendamentoCliente() {
                 </div>
               </>
             ) : (
-              /* FORMULÁRIO DE REAGENDAMENTO COM SELEÇÃO DE HORÁRIOS REAIS DISPONÍVEIS */
+              /* FORMULÁRIO DE REAGENDAMENTO */
               <form onSubmit={handleSaveUserReschedule} className="space-y-3">
                 <div className="bg-purple-500/10 border border-purple-500/30 p-2.5 rounded-xl text-xs">
                   <span className="text-purple-600 font-bold block">Reagendando Atendimento #{editingUserApp.id}</span>

@@ -76,7 +76,7 @@ export default function AdminTenant() {
     name: '', 
     price: '', 
     duration_minutes: '30', 
-    category: 'Geral', 
+    category: '', 
     professional_ids: [],
     image_url: ''
   });
@@ -173,6 +173,15 @@ export default function AdminTenant() {
     }
   };
 
+  // CATEGORIAS ÚNICAS JÁ EXISTENTES PARA AUTO-COMPLETE
+  const existingCategories = Array.from(
+    new Set(
+      services
+        .map(s => (s.category ? s.category.trim() : ''))
+        .filter(c => c !== '')
+    )
+  );
+
   const handleSaveCustomerNote = async (phone, name, noteText) => {
     const cleanPhone = phone.replace(/\D/g, '');
     if (!cleanPhone) return;
@@ -250,12 +259,16 @@ export default function AdminTenant() {
     let cleanImage = (newService.image_url || '').trim();
     if (cleanImage.startsWith('blob:')) cleanImage = '';
 
+    const categoryVal = newService.category && newService.category.trim() !== '' 
+      ? newService.category.trim() 
+      : 'Geral';
+
     const { error } = await supabase.from('services').insert([{
       tenant_id: tenant.id,
       name: newService.name.trim(),
       price: formattedPrice,
       duration_minutes: parseInt(newService.duration_minutes || 30),
-      category: newService.category || 'Geral',
+      category: categoryVal,
       professional_ids: newService.professional_ids || [],
       image_url: cleanImage,
       active: true
@@ -265,7 +278,7 @@ export default function AdminTenant() {
       alert("Erro ao cadastrar serviço: " + error.message);
     } else {
       alert("Serviço cadastrado com sucesso!");
-      setNewService({ name: '', price: '', duration_minutes: '30', category: 'Geral', professional_ids: [], image_url: '' });
+      setNewService({ name: '', price: '', duration_minutes: '30', category: '', professional_ids: [], image_url: '' });
       fetchData();
     }
   };
@@ -277,11 +290,15 @@ export default function AdminTenant() {
     let cleanImage = (editingService.image_url || editingService.image || '').trim();
     if (cleanImage.startsWith('blob:')) cleanImage = '';
 
+    const categoryVal = editingService.category && editingService.category.trim() !== '' 
+      ? editingService.category.trim() 
+      : 'Geral';
+
     const { error } = await supabase.from('services').update({
       name: editingService.name.trim(),
       price: formattedPrice,
       duration_minutes: parseInt(editingService.duration_minutes || 30),
-      category: editingService.category || 'Geral',
+      category: categoryVal,
       professional_ids: editingService.professional_ids || [],
       image_url: cleanImage
     }).eq('id', editingService.id);
@@ -562,6 +579,13 @@ export default function AdminTenant() {
         }
       `}</style>
 
+      {/* DATALIST DE AUTO-COMPLETE DE CATEGORIAS */}
+      <datalist id="existing-categories-list">
+        {existingCategories.map((cat, i) => (
+          <option key={i} value={cat} />
+        ))}
+      </datalist>
+
       <header className="flex justify-between items-center py-4 border-b border-gray-800 mb-4">
         <div className="flex items-center space-x-2">
           <button onClick={() => router.push('/')} className="text-xs bg-gray-800 px-2.5 py-1.5 rounded-lg text-gray-300 font-bold border border-gray-700">
@@ -625,7 +649,15 @@ export default function AdminTenant() {
                   <option value="240">4 horas</option>
                 </select>
 
-                <input type="text" placeholder="Categoria" value={newService.category} className="w-1/3 bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewService({ ...newService, category: e.target.value })} />
+                {/* CAMPO DE CATEGORIA COM AUTO-COMPLETE DE EXISTENTES */}
+                <input 
+                  type="text" 
+                  list="existing-categories-list"
+                  placeholder="Categoria (Ex: Cabelos, Unhas)" 
+                  value={newService.category} 
+                  className="w-1/3 bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" 
+                  onChange={(e) => setNewService({ ...newService, category: e.target.value })} 
+                />
               </div>
 
               <input 
@@ -677,6 +709,7 @@ export default function AdminTenant() {
               const assignedProfIds = s.professional_ids || [];
               const assignedProfs = professionals.filter(p => assignedProfIds.includes(p.id));
               const serviceImg = s.image_url || s.image;
+              const displayCategory = s.category && s.category.trim() !== '' ? s.category.trim() : 'Geral';
 
               return (
                 <div key={s.id} className="bg-gray-900 p-3 rounded-xl border border-gray-800 space-y-2">
@@ -690,7 +723,9 @@ export default function AdminTenant() {
                         />
                       )}
                       <div>
-                        <span className={`font-bold text-xs block ${!s.active ? 'line-through text-gray-500' : 'text-white'}`}>{s.name} <span className="text-[10px] text-gray-500 font-normal">({s.category || 'Geral'})</span></span>
+                        <span className={`font-bold text-xs block ${!s.active ? 'line-through text-gray-500' : 'text-white'}`}>
+                          {s.name} <span className="text-[10px] text-orange-400 font-bold bg-orange-500/10 border border-orange-500/20 px-1.5 py-0.5 rounded ml-1">📁 {displayCategory}</span>
+                        </span>
                         <span className="text-xs text-orange-400 font-bold">R$ {Number(s.price).toFixed(2)} • <span className="text-gray-400 font-normal">{formatDuration(s.duration_minutes)}</span></span>
                       </div>
                     </div>
@@ -1479,7 +1514,15 @@ export default function AdminTenant() {
                 <option value="240">4 horas</option>
               </select>
 
-              <input type="text" value={editingService.category || 'Geral'} onChange={(e) => setEditingService({ ...editingService, category: e.target.value })} className="w-1/3 bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
+              {/* CAMPO DE CATEGORIA COM AUTO-COMPLETE DE EXISTENTES */}
+              <input 
+                type="text" 
+                list="existing-categories-list"
+                placeholder="Categoria"
+                value={editingService.category || ''} 
+                onChange={(e) => setEditingService({ ...editingService, category: e.target.value })} 
+                className="w-1/3 bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" 
+              />
             </div>
 
             <input 

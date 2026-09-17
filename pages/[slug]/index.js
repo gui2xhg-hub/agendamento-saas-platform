@@ -200,10 +200,11 @@ export default function AgendamentoCliente() {
         const msg = `*CANCELAMENTO DE AGENDAMENTO #${app.id} - ${tenant.name.toUpperCase()}*\n\n` +
           `Olá, o cliente *${app.customer_name}* cancelou o agendamento do dia *${formattedDate}* às *${app.start_time}*.`;
 
-        window.open(`https://wa.me/${cleanWhatsapp}?text=${encodeURIComponent(msg)}`, '_blank');
+        const waTarget = cleanWhatsapp.length <= 11 ? `55${cleanWhatsapp}` : cleanWhatsapp;
+        window.location.href = `https://wa.me/${waTarget}?text=${encodeURIComponent(msg)}`;
+      } else {
+        handleSearchMyAppointments();
       }
-
-      handleSearchMyAppointments();
     }
   };
 
@@ -242,7 +243,6 @@ export default function AgendamentoCliente() {
     }
 
     const formattedDate = userNewDate.split('-').reverse().join('/');
-    alert("Agendamento reagendado com sucesso!");
 
     try {
       await fetch('/api/notify', {
@@ -268,23 +268,25 @@ export default function AgendamentoCliente() {
         `Nova Data: *${formattedDate}*\n` +
         `Novo Horário: *${userNewTime}*`;
 
-      window.open(`https://wa.me/${cleanWhatsapp}?text=${encodeURIComponent(msg)}`, '_blank');
+      const waTarget = cleanWhatsapp.length <= 11 ? `55${cleanWhatsapp}` : cleanWhatsapp;
+      window.location.href = `https://wa.me/${waTarget}?text=${encodeURIComponent(msg)}`;
+    } else {
+      alert("Agendamento reagendado com sucesso!");
+      setEditingUserApp(null);
+      handleSearchMyAppointments();
     }
-
-    setEditingUserApp(null);
-    handleSearchMyAppointments();
   };
 
   if (loading) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><p className="text-xs text-gray-400">Carregando...</p></div>;
   if (!tenant) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><h1 className="text-xl font-bold text-orange-500">Estabelecimento não encontrado</h1></div>;
 
-  // MAPEAMENTO DAS 6 CORES CONFIGURADAS NO PAINEL MASTER
-  const primaryColor = tenant.primary_color || tenant.button_color || '#121212';     // 1. Cor do Botão
-  const btnTextColor = tenant.button_text_color || '#FFFFFF';                          // 2. Texto do Botão
-  const bgColor = tenant.background_color || tenant.secondary_color || '#6C7B5B';     // 3. Fundo do Site
-  const cardColor = tenant.card_color || tenant.card_bg_color || '#FFFFFF';            // 4. Fundo dos Cards
-  const textColor = tenant.text_color || '#192F19';                                   // 5. Cor da Fonte/Texto
-  const priceColor = tenant.price_color || '#6C7B5B';                                 // 6. Cor do Preço / Valores
+  // MAPEAMENTO DAS CORES CONFIGURADAS NO PAINEL MASTER
+  const primaryColor = tenant.primary_color || tenant.button_color || '#121212';
+  const btnTextColor = tenant.button_text_color || '#FFFFFF';
+  const bgColor = tenant.background_color || tenant.secondary_color || '#6C7B5B';
+  const cardColor = tenant.card_color || tenant.card_bg_color || '#FFFFFF';
+  const textColor = tenant.text_color || '#192F19';
+  const priceColor = tenant.price_color || '#6C7B5B';
 
   const totalDuration = selectedServices.reduce((acc, s) => acc + (s.duration_minutes || 30), 0);
   const totalPrice = selectedServices.reduce((acc, s) => acc + Number(s.price || 0), 0);
@@ -317,6 +319,16 @@ export default function AgendamentoCliente() {
 
     return true;
   });
+
+  // AGRUPAMENTO DE SERVIÇOS POR CATEGORIA (RETROCOMPATÍVEL COM NULL/VAZIO)
+  const groupedServices = displayedServices.reduce((acc, srv) => {
+    const categoryName = (srv.category && srv.category.trim() !== '') ? srv.category.trim() : 'Serviços Gerais';
+    if (!acc[categoryName]) {
+      acc[categoryName] = [];
+    }
+    acc[categoryName].push(srv);
+    return acc;
+  }, {});
 
   const handleSelectProf = (profId) => {
     setSelectedProf(profId);
@@ -517,21 +529,25 @@ export default function AgendamentoCliente() {
       
     const cleanWhatsapp = targetPhone ? targetPhone.replace(/\D/g, '') : '';
 
-    if (cleanWhatsapp) {
-      window.open(`https://wa.me/${cleanWhatsapp}?text=${encodeURIComponent(msg)}`, '_blank');
-    }
-
     setIsSubmitting(false);
-    alert("Agendamento realizado com sucesso!");
-    router.reload();
+
+    if (cleanWhatsapp) {
+      const waTarget = cleanWhatsapp.length <= 11 ? `55${cleanWhatsapp}` : cleanWhatsapp;
+      window.location.href = `https://wa.me/${waTarget}?text=${encodeURIComponent(msg)}`;
+    } else {
+      alert("Agendamento realizado com sucesso!");
+      router.reload();
+    }
   };
 
   return (
-    <div className="min-h-screen font-sans pb-12 max-w-md mx-auto transition-colors duration-300 flex flex-col justify-between" style={{ backgroundColor: bgColor, color: textColor }}>
+    <div className="min-h-screen font-sans pb-12 transition-colors duration-300 flex flex-col justify-between" style={{ backgroundColor: bgColor, color: textColor }}>
       
-      <div>
+      {/* CONTAINER RESPONSIVO (NATIVO MOBILE E ADAPTADO PARA PC) */}
+      <div className="w-full max-w-md sm:max-w-2xl md:max-w-4xl mx-auto px-0 sm:px-4 md:px-6">
+        
         {/* CAPA, INSTAGRAM & MEUS AGENDAMENTOS */}
-        <div className="relative h-36 bg-gray-900 border-b border-black/10">
+        <div className="relative h-36 sm:h-44 md:h-52 bg-gray-900 sm:rounded-2xl overflow-hidden shadow-md border-b sm:border border-black/10">
           <img src={tenant.banner_url || 'https://images.unsplash.com/photo-1503951914875-452162b0f3f1?w=800&auto=format&fit=crop&q=80'} alt="Capa" className="w-full h-full object-cover opacity-50" />
 
           {formattedInstagramUrl && (
@@ -539,7 +555,7 @@ export default function AgendamentoCliente() {
               href={formattedInstagramUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="absolute top-3 left-3 bg-gradient-to-r from-purple-600 via-pink-600 to-orange-500 text-white font-bold text-[10px] px-3 py-1.5 rounded-full shadow-lg transition flex items-center space-x-1 hover:opacity-90 z-10">
+              className="absolute top-3 left-3 bg-gradient-to-r from-purple-600 via-pink-600 to-orange-500 text-white font-bold text-[10px] sm:text-xs px-3 py-1.5 rounded-full shadow-lg transition flex items-center space-x-1 hover:opacity-90 z-10">
               <span>📸 Instagram</span>
             </a>
           )}
@@ -550,7 +566,7 @@ export default function AgendamentoCliente() {
               if (searchPhone) handleSearchMyAppointments();
             }}
             style={{ backgroundColor: primaryColor, color: btnTextColor }}
-            className="absolute top-3 right-3 font-bold text-[10px] px-3 py-1.5 rounded-full shadow-lg transition z-10">
+            className="absolute top-3 right-3 font-bold text-[10px] sm:text-xs px-3 py-1.5 rounded-full shadow-lg transition z-10">
             📋 Meus Agendamentos
           </button>
 
@@ -558,31 +574,31 @@ export default function AgendamentoCliente() {
             <img 
               src={selectedProfObj?.avatar_url || tenant.logo_url || 'https://images.unsplash.com/photo-1585747860715-2ba37e788b70?w=150&auto=format&fit=crop&q=80'} 
               alt="Foto Profissional" 
-              className="w-16 h-16 rounded-full border-2 border-black/40 object-cover bg-gray-800 shadow-lg" 
+              className="w-16 h-16 sm:w-20 sm:h-20 rounded-full border-2 border-black/40 object-cover bg-gray-800 shadow-lg" 
             />
             <div className="pt-4">
-              <h1 className="font-bold text-lg leading-tight" style={{ color: textColor }}>
+              <h1 className="font-bold text-lg sm:text-xl leading-tight" style={{ color: textColor }}>
                 {selectedProfObj ? selectedProfObj.name : tenant.name}
               </h1>
-              <p className="text-[11px] opacity-70">
+              <p className="text-[11px] sm:text-xs opacity-70">
                 {selectedProfObj?.specialty ? selectedProfObj.specialty : (selectedProfObj ? `💈 ${tenant.name}` : '📅 Agendamento Online')}
               </p>
             </div>
           </div>
         </div>
 
-        <div className="mt-8 px-4 space-y-5">
+        <div className="mt-8 px-4 sm:px-0 space-y-6">
 
           {/* BANNER DE AVISO / MENSAGEM CUSTOMIZADA DO ESTABELECIMENTO */}
           {tenant.custom_message && tenant.custom_message.trim() !== '' && (
             <div 
               style={{ backgroundColor: cardColor, color: textColor, borderColor: priceColor }} 
-              className="p-3.5 rounded-2xl border-l-4 shadow-sm space-y-1 text-xs">
+              className="p-4 rounded-2xl border-l-4 shadow-sm space-y-1 text-xs">
               <div className="flex items-center space-x-1.5 font-bold">
                 <span>📢</span>
                 <span style={{ color: priceColor }}>Aviso Importante</span>
               </div>
-              <p className="opacity-90 leading-relaxed text-[11px]">
+              <p className="opacity-90 leading-relaxed text-[11px] sm:text-xs">
                 {tenant.custom_message}
               </p>
             </div>
@@ -592,7 +608,7 @@ export default function AgendamentoCliente() {
           {professionals.length > 1 && (
             <div className="space-y-2">
               <label className="text-xs font-bold block uppercase tracking-wider opacity-80">1. Escolha a Profissional</label>
-              <div className="grid grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5 sm:gap-3">
                 {professionals.map(p => {
                   const isSelected = String(selectedProf) === String(p.id);
 
@@ -628,9 +644,9 @@ export default function AgendamentoCliente() {
             </div>
           )}
 
-          {/* PASSO 2: ESCOLHA O SERVIÇO */}
+          {/* PASSO 2: ESCOLHA O SERVIÇO (ORGANIZADO POR CATEGORIA) */}
           {selectedProf ? (
-            <div className="space-y-2 pt-2 border-t border-black/10">
+            <div className="space-y-4 pt-2 border-t border-black/10">
               <div className="flex justify-between items-center">
                 <label className="text-xs font-bold block uppercase tracking-wider opacity-80">
                   {professionals.length > 1 ? `2. Serviço de ${selectedProfObj?.name}` : `1. Escolha o Serviço de ${selectedProfObj?.name}`}
@@ -642,52 +658,63 @@ export default function AgendamentoCliente() {
                 )}
               </div>
 
-              <div className="space-y-2">
-                {displayedServices.length === 0 ? (
-                  <p className="text-xs opacity-60 p-4 rounded-xl text-center border border-black/10" style={{ backgroundColor: cardColor, color: textColor }}>
-                    Nenhum serviço cadastrado para esta profissional.
-                  </p>
-                ) : (
-                  displayedServices.map(srv => {
-                    const isSelected = selectedServices.some(s => s.id === srv.id);
-                    const serviceImg = srv.image_url || srv.image;
+              {displayedServices.length === 0 ? (
+                <p className="text-xs opacity-60 p-4 rounded-xl text-center border border-black/10" style={{ backgroundColor: cardColor, color: textColor }}>
+                  Nenhum serviço cadastrado para esta profissional.
+                </p>
+              ) : (
+                <div className="space-y-5">
+                  {Object.entries(groupedServices).map(([categoryName, categoryServices]) => (
+                    <div key={categoryName} className="space-y-2">
+                      <h4 className="text-[11px] font-bold uppercase tracking-wider opacity-70 border-b border-black/10 pb-1 flex items-center space-x-1" style={{ color: priceColor }}>
+                        <span>📁</span>
+                        <span>{categoryName}</span>
+                      </h4>
 
-                    return (
-                      <div
-                        key={srv.id}
-                        onClick={() => handleToggleService(srv)}
-                        style={{
-                          backgroundColor: cardColor,
-                          borderColor: isSelected ? primaryColor : 'rgba(0,0,0,0.1)',
-                          color: textColor
-                        }}
-                        className="p-3 rounded-xl border flex justify-between items-center cursor-pointer transition shadow-sm">
-                        <div className="flex items-center space-x-3">
-                          {serviceImg && (
-                            <img 
-                              src={serviceImg} 
-                              alt={srv.name} 
-                              className="w-12 h-12 rounded-xl object-cover border border-black/10 bg-gray-800 shrink-0" 
-                            />
-                          )}
-                          <div>
-                            <h3 className="font-bold text-xs">{srv.name}</h3>
-                            <p className="text-[10px] opacity-60">⏱️ {formatDuration(srv.duration_minutes)}</p>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <span className="font-bold text-xs block" style={{ color: priceColor }}>
-                            R$ {Number(srv.price).toFixed(2)}
-                          </span>
-                          <span className="block text-[10px] font-bold mt-0.5" style={{ color: isSelected ? priceColor : 'rgba(0,0,0,0.4)' }}>
-                            {isSelected ? '✓ Selecionado' : 'Selecionar'}
-                          </span>
-                        </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                        {categoryServices.map(srv => {
+                          const isSelected = selectedServices.some(s => s.id === srv.id);
+                          const serviceImg = srv.image_url || srv.image;
+
+                          return (
+                            <div
+                              key={srv.id}
+                              onClick={() => handleToggleService(srv)}
+                              style={{
+                                backgroundColor: cardColor,
+                                borderColor: isSelected ? primaryColor : 'rgba(0,0,0,0.1)',
+                                color: textColor
+                              }}
+                              className="p-3 rounded-xl border flex justify-between items-center cursor-pointer transition shadow-sm hover:opacity-95">
+                              <div className="flex items-center space-x-3">
+                                {serviceImg && (
+                                  <img 
+                                    src={serviceImg} 
+                                    alt={srv.name} 
+                                    className="w-12 h-12 rounded-xl object-cover border border-black/10 bg-gray-800 shrink-0" 
+                                  />
+                                )}
+                                <div>
+                                  <h3 className="font-bold text-xs">{srv.name}</h3>
+                                  <p className="text-[10px] opacity-60">⏱️ {formatDuration(srv.duration_minutes)}</p>
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <span className="font-bold text-xs block" style={{ color: priceColor }}>
+                                  R$ {Number(srv.price).toFixed(2)}
+                                </span>
+                                <span className="block text-[10px] font-bold mt-0.5" style={{ color: isSelected ? priceColor : 'rgba(0,0,0,0.4)' }}>
+                                  {isSelected ? '✓ Selecionado' : 'Selecionar'}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
-                    );
-                  })
-                )}
-              </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           ) : (
             <div className="p-4 rounded-2xl border border-dashed border-black/20 text-center" style={{ backgroundColor: cardColor, color: textColor }}>
@@ -699,56 +726,58 @@ export default function AgendamentoCliente() {
           {/* PASSO 3: DATA E HORÁRIO */}
           {selectedProf && selectedServices.length > 0 && (
             <div className="space-y-4 pt-2 border-t border-black/10">
-              <div className="space-y-1">
-                <label className="text-xs font-bold block uppercase tracking-wider opacity-80">
-                  {professionals.length > 1 ? '3. Escolha a Data' : '2. Escolha a Data'}
-                </label>
-                <input
-                  type="date"
-                  min={new Date().toISOString().split('T')[0]}
-                  value={selectedDate}
-                  onChange={(e) => {
-                    setSelectedDate(e.target.value);
-                    setSelectedTime('');
-                  }}
-                  style={{ backgroundColor: cardColor, color: textColor }}
-                  className="w-full border border-black/10 p-3 rounded-xl text-xs focus:outline-none cursor-pointer"
-                />
-              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold block uppercase tracking-wider opacity-80">
+                    {professionals.length > 1 ? '3. Escolha a Data' : '2. Escolha a Data'}
+                  </label>
+                  <input
+                    type="date"
+                    min={new Date().toISOString().split('T')[0]}
+                    value={selectedDate}
+                    onChange={(e) => {
+                      setSelectedDate(e.target.value);
+                      setSelectedTime('');
+                    }}
+                    style={{ backgroundColor: cardColor, color: textColor }}
+                    className="w-full border border-black/10 p-3 rounded-xl text-xs focus:outline-none cursor-pointer shadow-sm"
+                  />
+                </div>
 
-              <div className="space-y-1">
-                <label className="text-xs font-bold block uppercase tracking-wider opacity-80">
-                  {professionals.length > 1 ? `4. Horários Disponíveis (${availableSlots.length})` : `3. Horários Disponíveis (${availableSlots.length})`}
-                </label>
-                
-                {slotData.status !== 'ok' ? (
-                  <p className="text-xs text-red-500 bg-red-500/10 p-3 rounded-xl border border-red-500/20 text-center font-semibold">
-                    {slotData.message}
-                  </p>
-                ) : availableSlots.length === 0 ? (
-                  <div className="text-xs text-red-500 bg-red-500/10 p-3.5 rounded-xl border border-red-500/20 text-center space-y-1">
-                    <p className="font-bold">Nenhum horário disponível nesta data para este procedimento.</p>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-4 gap-2 max-h-40 overflow-y-auto pt-1">
-                    {availableSlots.map(slot => {
-                      const isSelected = selectedTime === slot;
-                      return (
-                        <button
-                          type="button"
-                          key={slot}
-                          onClick={() => setSelectedTime(slot)}
-                          style={{ 
-                            backgroundColor: isSelected ? primaryColor : cardColor,
-                            color: isSelected ? btnTextColor : textColor
-                          }}
-                          className="py-2 rounded-lg border border-black/10 text-xs font-bold text-center transition">
-                          {slot}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
+                <div className="space-y-1">
+                  <label className="text-xs font-bold block uppercase tracking-wider opacity-80">
+                    {professionals.length > 1 ? `4. Horários Disponíveis (${availableSlots.length})` : `3. Horários Disponíveis (${availableSlots.length})`}
+                  </label>
+                  
+                  {slotData.status !== 'ok' ? (
+                    <p className="text-xs text-red-500 bg-red-500/10 p-3 rounded-xl border border-red-500/20 text-center font-semibold">
+                      {slotData.message}
+                    </p>
+                  ) : availableSlots.length === 0 ? (
+                    <div className="text-xs text-red-500 bg-red-500/10 p-3.5 rounded-xl border border-red-500/20 text-center space-y-1">
+                      <p className="font-bold">Nenhum horário disponível nesta data para este procedimento.</p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-4 gap-2 max-h-48 overflow-y-auto pt-1">
+                      {availableSlots.map(slot => {
+                        const isSelected = selectedTime === slot;
+                        return (
+                          <button
+                            type="button"
+                            key={slot}
+                            onClick={() => setSelectedTime(slot)}
+                            style={{ 
+                              backgroundColor: isSelected ? primaryColor : cardColor,
+                              color: isSelected ? btnTextColor : textColor
+                            }}
+                            className="py-2 rounded-lg border border-black/10 text-xs font-bold text-center transition shadow-sm hover:scale-105">
+                            {slot}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           )}
@@ -759,40 +788,43 @@ export default function AgendamentoCliente() {
               <h3 className="font-bold text-xs uppercase tracking-wider opacity-80">
                 {professionals.length > 1 ? '5. Seus Dados' : '4. Seus Dados'}
               </h3>
-              <input
-                type="text"
-                required
-                placeholder="Seu Nome Completo"
-                value={customerName}
-                onChange={(e) => setCustomerName(e.target.value)}
-                style={{ backgroundColor: cardColor, color: textColor }}
-                className="w-full border border-black/10 p-3 rounded-xl text-xs focus:outline-none"
-              />
-              <input
-                type="text"
-                required
-                placeholder="Seu WhatsApp (DDD + Número)"
-                value={customerPhone}
-                onChange={(e) => setCustomerPhone(maskPhone(e.target.value))}
-                style={{ backgroundColor: cardColor, color: textColor }}
-                className="w-full border border-black/10 p-3 rounded-xl text-xs focus:outline-none"
-              />
+              
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <input
+                  type="text"
+                  required
+                  placeholder="Seu Nome Completo"
+                  value={customerName}
+                  onChange={(e) => setCustomerName(e.target.value)}
+                  style={{ backgroundColor: cardColor, color: textColor }}
+                  className="w-full border border-black/10 p-3 rounded-xl text-xs focus:outline-none shadow-sm"
+                />
+                <input
+                  type="text"
+                  required
+                  placeholder="Seu WhatsApp (DDD + Número)"
+                  value={customerPhone}
+                  onChange={(e) => setCustomerPhone(maskPhone(e.target.value))}
+                  style={{ backgroundColor: cardColor, color: textColor }}
+                  className="w-full border border-black/10 p-3 rounded-xl text-xs focus:outline-none shadow-sm"
+                />
+              </div>
 
               <select
                 value={paymentMethod}
                 onChange={(e) => setPaymentMethod(e.target.value)}
                 style={{ backgroundColor: cardColor, color: textColor }}
-                className="w-full border border-black/10 p-3 rounded-xl text-xs focus:outline-none">
+                className="w-full border border-black/10 p-3 rounded-xl text-xs focus:outline-none shadow-sm">
                 <option value="No Local">Pagar no Local (Dinheiro / Cartão / PIX)</option>
                 <option value="PIX Antecipado">PIX Antecipado</option>
               </select>
 
-              <div style={{ backgroundColor: cardColor, color: textColor }} className="p-3 rounded-xl border border-black/10 flex justify-between items-center text-xs">
+              <div style={{ backgroundColor: cardColor, color: textColor }} className="p-3.5 rounded-xl border border-black/10 flex justify-between items-center text-xs shadow-sm">
                 <div>
                   <span className="opacity-60 block text-[10px]">Duração: {formatDuration(totalDuration)}</span>
                   <span className="font-bold text-sm">TOTAL: R$ {totalPrice.toFixed(2)}</span>
                 </div>
-                <span className="font-bold" style={{ color: priceColor }}>{selectedDate.split('-').reverse().join('/')} às {selectedTime}</span>
+                <span className="font-bold text-sm" style={{ color: priceColor }}>{selectedDate.split('-').reverse().join('/')} às {selectedTime}</span>
               </div>
 
               <button
@@ -837,7 +869,7 @@ export default function AgendamentoCliente() {
       {/* MODAL MEUS AGENDAMENTOS */}
       {showMyAppsModal && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-          <div style={{ backgroundColor: cardColor, color: textColor }} className="border border-black/10 w-full max-w-sm rounded-2xl p-5 space-y-4 shadow-2xl">
+          <div style={{ backgroundColor: cardColor, color: textColor }} className="border border-black/10 w-full max-w-sm sm:max-w-md rounded-2xl p-5 space-y-4 shadow-2xl">
             <div className="flex justify-between items-center border-b border-black/10 pb-2">
               <h3 className="font-bold text-sm" style={{ color: priceColor }}>📋 Meus Agendamentos</h3>
               <button onClick={() => { setShowMyAppsModal(false); setEditingUserApp(null); }} className="opacity-60 font-bold text-xs">✕ Fechar</button>

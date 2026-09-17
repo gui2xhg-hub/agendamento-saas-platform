@@ -364,6 +364,7 @@ export default function AgendaTenant() {
     }
   };
 
+  // 1. LEMBRETE DE AMANHÃ (Corrigido para iOS Safari)
   const handleSendWhatsappReminder = (app) => {
     const cleanPhone = (app.customer_phone || '').replace(/\D/g, '');
     if (!cleanPhone) return alert("Cliente não possui WhatsApp válido.");
@@ -376,9 +377,10 @@ export default function AgendaTenant() {
       `Olá *${app.customer_name}*, passando para lembrar do seu agendamento *Amanhã (${formattedDate})* às *${app.start_time}* com ${profName}.\n\n` +
       `Podemos confirmar sua presença? Responda este WhatsApp para confirmar! 😊`;
 
-    window.open(`https://wa.me/55${cleanPhone}?text=${encodeURIComponent(msg)}`, '_blank');
+    window.location.href = `https://wa.me/55${cleanPhone}?text=${encodeURIComponent(msg)}`;
   };
 
+  // 2. AGENDAMENTO MANUAL (Corrigido para iOS Safari)
   const handleCreateManualApp = async (e) => {
     e.preventDefault();
     if (!manualCustomerName || !manualCustomerPhone) return alert("Preencha o Nome e WhatsApp do cliente!");
@@ -432,6 +434,13 @@ export default function AgendaTenant() {
       } else {
         const formattedDate = manualDate.split('-').reverse().join('/');
         
+        setShowManualAppModal(false);
+        setManualCustomerName('');
+        setManualCustomerPhone('');
+        fetchAppointmentsAndBlocks();
+        fetchTomorrowAppointments();
+        fetchCustomersDirectory();
+
         if (cleanPhone) {
           const msg = `Olá *${manualCustomerName}*! 👋\n\n` +
             `Seu agendamento no *${tenant.name}* foi confirmado com sucesso!\n\n` +
@@ -440,15 +449,8 @@ export default function AgendaTenant() {
             `✂️ *Procedimento:* ${serviceObj?.name || 'Atendimento'}\n\n` +
             `Te aguardamos! Se precisar alterar, nos avise por aqui.`;
 
-          window.open(`https://wa.me/55${cleanPhone}?text=${encodeURIComponent(msg)}`, '_blank');
+          window.location.href = `https://wa.me/55${cleanPhone}?text=${encodeURIComponent(msg)}`;
         }
-
-        setShowManualAppModal(false);
-        setManualCustomerName('');
-        setManualCustomerPhone('');
-        fetchAppointmentsAndBlocks();
-        fetchTomorrowAppointments();
-        fetchCustomersDirectory();
       }
     } catch (err) {
       console.error("Erro na requisição de agendamento:", err);
@@ -561,6 +563,7 @@ export default function AgendaTenant() {
     setRescheduleProfId(app.professional_id);
   };
 
+  // 3. REAGENDAMENTO (Corrigido para iOS Safari)
   const handleSaveReschedule = async (e) => {
     e.preventDefault();
     if (!rescheduleDate || !rescheduleTime) return alert("Selecione nova data e horário!");
@@ -605,14 +608,15 @@ export default function AgendaTenant() {
         }
 
         const cleanPhone = (editingApp.customer_phone || '').replace(/\D/g, '');
-        if (cleanPhone) {
-          const msg = `Olá ${editingApp.customer_name}! 🔄 Seu agendamento no *${tenant.name}* foi reagendado para o dia *${formattedDate}* às *${rescheduleTime}*.`;
-          window.open(`https://wa.me/55${cleanPhone}?text=${encodeURIComponent(msg)}`, '_blank');
-        }
-
+        
         setEditingApp(null);
         fetchAppointmentsAndBlocks();
         fetchTomorrowAppointments();
+
+        if (cleanPhone) {
+          const msg = `Olá ${editingApp.customer_name}! 🔄 Seu agendamento no *${tenant.name}* foi reagendado para o dia *${formattedDate}* às *${rescheduleTime}*.`;
+          window.location.href = `https://wa.me/55${cleanPhone}?text=${encodeURIComponent(msg)}`;
+        }
       }
     } catch (err) {
       console.error("Erro ao reagendar:", err);

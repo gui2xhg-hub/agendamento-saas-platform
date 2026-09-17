@@ -131,7 +131,6 @@ export default function AgendaTenant() {
 
   useEffect(() => {
     if (router.isReady && slug) {
-      // Carrega o tema salvo especificamente para este slug
       const savedTheme = localStorage.getItem(`agenda_custom_theme_${slug}`);
       if (savedTheme && THEME_PRESETS[savedTheme]) {
         setAgendaTheme(savedTheme);
@@ -151,7 +150,6 @@ export default function AgendaTenant() {
     }
   }, [tenant?.id, selectedDate, selectedProf]);
 
-  // FUNÇÃO DE TROCA DE TEMA ISOLADA POR SLUG
   const handleThemeChange = (newThemeKey) => {
     setAgendaTheme(newThemeKey);
     if (slug) {
@@ -159,7 +157,6 @@ export default function AgendaTenant() {
     }
   };
 
-  // FUNÇÃO DE FILTRO: RETORNA APENAS OS SERVIÇOS DO PROFISSIONAL SELECIONADO
   const getManualServicesForProf = (profId) => {
     if (!profId) return [];
     return services.filter(s => {
@@ -175,140 +172,159 @@ export default function AgendaTenant() {
   };
 
   const fetchTenantAndData = async () => {
-    setLoading(true);
-    const cleanSlug = String(slug).toLowerCase().trim();
-    const { data: tData } = await supabase.from('tenants').select('*').eq('slug', cleanSlug).maybeSingle();
+    try {
+      setLoading(true);
+      const cleanSlug = String(slug).toLowerCase().trim();
+      const { data: tData, error: tErr } = await supabase.from('tenants').select('*').eq('slug', cleanSlug).maybeSingle();
 
-    if (tData) {
-      setTenant(tData);
-      const { data: pData } = await supabase.from('professionals').select('*').eq('tenant_id', tData.id).eq('active', true);
-      const { data: sData } = await supabase.from('services').select('*').eq('tenant_id', tData.id).eq('active', true);
-      
-      let initialProfId = '';
-      if (pData && pData.length > 0) {
-        setProfessionals(pData);
-        initialProfId = pData[0].id;
-        setSelectedProf(initialProfId);
-        setBlockProfId(initialProfId);
-        setManualProfId(initialProfId);
-      }
+      if (tErr) throw tErr;
 
-      if (sData) {
-        setServices(sData);
-        if (initialProfId) {
-          const availableForProf = sData.filter(s => {
-            let allowed = s.professional_ids;
-            if (typeof allowed === 'string') {
-              try { allowed = JSON.parse(allowed); } catch (e) { allowed = []; }
+      if (tData) {
+        setTenant(tData);
+        const { data: pData } = await supabase.from('professionals').select('*').eq('tenant_id', tData.id).eq('active', true);
+        const { data: sData } = await supabase.from('services').select('*').eq('tenant_id', tData.id).eq('active', true);
+        
+        let initialProfId = '';
+        if (pData && pData.length > 0) {
+          setProfessionals(pData);
+          initialProfId = pData[0].id;
+          setSelectedProf(initialProfId);
+          setBlockProfId(initialProfId);
+          setManualProfId(initialProfId);
+        }
+
+        if (sData) {
+          setServices(sData);
+          if (initialProfId) {
+            const availableForProf = sData.filter(s => {
+              let allowed = s.professional_ids;
+              if (typeof allowed === 'string') {
+                try { allowed = JSON.parse(allowed); } catch (e) { allowed = []; }
+              }
+              if (Array.isArray(allowed) && allowed.length > 0) {
+                return allowed.some(id => String(id) === String(initialProfId));
+              }
+              return true;
+            });
+            if (availableForProf.length > 0) {
+              setManualSelectedServiceId(availableForProf[0].id);
             }
-            if (Array.isArray(allowed) && allowed.length > 0) {
-              return allowed.some(id => String(id) === String(initialProfId));
-            }
-            return true;
-          });
-          if (availableForProf.length > 0) {
-            setManualSelectedServiceId(availableForProf[0].id);
           }
         }
+        
+        await fetchAppointmentsAndBlocks(tData.id);
+        await fetchTomorrowAppointments(tData.id);
+        await fetchCustomersDirectory(tData.id);
       }
-      
-      await fetchAppointmentsAndBlocks(tData.id);
-      await fetchTomorrowAppointments(tData.id);
-      await fetchCustomersDirectory(tData.id);
+    } catch (err) {
+      console.error("Erro ao carregar dados da agenda:", err);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const fetchAppointmentsAndBlocks = async (tenantId = tenant?.id) => {
     if (!tenantId) return;
 
-    const { data: apps } = await supabase
-      .from('appointments')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .eq('appointment_date', selectedDate)
-      .neq('status', 'cancelado')
-      .order('start_time', { ascending: true });
+    try {
+      const { data: apps } = await supabase
+        .from('appointments')
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .eq('appointment_date', selectedDate)
+        .neq('status', 'cancelado')
+        .order('start_time', { ascending: true });
 
-    const { data: blocks } = await supabase
-      .from('blocked_times')
-      .select('*')
-      .eq('tenant_id', tenantId);
+      const { data: blocks } = await supabase
+        .from('blocked_times')
+        .select('*')
+        .eq('tenant_id', tenantId);
 
-    if (apps) setAppointments(apps);
+      if (apps) setAppointments(apps);
 
-    if (blocks) {
-      const selectedDayOfWeek = new Date(selectedDate + 'T00:00:00').getDay();
-      const filteredBlocks = blocks.filter(b => {
-        if (b.block_date === selectedDate && !b.is_recurring) return true;
-        if (b.is_recurring && b.recurring_day === selectedDayOfWeek) return true;
-        if (b.reason && b.reason.includes('[RECORRENTE]') && b.recurring_day === selectedDayOfWeek) return true;
-        return false;
-      });
-      setBlockedTimes(filteredBlocks);
+      if (blocks) {
+        const selectedDayOfWeek = new Date(selectedDate + 'T00:00:00').getDay();
+        const filteredBlocks = blocks.filter(b => {
+          if (b.block_date === selectedDate && !b.is_recurring) return true;
+          if (b.is_recurring && b.recurring_day === selectedDayOfWeek) return true;
+          if (b.reason && b.reason.includes('[RECORRENTE]') && b.recurring_day === selectedDayOfWeek) return true;
+          return false;
+        });
+        setBlockedTimes(filteredBlocks);
+      }
+    } catch (err) {
+      console.error("Erro ao carregar horários e bloqueios:", err);
     }
   };
 
   const fetchTomorrowAppointments = async (tenantId = tenant?.id) => {
     if (!tenantId) return;
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const tomorrowStr = tomorrow.toLocaleDateString('sv-SE');
+    try {
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const tomorrowStr = tomorrow.toLocaleDateString('sv-SE');
 
-    let query = supabase.from('appointments')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .eq('appointment_date', tomorrowStr)
-      .neq('status', 'cancelado');
+      let query = supabase.from('appointments')
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .eq('appointment_date', tomorrowStr)
+        .neq('status', 'cancelado');
 
-    if (selectedProf) {
-      query = query.eq('professional_id', selectedProf);
+      if (selectedProf) {
+        query = query.eq('professional_id', selectedProf);
+      }
+
+      const { data: tApps } = await query.order('start_time', { ascending: true });
+      if (tApps) setTomorrowApps(tApps);
+    } catch (err) {
+      console.error("Erro ao carregar agendamentos de amanhã:", err);
     }
-
-    const { data: tApps } = await query.order('start_time', { ascending: true });
-    if (tApps) setTomorrowApps(tApps);
   };
 
   const fetchCustomersDirectory = async (tenantId = tenant?.id) => {
     if (!tenantId) return;
 
-    const { data: apps, error } = await supabase
-      .from('appointments')
-      .select('customer_name, customer_phone, professional_id')
-      .eq('tenant_id', tenantId)
-      .neq('status', 'cancelado');
+    try {
+      const { data: apps, error } = await supabase
+        .from('appointments')
+        .select('customer_name, customer_phone, professional_id')
+        .eq('tenant_id', tenantId)
+        .neq('status', 'cancelado');
 
-    if (!error && apps) {
-      const customerMap = {};
+      if (!error && apps) {
+        const customerMap = {};
 
-      apps.forEach(a => {
-        const phone = (a.customer_phone || '').replace(/\D/g, '');
-        const name = (a.customer_name || '').trim();
-        if (!phone || !name) return;
+        apps.forEach(a => {
+          const phone = (a.customer_phone || '').replace(/\D/g, '');
+          const name = (a.customer_name || '').trim();
+          if (!phone || !name) return;
 
-        if (!customerMap[phone]) {
-          customerMap[phone] = {
-            customer_name: name,
-            customer_phone: phone,
-            profIds: new Set()
-          };
-        }
-        if (a.professional_id) {
-          customerMap[phone].profIds.add(String(a.professional_id));
-        }
-      });
+          if (!customerMap[phone]) {
+            customerMap[phone] = {
+              customer_name: name,
+              customer_phone: phone,
+              profIds: new Set()
+            };
+          }
+          if (a.professional_id) {
+            customerMap[phone].profIds.add(String(a.professional_id));
+          }
+        });
 
-      const formattedList = Object.values(customerMap).map(c => ({
-        customer_name: c.customer_name,
-        customer_phone: c.customer_phone,
-        profIds: Array.from(c.profIds)
-      }));
+        const formattedList = Object.values(customerMap).map(c => ({
+          customer_name: c.customer_name,
+          customer_phone: c.customer_phone,
+          profIds: Array.from(c.profIds)
+        }));
 
-      formattedList.sort((a, b) => 
-        a.customer_name.localeCompare(b.customer_name, 'pt-BR', { sensitivity: 'base' })
-      );
+        formattedList.sort((a, b) => 
+          a.customer_name.localeCompare(b.customer_name, 'pt-BR', { sensitivity: 'base' })
+        );
 
-      setCustomerList(formattedList);
+        setCustomerList(formattedList);
+      }
+    } catch (err) {
+      console.error("Erro ao carregar diretório de clientes:", err);
     }
   };
 
@@ -354,9 +370,9 @@ export default function AgendaTenant() {
 
     const formattedDate = app.appointment_date.split('-').reverse().join('/');
     const profObj = professionals.find(p => String(p.id) === String(app.professional_id));
-    const profName = profObj ? profObj.name : tenant.name;
+    const profName = profObj ? profObj.name : tenant?.name;
 
-    const msg = `*LEMBRETE DE AGENDAMENTO - ${tenant.name.toUpperCase()}* 🗓️\n\n` +
+    const msg = `*LEMBRETE DE AGENDAMENTO - ${(tenant?.name || '').toUpperCase()}* 🗓️\n\n` +
       `Olá *${app.customer_name}*, passando para lembrar do seu agendamento *Amanhã (${formattedDate})* às *${app.start_time}* com ${profName}.\n\n` +
       `Podemos confirmar sua presença? Responda este WhatsApp para confirmar! 😊`;
 
@@ -370,64 +386,75 @@ export default function AgendaTenant() {
 
     setIsSavingManualApp(true);
 
-    const serviceObj = services.find(s => String(s.id) === String(manualSelectedServiceId));
-    const duration = serviceObj?.duration_minutes || 30;
-    const price = Number(serviceObj?.price || 0);
+    try {
+      const serviceObj = services.find(s => String(s.id) === String(manualSelectedServiceId));
+      const duration = serviceObj?.duration_minutes || 30;
+      const price = Number(serviceObj?.price || 0);
 
-    const [h, m] = manualStartTime.split(':').map(Number);
-    const endDateObj = new Date();
-    endDateObj.setHours(h, m + duration, 0, 0);
-    const endTime = endDateObj.toTimeString().substring(0, 5);
+      const [h, m] = manualStartTime.split(':').map(Number);
+      const endDateObj = new Date();
+      endDateObj.setHours(h, m + duration, 0, 0);
+      const endTime = endDateObj.toTimeString().substring(0, 5);
 
-    const chosenProfObj = professionals.find(p => String(p.id) === String(manualProfId));
-    const cleanPhone = manualCustomerPhone.replace(/\D/g, '');
+      const chosenProfObj = professionals.find(p => String(p.id) === String(manualProfId));
+      const cleanPhone = manualCustomerPhone.replace(/\D/g, '');
 
-    const appointmentPayload = {
-      tenant_id: tenant.id,
-      professional_id: parseInt(manualProfId),
-      customer_name: manualCustomerName.trim(),
-      customer_phone: cleanPhone,
-      services_json: serviceObj ? [serviceObj] : [],
-      total_price: price,
-      total_duration_minutes: duration,
-      appointment_date: manualDate,
-      start_time: manualStartTime,
-      end_time: endTime,
-      payment_method: manualPaymentMethod,
-      status: 'agendado',
-      is_paid: false
-    };
-
-    const { data: createdApp, error } = await supabase
-      .from('appointments')
-      .insert([appointmentPayload])
-      .select()
-      .single();
-
-    setIsSavingManualApp(false);
-
-    if (error) {
-      alert("Erro ao criar agendamento: " + error.message);
-    } else {
-      const formattedDate = manualDate.split('-').reverse().join('/');
-      
-      if (cleanPhone) {
-        const msg = `Olá *${manualCustomerName}*! 👋\n\n` +
-          `Seu agendamento no *${tenant.name}* foi confirmado com sucesso!\n\n` +
-          `📅 *Data:* ${formattedDate} às *${manualStartTime}*\n` +
-          `👤 *Profissional:* ${chosenProfObj?.name || 'Equipe'}\n` +
-          `✂️ *Procedimento:* ${serviceObj?.name || 'Atendimento'}\n\n` +
-          `Te aguardamos! Se precisar alterar, nos avise por aqui.`;
-
-        window.open(`https://wa.me/55${cleanPhone}?text=${encodeURIComponent(msg)}`, '_blank');
+      const parsedProfId = manualProfId ? parseInt(manualProfId, 10) : null;
+      if (!parsedProfId) {
+        setIsSavingManualApp(false);
+        return alert("Selecione um profissional válido.");
       }
 
-      setShowManualAppModal(false);
-      setManualCustomerName('');
-      setManualCustomerPhone('');
-      fetchAppointmentsAndBlocks();
-      fetchTomorrowAppointments();
-      fetchCustomersDirectory();
+      const appointmentPayload = {
+        tenant_id: tenant.id,
+        professional_id: parsedProfId,
+        customer_name: manualCustomerName.trim(),
+        customer_phone: cleanPhone,
+        services_json: serviceObj ? [serviceObj] : [],
+        total_price: price,
+        total_duration_minutes: duration,
+        appointment_date: manualDate,
+        start_time: manualStartTime,
+        end_time: endTime,
+        payment_method: manualPaymentMethod,
+        status: 'agendado',
+        is_paid: false
+      };
+
+      const { data: createdApp, error } = await supabase
+        .from('appointments')
+        .insert([appointmentPayload])
+        .select()
+        .single();
+
+      if (error) {
+        alert("Erro ao criar agendamento: " + error.message);
+      } else {
+        const formattedDate = manualDate.split('-').reverse().join('/');
+        
+        if (cleanPhone) {
+          const msg = `Olá *${manualCustomerName}*! 👋\n\n` +
+            `Seu agendamento no *${tenant.name}* foi confirmado com sucesso!\n\n` +
+            `📅 *Data:* ${formattedDate} às *${manualStartTime}*\n` +
+            `👤 *Profissional:* ${chosenProfObj?.name || 'Equipe'}\n` +
+            `✂️ *Procedimento:* ${serviceObj?.name || 'Atendimento'}\n\n` +
+            `Te aguardamos! Se precisar alterar, nos avise por aqui.`;
+
+          window.open(`https://wa.me/55${cleanPhone}?text=${encodeURIComponent(msg)}`, '_blank');
+        }
+
+        setShowManualAppModal(false);
+        setManualCustomerName('');
+        setManualCustomerPhone('');
+        fetchAppointmentsAndBlocks();
+        fetchTomorrowAppointments();
+        fetchCustomersDirectory();
+      }
+    } catch (err) {
+      console.error("Erro na requisição de agendamento:", err);
+      alert("Falha de conexão ao criar agendamento. Verifique sua internet e tente novamente.");
+    } finally {
+      setIsSavingManualApp(false);
     }
   };
 
@@ -446,72 +473,84 @@ export default function AgendaTenant() {
 
     setIsSavingBlock(true);
 
-    const blockDayOfWeek = new Date(blockDate + 'T00:00:00').getDay();
-    const currentProf = professionals.find(p => String(p.id) === String(blockProfId));
+    try {
+      const blockDayOfWeek = new Date(blockDate + 'T00:00:00').getDay();
+      const currentProf = professionals.find(p => String(p.id) === String(blockProfId));
 
-    let profWorkHours = currentProf?.work_hours || {};
-    if (typeof profWorkHours === 'string') {
-      try { profWorkHours = JSON.parse(profWorkHours); } catch (err) { profWorkHours = {}; }
-    }
-    const dayHours = profWorkHours[blockDayOfWeek] || { open: '08:00', close: '18:00' };
+      let profWorkHours = currentProf?.work_hours || {};
+      if (typeof profWorkHours === 'string') {
+        try { profWorkHours = JSON.parse(profWorkHours); } catch (err) { profWorkHours = {}; }
+      }
+      const dayHours = profWorkHours[blockDayOfWeek] || { open: '08:00', close: '18:00' };
 
-    const openTime = dayHours.open || '08:00';
-    const closeTime = dayHours.close || '18:00';
+      const openTime = dayHours.open || '08:00';
+      const closeTime = dayHours.close || '18:00';
 
-    const finalStartTime = isFullDayBlock ? openTime : blockStartTime;
-    const finalEndTime = isFullDayBlock ? closeTime : blockEndTime;
+      const finalStartTime = isFullDayBlock ? openTime : blockStartTime;
+      const finalEndTime = isFullDayBlock ? closeTime : blockEndTime;
 
-    let finalReason = blockReason || 'Horário Bloqueado';
-    if (isRecurringBlock) finalReason += ' [RECORRENTE]';
+      let finalReason = blockReason || 'Horário Bloqueado';
+      if (isRecurringBlock) finalReason += ' [RECORRENTE]';
 
-    let payloads = [];
+      let payloads = [];
+      const parsedProfId = blockProfId ? parseInt(blockProfId, 10) : null;
 
-    if (isRecurringBlock) {
-      payloads = blockRepeatDays.map(dayNum => ({
-        tenant_id: tenant.id,
-        professional_id: blockProfId ? parseInt(blockProfId) : null,
-        block_date: blockDate,
-        start_time: finalStartTime,
-        end_time: finalEndTime,
-        reason: finalReason,
-        is_recurring: true,
-        recurring_day: dayNum
-      }));
-    } else {
-      payloads = [{
-        tenant_id: tenant.id,
-        professional_id: blockProfId ? parseInt(blockProfId) : null,
-        block_date: blockDate,
-        start_time: finalStartTime,
-        end_time: finalEndTime,
-        reason: finalReason,
-        is_recurring: false,
-        recurring_day: blockDayOfWeek
-      }];
-    }
+      if (isRecurringBlock) {
+        payloads = blockRepeatDays.map(dayNum => ({
+          tenant_id: tenant.id,
+          professional_id: parsedProfId,
+          block_date: blockDate,
+          start_time: finalStartTime,
+          end_time: finalEndTime,
+          reason: finalReason,
+          is_recurring: true,
+          recurring_day: dayNum
+        }));
+      } else {
+        payloads = [{
+          tenant_id: tenant.id,
+          professional_id: parsedProfId,
+          block_date: blockDate,
+          start_time: finalStartTime,
+          end_time: finalEndTime,
+          reason: finalReason,
+          is_recurring: false,
+          recurring_day: blockDayOfWeek
+        }];
+      }
 
-    const { error } = await supabase.from('blocked_times').insert(payloads);
-    setIsSavingBlock(false);
+      const { error } = await supabase.from('blocked_times').insert(payloads);
 
-    if (error) {
-      alert("Erro ao fechar horário: " + error.message);
-    } else {
-      setShowBlockModal(false);
-      setIsFullDayBlock(false);
-      setIsRecurringBlock(false);
-      fetchAppointmentsAndBlocks();
+      if (error) {
+        alert("Erro ao fechar horário: " + error.message);
+      } else {
+        setShowBlockModal(false);
+        setIsFullDayBlock(false);
+        setIsRecurringBlock(false);
+        fetchAppointmentsAndBlocks();
+      }
+    } catch (err) {
+      console.error("Erro ao salvar bloqueio:", err);
+      alert("Erro de conexão ao bloquear horário.");
+    } finally {
+      setIsSavingBlock(false);
     }
   };
 
   const handleDeleteBlock = async (blockId) => {
     if (!confirm("Deseja desmarcar este bloqueio e liberar o horário novamente?")) return;
 
-    const { error } = await supabase.from('blocked_times').delete().eq('id', blockId);
+    try {
+      const { error } = await supabase.from('blocked_times').delete().eq('id', blockId);
 
-    if (error) {
-      alert("Erro ao remover bloqueio: " + error.message);
-    } else {
-      fetchAppointmentsAndBlocks();
+      if (error) {
+        alert("Erro ao remover bloqueio: " + error.message);
+      } else {
+        fetchAppointmentsAndBlocks();
+      }
+    } catch (err) {
+      console.error("Erro ao remover bloqueio:", err);
+      alert("Erro de conexão ao remover bloqueio.");
     }
   };
 
@@ -528,92 +567,101 @@ export default function AgendaTenant() {
 
     setIsSavingReschedule(true);
 
-    const duration = editingApp.total_duration_minutes || 30;
-    const [h, m] = rescheduleTime.split(':').map(Number);
-    const endDateObj = new Date();
-    endDateObj.setHours(h, m + duration, 0, 0);
-    const endTime = endDateObj.toTimeString().substring(0, 5);
+    try {
+      const duration = editingApp.total_duration_minutes || 30;
+      const [h, m] = rescheduleTime.split(':').map(Number);
+      const endDateObj = new Date();
+      endDateObj.setHours(h, m + duration, 0, 0);
+      const endTime = endDateObj.toTimeString().substring(0, 5);
 
-    const { error } = await supabase
-      .from('appointments')
-      .update({
-        appointment_date: rescheduleDate,
-        start_time: rescheduleTime,
-        end_time: endTime,
-        professional_id: parseInt(rescheduleProfId),
-        status: 'agendado'
-      })
-      .eq('id', editingApp.id);
+      const { error } = await supabase
+        .from('appointments')
+        .update({
+          appointment_date: rescheduleDate,
+          start_time: rescheduleTime,
+          end_time: endTime,
+          professional_id: parseInt(rescheduleProfId, 10),
+          status: 'agendado'
+        })
+        .eq('id', editingApp.id);
 
-    setIsSavingReschedule(false);
+      if (error) {
+        alert("Erro ao reagendar: " + error.message);
+      } else {
+        const formattedDate = rescheduleDate.split('-').reverse().join('/');
 
-    if (error) {
-      alert("Erro ao reagendar: " + error.message);
-    } else {
-      const formattedDate = rescheduleDate.split('-').reverse().join('/');
-
-      try {
-        await fetch('/api/notify', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            title: '🔄 Horário Reagendado!',
-            message: `Olá ${editingApp.customer_name}, seu atendimento foi alterado para ${formattedDate} às ${rescheduleTime}.`,
-            url: `https://agendamento.sinergemkt.com/${tenant.slug}`
-          })
-        });
-      } catch (err) {
-        console.error("Erro ao enviar push:", err);
-      }
-
-      const cleanPhone = (editingApp.customer_phone || '').replace(/\D/g, '');
-      if (cleanPhone) {
-        const msg = `Olá ${editingApp.customer_name}! 🔄 Seu agendamento no *${tenant.name}* foi reagendado para o dia *${formattedDate}* às *${rescheduleTime}*.`;
-        window.open(`https://wa.me/55${cleanPhone}?text=${encodeURIComponent(msg)}`, '_blank');
-      }
-
-      setEditingApp(null);
-      fetchAppointmentsAndBlocks();
-      fetchTomorrowAppointments();
-    }
-  };
-
-  const handleUpdateAppStatus = async (app, newStatus) => {
-    const { error } = await supabase.from('appointments').update({ status: newStatus }).eq('id', app.id);
-    
-    if (error) {
-      alert("Erro ao atualizar status: " + error.message);
-    } else {
-      try {
-        let pushTitle = '';
-        let pushMessage = '';
-        const formattedDate = selectedDate.split('-').reverse().join('/');
-
-        if (newStatus === 'concluido') {
-          pushTitle = '✅ Atendimento Concluído!';
-          pushMessage = `O atendimento de ${app.customer_name} (${app.start_time}) foi finalizado com sucesso.`;
-        } else if (newStatus === 'cancelado') {
-          pushTitle = '❌ Agendamento Cancelado';
-          pushMessage = `O agendamento de ${app.customer_name} para ${formattedDate} às ${app.start_time} foi cancelado.`;
-        }
-
-        if (pushTitle) {
+        try {
           await fetch('/api/notify', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              title: pushTitle,
-              message: pushMessage,
-              url: `https://agendamento.sinergemkt.com/${tenant.slug}/agenda`
+              title: '🔄 Horário Reagendado!',
+              message: `Olá ${editingApp.customer_name}, seu atendimento foi alterado para ${formattedDate} às ${rescheduleTime}.`,
+              url: `https://agendamento.sinergemkt.com/${tenant.slug}`
             })
           });
+        } catch (err) {
+          console.error("Erro ao enviar push:", err);
         }
-      } catch (err) {
-        console.error("Erro ao enviar push:", err);
-      }
 
-      fetchAppointmentsAndBlocks();
-      fetchTomorrowAppointments();
+        const cleanPhone = (editingApp.customer_phone || '').replace(/\D/g, '');
+        if (cleanPhone) {
+          const msg = `Olá ${editingApp.customer_name}! 🔄 Seu agendamento no *${tenant.name}* foi reagendado para o dia *${formattedDate}* às *${rescheduleTime}*.`;
+          window.open(`https://wa.me/55${cleanPhone}?text=${encodeURIComponent(msg)}`, '_blank');
+        }
+
+        setEditingApp(null);
+        fetchAppointmentsAndBlocks();
+        fetchTomorrowAppointments();
+      }
+    } catch (err) {
+      console.error("Erro ao reagendar:", err);
+      alert("Erro de conexão ao reagendar.");
+    } finally {
+      setIsSavingReschedule(false);
+    }
+  };
+
+  const handleUpdateAppStatus = async (app, newStatus) => {
+    try {
+      const { error } = await supabase.from('appointments').update({ status: newStatus }).eq('id', app.id);
+      
+      if (error) {
+        alert("Erro ao atualizar status: " + error.message);
+      } else {
+        try {
+          let pushTitle = '';
+          let pushMessage = '';
+          const formattedDate = selectedDate.split('-').reverse().join('/');
+
+          if (newStatus === 'concluido') {
+            pushTitle = '✅ Atendimento Concluído!';
+            pushMessage = `O atendimento de ${app.customer_name} (${app.start_time}) foi finalizado com sucesso.`;
+          } else if (newStatus === 'cancelado') {
+            pushTitle = '❌ Agendamento Cancelado';
+            pushMessage = `O agendamento de ${app.customer_name} para ${formattedDate} às ${app.start_time} foi cancelado.`;
+          }
+
+          if (pushTitle) {
+            await fetch('/api/notify', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                title: pushTitle,
+                message: pushMessage,
+                url: `https://agendamento.sinergemkt.com/${tenant.slug}/agenda`
+              })
+            });
+          }
+        } catch (err) {
+          console.error("Erro ao enviar push:", err);
+        }
+
+        fetchAppointmentsAndBlocks();
+        fetchTomorrowAppointments();
+      }
+    } catch (err) {
+      console.error("Erro ao atualizar status:", err);
     }
   };
 
@@ -653,7 +701,6 @@ export default function AgendaTenant() {
     setShowBlockModal(true);
   };
 
-  // GERAÇÃO DA LINHA DO TEMPO
   const generateTimeline = () => {
     if (!selectedProf) return [];
 
@@ -745,7 +792,6 @@ export default function AgendaTenant() {
   if (loading) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><p className="text-xs text-gray-400">Carregando Agenda...</p></div>;
   if (!tenant) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><h1 className="text-xl font-bold text-orange-500">Estabelecimento não encontrado</h1></div>;
 
-  // EXTRAÇÃO DO PRESET SELECIONADO DA AGENDA
   const activeTheme = THEME_PRESETS[agendaTheme] || THEME_PRESETS.dark;
   const primaryColor = activeTheme.primary;
   const secondaryColor = activeTheme.secondary;

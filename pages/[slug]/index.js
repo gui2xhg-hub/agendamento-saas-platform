@@ -320,7 +320,7 @@ export default function AgendamentoCliente() {
     return true;
   });
 
-  // AGRUPAMENTO DE SERVIÇOS POR CATEGORIA (RETROCOMPATÍVEL COM NULL/VAZIO)
+  // AGRUPAMENTO DE SERVIÇOS POR CATEGORIA
   const groupedServices = displayedServices.reduce((acc, srv) => {
     const categoryName = (srv.category && srv.category.trim() !== '') ? srv.category.trim() : 'Serviços Gerais';
     if (!acc[categoryName]) {
@@ -543,12 +543,12 @@ export default function AgendamentoCliente() {
   return (
     <div className="min-h-screen font-sans pb-12 transition-colors duration-300 flex flex-col justify-between" style={{ backgroundColor: bgColor, color: textColor }}>
       
-      {/* CONTAINER RESPONSIVO (NATIVO MOBILE E ADAPTADO PARA PC) */}
+      {/* CONTAINER RESPONSIVO */}
       <div className="w-full max-w-md sm:max-w-2xl md:max-w-4xl mx-auto px-0 sm:px-4 md:px-6">
         
-        {/* CAPA, INSTAGRAM & MEUS AGENDAMENTOS */}
-        <div className="relative h-36 sm:h-44 md:h-52 bg-gray-900 sm:rounded-2xl overflow-hidden shadow-md border-b sm:border border-black/10">
-          <img src={tenant.banner_url || 'https://images.unsplash.com/photo-1503951914875-452162b0f3f1?w=800&auto=format&fit=crop&q=80'} alt="Capa" className="w-full h-full object-cover opacity-50" />
+        {/* BANNER / CAPA DA LOJA */}
+        <div className="relative h-36 sm:h-48 md:h-56 bg-gray-900 sm:rounded-2xl overflow-hidden shadow-md border-b sm:border border-black/10">
+          <img src={tenant.banner_url || 'https://images.unsplash.com/photo-1503951914875-452162b0f3f1?w=800&auto=format&fit=crop&q=80'} alt="Capa" className="w-full h-full object-cover opacity-60" />
 
           {formattedInstagramUrl && (
             <a
@@ -569,25 +569,27 @@ export default function AgendamentoCliente() {
             className="absolute top-3 right-3 font-bold text-[10px] sm:text-xs px-3 py-1.5 rounded-full shadow-lg transition z-10">
             📋 Meus Agendamentos
           </button>
+        </div>
 
-          <div className="absolute -bottom-5 left-4 flex items-center space-x-3">
-            <img 
-              src={selectedProfObj?.avatar_url || tenant.logo_url || 'https://images.unsplash.com/photo-1585747860715-2ba37e788b70?w=150&auto=format&fit=crop&q=80'} 
-              alt="Foto Profissional" 
-              className="w-16 h-16 sm:w-20 sm:h-20 rounded-full border-2 border-black/40 object-cover bg-gray-800 shadow-lg" 
-            />
-            <div className="pt-4">
-              <h1 className="font-bold text-lg sm:text-xl leading-tight" style={{ color: textColor }}>
-                {selectedProfObj ? selectedProfObj.name : tenant.name}
-              </h1>
-              <p className="text-[11px] sm:text-xs opacity-70">
-                {selectedProfObj?.specialty ? selectedProfObj.specialty : (selectedProfObj ? `💈 ${tenant.name}` : '📅 Agendamento Online')}
-              </p>
-            </div>
+        {/* CABEÇALHO DO PROFISSIONAL / ESTABELECIMENTO (FORA E ABAIXO DO BANNER) */}
+        <div className="relative px-4 sm:px-2 -mt-8 sm:-mt-10 flex items-end space-x-3 sm:space-x-4 mb-4 z-10">
+          <img 
+            src={selectedProfObj?.avatar_url || tenant.logo_url || 'https://images.unsplash.com/photo-1585747860715-2ba37e788b70?w=150&auto=format&fit=crop&q=80'} 
+            alt="Foto Profissional" 
+            className="w-20 h-20 sm:w-24 sm:h-24 rounded-full border-4 shadow-xl object-cover bg-gray-800 shrink-0" 
+            style={{ borderColor: cardColor }}
+          />
+          <div className="pb-1">
+            <h1 className="font-bold text-lg sm:text-2xl leading-tight" style={{ color: textColor }}>
+              {selectedProfObj ? selectedProfObj.name : tenant.name}
+            </h1>
+            <p className="text-xs sm:text-sm opacity-80 font-medium">
+              {selectedProfObj?.specialty ? selectedProfObj.specialty : (selectedProfObj ? `💈 ${tenant.name}` : '📅 Agendamento Online')}
+            </p>
           </div>
         </div>
 
-        <div className="mt-8 px-4 sm:px-0 space-y-6">
+        <div className="px-4 sm:px-0 space-y-6">
 
           {/* BANNER DE AVISO / MENSAGEM CUSTOMIZADA DO ESTABELECIMENTO */}
           {tenant.custom_message && tenant.custom_message.trim() !== '' && (

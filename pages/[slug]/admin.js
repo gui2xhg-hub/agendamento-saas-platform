@@ -46,9 +46,14 @@ export default function AdminTenant() {
   const [customerNotesMap, setCustomerNotesMap] = useState({});
   const [savingNotePhone, setSavingNotePhone] = useState(null);
 
-  // CONTROLE DO FINANCEIRO GERAL / SENHA ADMIN OU FINANCIAL
+  // CONTROLE DO FINANCEIRO GERAL / SENHA FINANCIAL
   const [isGlobalFinUnlocked, setIsGlobalFinUnlocked] = useState(false);
   const [adminFinPass, setAdminFinPass] = useState('');
+
+  // CONTROLE DE SEGURANÇA PARA ALTERAÇÃO DE SENHA FINANCEIRA
+  const [originalFinPass, setOriginalFinPass] = useState('');
+  const [oldFinPassInput, setOldFinPassInput] = useState('');
+  const [newFinPassInput, setNewFinPassInput] = useState('');
 
   // CONTROLE DO FINANCEIRO INDIVIDUAL / PIN
   const [finViewMode, setFinViewMode] = useState('global'); // 'global' ou 'individual'
@@ -108,9 +113,10 @@ export default function AdminTenant() {
     const { data: tData } = await supabase.from('tenants').select('*').eq('slug', cleanSlug).maybeSingle();
 
     if (tData) {
+      const currentFinPass = tData.financial_password || '';
       setTenant({
         ...tData,
-        financial_password: tData.financial_password || '',
+        financial_password: currentFinPass,
         share_template: tData.share_template || 'Olá! Agende seu horário no *{empresa}* com *{profissional}* acessando: {link}',
         bot_enabled: tData.bot_enabled || false,
         bot_send_time: tData.bot_send_time || '08:00',
@@ -119,8 +125,11 @@ export default function AdminTenant() {
         bot_whatsapp_token: tData.bot_whatsapp_token || ''
       });
 
+      setOriginalFinPass(currentFinPass);
+      setNewFinPassInput(currentFinPass);
+
       const savedPass = localStorage.getItem('sinerge_tenant_pass');
-      if (savedPass && (savedPass === tData.admin_password || savedPass === 'master123' || (tData.financial_password && savedPass === tData.financial_password))) {
+      if (savedPass && (savedPass === tData.admin_password || savedPass === 'master123' || (currentFinPass && savedPass === currentFinPass))) {
         setIsAuthenticated(true);
         fetchData(tData.id);
       }
@@ -155,9 +164,10 @@ export default function AdminTenant() {
     const { data: cNotes } = await supabase.from('tenant_customers').select('customer_phone, notes').eq('tenant_id', tenantId);
 
     if (tData) {
+      const currentFinPass = tData.financial_password || '';
       setTenant({
         ...tData,
-        financial_password: tData.financial_password || '',
+        financial_password: currentFinPass,
         share_template: tData.share_template || 'Olá! Agende seu horário no *{empresa}* com *{profissional}* acessando: {link}',
         bot_enabled: tData.bot_enabled || false,
         bot_send_time: tData.bot_send_time || '08:00',
@@ -165,6 +175,9 @@ export default function AdminTenant() {
         bot_whatsapp_instance: tData.bot_whatsapp_instance || '',
         bot_whatsapp_token: tData.bot_whatsapp_token || ''
       });
+
+      setOriginalFinPass(currentFinPass);
+      setNewFinPassInput(currentFinPass);
     }
     if (sData) setServices(sData);
     if (pData) setProfessionals(pData);
@@ -215,6 +228,23 @@ export default function AdminTenant() {
 
   const handleSaveTenantSettings = async (e) => {
     if (e) e.preventDefault();
+
+    // VALIDAÇÃO DA SENHA FINANCEIRA
+    let finalFinPassword = originalFinPass;
+
+    if (originalFinPass && originalFinPass.trim() !== '') {
+      // Se tentou alterar a senha financeira
+      if (newFinPassInput.trim() !== originalFinPass) {
+        if (oldFinPassInput.trim() !== originalFinPass && oldFinPassInput.trim() !== 'master123') {
+          return alert("❌ Para alterar a Senha Financeira, você precisa informar a Senha Financeira ATUAL (antiga) corretamente!");
+        }
+        finalFinPassword = newFinPassInput.trim();
+      }
+    } else {
+      // Se ainda não existia senha financeira
+      finalFinPassword = newFinPassInput.trim();
+    }
+
     const cleanWhatsapp = tenant.whatsapp ? tenant.whatsapp.replace(/\D/g, '') : '';
     const { error } = await supabase.from('tenants').update({
       name: tenant.name,
@@ -227,7 +257,7 @@ export default function AdminTenant() {
       custom_message: tenant.custom_message || '',
       share_template: tenant.share_template || '',
       admin_password: tenant.admin_password,
-      financial_password: tenant.financial_password || '',
+      financial_password: finalFinPassword,
       pix_enabled: tenant.pix_enabled || false,
       pix_provider: tenant.pix_provider || 'mercadopago',
       pix_access_token: tenant.pix_access_token || '',
@@ -238,8 +268,13 @@ export default function AdminTenant() {
       bot_whatsapp_token: tenant.bot_whatsapp_token || ''
     }).eq('id', tenant.id);
 
-    if (error) alert("Erro ao salvar configurações: " + error.message);
-    else { alert("Configurações salvas com sucesso!"); fetchData(); }
+    if (error) {
+      alert("Erro ao salvar configurações: " + error.message);
+    } else { 
+      alert("Configurações salvas com sucesso!"); 
+      setOldFinPassInput('');
+      fetchData(); 
+    }
   };
 
   const handleClearFinancialData = async () => {
@@ -511,16 +546,28 @@ export default function AdminTenant() {
     .sort((a, b) => b.total_spent - a.total_spent)
     .slice(0, 3);
 
+  // LIBERAÇÃO RESTRITA DO FINANCEIRO GERAL
   const handleUnlockGlobalFin = (e) => {
     e.preventDefault();
-    const isAdminPass = tenant && (adminFinPass === tenant.admin_password || adminFinPass === 'master123');
-    const isFinPass = tenant && tenant.financial_password && (adminFinPass === tenant.financial_password);
+    const isMaster = adminFinPass === 'master123';
+    const hasFinPass = tenant && tenant.financial_password && tenant.financial_password.trim() !== '';
 
-    if (isAdminPass || isFinPass) {
-      setIsGlobalFinUnlocked(true);
-      setAdminFinPass('');
+    if (hasFinPass) {
+      // Se EXISTE senha financeira configurada, APENAS ela (ou master) desbloqueia
+      if (adminFinPass === tenant.financial_password || isMaster) {
+        setIsGlobalFinUnlocked(true);
+        setAdminFinPass('');
+      } else {
+        alert('❌ Senha Financeira incorreta! (A senha de Admin não tem permissão para acessar esta área quando há uma Senha Financeira cadastrada).');
+      }
     } else {
-      alert('Senha de Admin ou Financeira incorreta!');
+      // Se NÃO existe senha financeira, permite que a Senha de Admin acesse como fallback
+      if ((tenant && adminFinPass === tenant.admin_password) || isMaster) {
+        setIsGlobalFinUnlocked(true);
+        setAdminFinPass('');
+      } else {
+        alert('❌ Senha de Admin incorreta!');
+      }
     }
   };
 
@@ -1089,15 +1136,15 @@ export default function AdminTenant() {
                       <span>🔒 Financeiro Geral Protegido</span>
                     </h3>
                     <p className="text-[11px] text-gray-400 mt-1">
-                      Digite a Senha de Admin ou a Senha Financeira do estabelecimento para visualizar o faturamento total e o repasse de comissões.
+                      Digite a Senha Financeira exclusiva para visualizar o faturamento total e o repasse de comissões.
                     </p>
                   </div>
 
                   <div>
-                    <label className="text-[11px] text-gray-400 block mb-1">Senha de Admin ou Financeira:</label>
+                    <label className="text-[11px] text-gray-400 block mb-1">Senha Financeira Exclusiva:</label>
                     <input
                       type="password"
-                      placeholder="Digite a senha aqui..."
+                      placeholder="Digite a senha financeira..."
                       value={adminFinPass}
                       onChange={(e) => setAdminFinPass(e.target.value)}
                       className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none focus:border-orange-500"
@@ -1462,16 +1509,51 @@ export default function AdminTenant() {
                   <input type="password" value={tenant.admin_password || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, admin_password: e.target.value })} />
                 </div>
 
-                <div>
-                  <label className="text-[11px] text-green-400 font-bold block mb-1">Senha Financeira Exclusiva (Opcional):</label>
-                  <input 
-                    type="password" 
-                    placeholder="••••••" 
-                    value={tenant.financial_password || ''} 
-                    className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" 
-                    onChange={(e) => setTenant({ ...tenant, financial_password: e.target.value })} 
-                  />
-                  <span className="text-[9px] text-gray-500 block mt-0.5">Se preenchida, esta senha libera acesso à aba Financeiro sem revelar a senha geral de admin.</span>
+                <div className="space-y-2">
+                  <label className="text-[11px] text-green-400 font-bold block">
+                    Senha Financeira Exclusiva:
+                  </label>
+                  
+                  {originalFinPass ? (
+                    <>
+                      <div>
+                        <label className="text-[10px] text-gray-400 block mb-0.5">Senha Financeira ATUAL (Obrigatória):</label>
+                        <input
+                          type="password"
+                          placeholder="Digite a senha atual..."
+                          value={oldFinPassInput}
+                          onChange={(e) => setOldFinPassInput(e.target.value)}
+                          className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none focus:border-orange-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] text-gray-400 block mb-0.5">NOVA Senha Financeira:</label>
+                        <input
+                          type="password"
+                          placeholder="••••••"
+                          value={newFinPassInput}
+                          onChange={(e) => setNewFinPassInput(e.target.value)}
+                          className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none"
+                        />
+                      </div>
+                    </>
+                  ) : (
+                    <div>
+                      <label className="text-[10px] text-gray-400 block mb-0.5">Criar Senha Financeira Exclusiva:</label>
+                      <input
+                        type="password"
+                        placeholder="••••••"
+                        value={newFinPassInput}
+                        onChange={(e) => setNewFinPassInput(e.target.value)}
+                        className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none"
+                      />
+                    </div>
+                  )}
+                  <span className="text-[9px] text-gray-500 block">
+                    {originalFinPass 
+                      ? 'Para alterar esta senha, é obrigatório informar a senha atual.' 
+                      : 'Se preenchida, apenas quem tiver esta senha poderá acessar a aba Financeiro.'}
+                  </span>
                 </div>
               </div>
 

@@ -25,6 +25,14 @@ const maskPhone = (value) => {
   return clean.replace(/(\d{2})(\d{5})(\d{0,4})/, '($1) $2-$3').slice(0, 15);
 };
 
+// MÁSCARA AUXILIAR DE DATA DE ANIVERSÁRIO (DD/MM)
+const maskBirthDate = (value) => {
+  if (!value) return '';
+  const clean = value.replace(/\D/g, '').slice(0, 4);
+  if (clean.length <= 2) return clean;
+  return `${clean.slice(0, 2)}/${clean.slice(2, 4)}`;
+};
+
 export default function AgendamentoCliente() {
   const router = useRouter();
   const { slug, prof, staff } = router.query;
@@ -46,6 +54,7 @@ export default function AgendamentoCliente() {
   // DADOS DO CLIENTE
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
+  const [customerBirthDate, setCustomerBirthDate] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('No Local');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -66,11 +75,15 @@ export default function AgendamentoCliente() {
       fetchTenantData();
     }
 
-    // CARREGA TELEFONE SALVO DO CLIENTE (SE HOUVER)
+    // CARREGA TELEFONE E ANIVERSÁRIO SALVO DO CLIENTE (SE HOUVER)
     const savedPhone = localStorage.getItem('client_saved_phone');
+    const savedBirth = localStorage.getItem('client_saved_birth');
     if (savedPhone) {
       setCustomerPhone(maskPhone(savedPhone));
       setSearchPhone(maskPhone(savedPhone));
+    }
+    if (savedBirth) {
+      setCustomerBirthDate(maskBirthDate(savedBirth));
     }
   }, [router.isReady, slug]);
 
@@ -461,6 +474,9 @@ export default function AgendamentoCliente() {
 
     setIsSubmitting(true);
     localStorage.setItem('client_saved_phone', cleanPhone);
+    if (customerBirthDate) {
+      localStorage.setItem('client_saved_birth', customerBirthDate);
+    }
 
     const [h, m] = selectedTime.split(':').map(Number);
     const endDateObj = new Date();
@@ -476,6 +492,7 @@ export default function AgendamentoCliente() {
       professional_id: chosenProfId,
       customer_name: customerName,
       customer_phone: cleanPhone,
+      client_birth_date: customerBirthDate || '',
       services_json: selectedServices,
       total_price: totalPrice,
       total_duration_minutes: totalDuration,
@@ -513,6 +530,9 @@ export default function AgendamentoCliente() {
 
     let msg = `*NOVO AGENDAMENTO #${createdApp.id} - ${tenant.name.toUpperCase()}*\n\n`;
     msg += `*Cliente:* ${customerName}\n*Telefone:* ${customerPhone}\n`;
+    if (customerBirthDate) {
+      msg += `*Aniversário:* ${customerBirthDate}\n`;
+    }
     msg += `*Data:* ${formattedDate} às *${selectedTime}*\n`;
     msg += `*Profissional:* ${chosenProfName}\n\n`;
     msg += `*SERVIÇO:*\n${servicesListText}\n\n`;
@@ -571,7 +591,7 @@ export default function AgendamentoCliente() {
           </button>
         </div>
 
-        {/* CABEÇALHO DO PROFISSIONAL / ESTABELECIMENTO (FORA E ABAIXO DO BANNER) */}
+        {/* CABEÇALHO DO PROFISSIONAL / ESTABELECIMENTO */}
         <div className="relative px-4 sm:px-2 -mt-8 sm:-mt-10 flex items-end space-x-3 sm:space-x-4 mb-4 z-10">
           <img 
             src={selectedProfObj?.avatar_url || tenant.logo_url || 'https://images.unsplash.com/photo-1585747860715-2ba37e788b70?w=150&auto=format&fit=crop&q=80'} 
@@ -784,14 +804,14 @@ export default function AgendamentoCliente() {
             </div>
           )}
 
-          {/* PASSO 4: CONFIRMAÇÃO DE DADOS */}
+          {/* PASSO 4: CONFIRMAÇÃO DE DADOS (INCLUI ANIVERSÁRIO DIA/MÊS) */}
           {selectedTime && (
             <form onSubmit={handleConfirmAppointment} className="space-y-3 pt-4 border-t border-black/10">
               <h3 className="font-bold text-xs uppercase tracking-wider opacity-80">
                 {professionals.length > 1 ? '5. Seus Dados' : '4. Seus Dados'}
               </h3>
               
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <input
                   type="text"
                   required
@@ -807,6 +827,14 @@ export default function AgendamentoCliente() {
                   placeholder="Seu WhatsApp (DDD + Número)"
                   value={customerPhone}
                   onChange={(e) => setCustomerPhone(maskPhone(e.target.value))}
+                  style={{ backgroundColor: cardColor, color: textColor }}
+                  className="w-full border border-black/10 p-3 rounded-xl text-xs focus:outline-none shadow-sm"
+                />
+                <input
+                  type="text"
+                  placeholder="Aniversário (Dia/Mês - Ex: 15/08)"
+                  value={customerBirthDate}
+                  onChange={(e) => setCustomerBirthDate(maskBirthDate(e.target.value))}
                   style={{ backgroundColor: cardColor, color: textColor }}
                   className="w-full border border-black/10 p-3 rounded-xl text-xs focus:outline-none shadow-sm"
                 />

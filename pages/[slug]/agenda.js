@@ -218,7 +218,7 @@ export default function AgendaTenant() {
       }
     } catch (err) {
       console.error("Erro ao carregar dados da agenda:", err);
-    } finally {
+    } font-sans finally {
       setLoading(false);
     }
   };
@@ -364,7 +364,7 @@ export default function AgendaTenant() {
     }
   };
 
-  // 1. LEMBRETE DE AMANHÃ (Corrigido para iOS Safari)
+  // 1. LEMBRETE DE AMANHÃ
   const handleSendWhatsappReminder = (app) => {
     const cleanPhone = (app.customer_phone || '').replace(/\D/g, '');
     if (!cleanPhone) return alert("Cliente não possui WhatsApp válido.");
@@ -380,7 +380,7 @@ export default function AgendaTenant() {
     window.location.href = `https://wa.me/55${cleanPhone}?text=${encodeURIComponent(msg)}`;
   };
 
-  // 2. AGENDAMENTO MANUAL (Corrigido para iOS Safari)
+  // 2. AGENDAMENTO MANUAL
   const handleCreateManualApp = async (e) => {
     e.preventDefault();
     if (!manualCustomerName || !manualCustomerPhone) return alert("Preencha o Nome e WhatsApp do cliente!");
@@ -563,7 +563,7 @@ export default function AgendaTenant() {
     setRescheduleProfId(app.professional_id);
   };
 
-  // 3. REAGENDAMENTO (Corrigido para iOS Safari)
+  // 3. REAGENDAMENTO
   const handleSaveReschedule = async (e) => {
     e.preventDefault();
     if (!rescheduleDate || !rescheduleTime) return alert("Selecione nova data e horário!");
@@ -891,7 +891,7 @@ export default function AgendaTenant() {
 
           <button 
             onClick={() => fetchAppointmentsAndBlocks()} 
-            className="border p-2.5 rounded-xl text-xs font-bold transition"
+            className="border p-2.5 rounded-xl text-xs font-bold transition hover:opacity-80"
             style={{ backgroundColor: cardBgColor, color: textColor, borderColor: borderColor }}>
             🔄
           </button>

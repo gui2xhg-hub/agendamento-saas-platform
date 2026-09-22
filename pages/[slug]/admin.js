@@ -46,7 +46,7 @@ export default function AdminTenant() {
   const [customerNotesMap, setCustomerNotesMap] = useState({});
   const [savingNotePhone, setSavingNotePhone] = useState(null);
 
-  // CONTROLE DO FINANCEIRO GERAL / SENHA ADMIN
+  // CONTROLE DO FINANCEIRO GERAL / SENHA ADMIN OU FINANCIAL
   const [isGlobalFinUnlocked, setIsGlobalFinUnlocked] = useState(false);
   const [adminFinPass, setAdminFinPass] = useState('');
 
@@ -110,6 +110,7 @@ export default function AdminTenant() {
     if (tData) {
       setTenant({
         ...tData,
+        financial_password: tData.financial_password || '',
         share_template: tData.share_template || 'Olá! Agende seu horário no *{empresa}* com *{profissional}* acessando: {link}',
         bot_enabled: tData.bot_enabled || false,
         bot_send_time: tData.bot_send_time || '08:00',
@@ -119,7 +120,7 @@ export default function AdminTenant() {
       });
 
       const savedPass = localStorage.getItem('sinerge_tenant_pass');
-      if (savedPass && (savedPass === tData.admin_password || savedPass === 'master123')) {
+      if (savedPass && (savedPass === tData.admin_password || savedPass === 'master123' || (tData.financial_password && savedPass === tData.financial_password))) {
         setIsAuthenticated(true);
         fetchData(tData.id);
       }
@@ -129,7 +130,11 @@ export default function AdminTenant() {
 
   const handleLogin = (e) => {
     e.preventDefault();
-    if (tenant && (password === tenant.admin_password || password === 'master123')) {
+    const isMaster = password === 'master123';
+    const isAdminPass = tenant && password === tenant.admin_password;
+    const isFinPass = tenant && tenant.financial_password && password === tenant.financial_password;
+
+    if (isMaster || isAdminPass || isFinPass) {
       setIsAuthenticated(true);
       localStorage.setItem('sinerge_tenant_pass', password);
       localStorage.setItem('sinerge_tenant_slug', tenant.slug);
@@ -152,6 +157,7 @@ export default function AdminTenant() {
     if (tData) {
       setTenant({
         ...tData,
+        financial_password: tData.financial_password || '',
         share_template: tData.share_template || 'Olá! Agende seu horário no *{empresa}* com *{profissional}* acessando: {link}',
         bot_enabled: tData.bot_enabled || false,
         bot_send_time: tData.bot_send_time || '08:00',
@@ -221,6 +227,7 @@ export default function AdminTenant() {
       custom_message: tenant.custom_message || '',
       share_template: tenant.share_template || '',
       admin_password: tenant.admin_password,
+      financial_password: tenant.financial_password || '',
       pix_enabled: tenant.pix_enabled || false,
       pix_provider: tenant.pix_provider || 'mercadopago',
       pix_access_token: tenant.pix_access_token || '',
@@ -506,11 +513,14 @@ export default function AdminTenant() {
 
   const handleUnlockGlobalFin = (e) => {
     e.preventDefault();
-    if (tenant && (adminFinPass === tenant.admin_password || adminFinPass === 'master123')) {
+    const isAdminPass = tenant && (adminFinPass === tenant.admin_password || adminFinPass === 'master123');
+    const isFinPass = tenant && tenant.financial_password && (adminFinPass === tenant.financial_password);
+
+    if (isAdminPass || isFinPass) {
       setIsGlobalFinUnlocked(true);
       setAdminFinPass('');
     } else {
-      alert('Senha de Admin incorreta!');
+      alert('Senha de Admin ou Financeira incorreta!');
     }
   };
 
@@ -1079,15 +1089,15 @@ export default function AdminTenant() {
                       <span>🔒 Financeiro Geral Protegido</span>
                     </h3>
                     <p className="text-[11px] text-gray-400 mt-1">
-                      Digite a senha de Admin do estabelecimento para visualizar o faturamento total e o repasse de comissões.
+                      Digite a Senha de Admin ou a Senha Financeira do estabelecimento para visualizar o faturamento total e o repasse de comissões.
                     </p>
                   </div>
 
                   <div>
-                    <label className="text-[11px] text-gray-400 block mb-1">Senha de Admin:</label>
+                    <label className="text-[11px] text-gray-400 block mb-1">Senha de Admin ou Financeira:</label>
                     <input
                       type="password"
-                      placeholder="Sua senha de administrador..."
+                      placeholder="Digite a senha aqui..."
                       value={adminFinPass}
                       onChange={(e) => setAdminFinPass(e.target.value)}
                       className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none focus:border-orange-500"
@@ -1446,16 +1456,30 @@ export default function AdminTenant() {
                 <input type="text" value={tenant.whatsapp || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, whatsapp: e.target.value })} />
               </div>
 
-              <div>
-                <label className="text-[11px] text-gray-400 block mb-1">Senha de Admin:</label>
-                <input type="text" value={tenant.admin_password || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, admin_password: e.target.value })} />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[11px] text-gray-400 block mb-1">Senha de Admin:</label>
+                  <input type="text" value={tenant.admin_password || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, admin_password: e.target.value })} />
+                </div>
+
+                <div>
+                  <label className="text-[11px] text-green-400 font-bold block mb-1">Senha Financeira Exclusiva (Opcional):</label>
+                  <input 
+                    type="text" 
+                    placeholder="Ex: fin123" 
+                    value={tenant.financial_password || ''} 
+                    className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" 
+                    onChange={(e) => setTenant({ ...tenant, financial_password: e.target.value })} 
+                  />
+                  <span className="text-[9px] text-gray-500 block mt-0.5">Se preenchida, esta senha libera acesso à aba Financeiro sem revelar a senha geral de admin.</span>
+                </div>
               </div>
 
               <div className="pt-3 border-t border-gray-800 space-y-3">
                 <div className="flex justify-between items-center">
                   <div>
                     <h4 className="font-bold text-xs text-green-400">⚡ Pagamento via PIX Automático</h4>
-                    <p className="text-[10px] text-gray-400">Confirms agendamentos com sinal/pré-pagamento.</p>
+                    <p className="text-[10px] text-gray-400">Confirma agendamentos com sinal/pré-pagamento.</p>
                   </div>
                   <input type="checkbox" checked={tenant.pix_enabled || false} onChange={(e) => setTenant({ ...tenant, pix_enabled: e.target.checked })} className="w-4 h-4 accent-green-500 cursor-pointer" />
                 </div>

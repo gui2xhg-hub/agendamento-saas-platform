@@ -788,7 +788,7 @@ export default function AdminTenant() {
 
               <div>
                 <label className="text-[10px] text-gray-400 block mb-1">PIN / Senha Secreta (Para extrato individual):</label>
-                <input type="text" placeholder="Ex: 1234" value={newProf.pin} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProf({ ...newProf, pin: e.target.value })} />
+                <input type="password" placeholder="****" value={newProf.pin} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProf({ ...newProf, pin: e.target.value })} />
               </div>
 
               <div>
@@ -885,7 +885,7 @@ export default function AdminTenant() {
                         </span>
                         <span className="text-gray-400 text-[10px]">Comissão: <b className="text-green-400">{p.commission_percentage}%</b> {p.phone ? `• 📱 ${p.phone}` : '• Central'}</span>
                         {p.instagram_url && <span className="text-[10px] text-pink-400 block">📸 Insta: {p.instagram_url}</span>}
-                        <span className="text-[10px] text-orange-400 block font-mono">PIN: {p.pin || '1234'}</span>
+                        <span className="text-[10px] text-orange-400 block font-mono">PIN: ••••</span>
                       </div>
                     </div>
                     <div className="flex space-x-1.5">
@@ -1459,14 +1459,14 @@ export default function AdminTenant() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="text-[11px] text-gray-400 block mb-1">Senha de Admin:</label>
-                  <input type="text" value={tenant.admin_password || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, admin_password: e.target.value })} />
+                  <input type="password" value={tenant.admin_password || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, admin_password: e.target.value })} />
                 </div>
 
                 <div>
                   <label className="text-[11px] text-green-400 font-bold block mb-1">Senha Financeira Exclusiva (Opcional):</label>
                   <input 
-                    type="text" 
-                    placeholder="Ex: fin123" 
+                    type="password" 
+                    placeholder="••••••" 
                     value={tenant.financial_password || ''} 
                     className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" 
                     onChange={(e) => setTenant({ ...tenant, financial_password: e.target.value })} 
@@ -1603,7 +1603,7 @@ export default function AdminTenant() {
             <input type="text" value={editingProf.specialty || ''} onChange={(e) => setEditingProf({ ...editingProf, specialty: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" placeholder="Especialidade (Ex: Pé e mão, Cabelos)" />
             <input type="text" value={editingProf.phone || ''} onChange={(e) => setEditingProf({ ...editingProf, phone: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" placeholder="WhatsApp Individual" />
             <input type="text" value={editingProf.instagram_url || ''} onChange={(e) => setEditingProf({ ...editingProf, instagram_url: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" placeholder="Instagram (Ex: @ana_designer)" />
-            <input type="text" value={editingProf.pin || ''} onChange={(e) => setEditingProf({ ...editingProf, pin: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" placeholder="PIN de 4 Dígitos" />
+            <input type="password" value={editingProf.pin || ''} onChange={(e) => setEditingProf({ ...editingProf, pin: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" placeholder="PIN de 4 Dígitos" />
             
             <div>
               <label className="text-[10px] text-green-400 font-bold block mb-1">🤖 Mensagem Personalizada do Robô para este Profissional (Opcional):</label>

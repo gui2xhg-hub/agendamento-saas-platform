@@ -59,6 +59,13 @@ const formatDuration = (minutes) => {
   return `${hrs}h ${remMins}min`;
 };
 
+// AUXILIAR PARA PARSE DE ID (SUPORTA TANTO INTEGER QUANTO UUID/STRING)
+const parseProfId = (id) => {
+  if (!id) return null;
+  const num = Number(id);
+  return isNaN(num) ? String(id) : num;
+};
+
 export default function AgendaTenant() {
   const router = useRouter();
   const { slug } = router.query;
@@ -134,7 +141,7 @@ export default function AgendaTenant() {
   const [manualCustomerName, setManualCustomerName] = useState('');
   const [manualCustomerPhone, setManualCustomerPhone] = useState('');
   const [manualSelectedServiceId, setManualSelectedServiceId] = useState('');
-  const [manualPaymentMethod, setPaymentMethod] = useState('No Local');
+  const [manualPaymentMethod, setManualPaymentMethod] = useState('No Local');
   const [isSavingManualApp, setIsSavingManualApp] = useState(false);
 
   useEffect(() => {
@@ -364,7 +371,8 @@ export default function AgendaTenant() {
     const profObj = professionals.find(p => String(p.id) === String(finProfId));
     if (!profObj) return alert("Selecione um profissional!");
 
-    if (profObj.pin && String(profObj.pin).trim() === String(finPin).trim()) {
+    // Se o profissional não tem PIN cadastrado, permite acesso direto
+    if (!profObj.pin || String(profObj.pin).trim() === '' || String(profObj.pin).trim() === String(finPin).trim()) {
       setIsFinUnlocked(true);
       fetchProfFinancials(profObj.id);
     } else {
@@ -460,7 +468,7 @@ export default function AgendaTenant() {
       const chosenProfObj = professionals.find(p => String(p.id) === String(manualProfId));
       const cleanPhone = manualCustomerPhone.replace(/\D/g, '');
 
-      const parsedProfId = manualProfId ? parseInt(manualProfId, 10) : null;
+      const parsedProfId = parseProfId(manualProfId);
       if (!parsedProfId) {
         setIsSavingManualApp(false);
         return alert("Selecione um profissional válido.");
@@ -554,7 +562,7 @@ export default function AgendaTenant() {
       if (isRecurringBlock) finalReason += ' [RECORRENTE]';
 
       let payloads = [];
-      const parsedProfId = blockProfId ? parseInt(blockProfId, 10) : null;
+      const parsedProfId = parseProfId(blockProfId);
 
       if (isRecurringBlock) {
         payloads = blockRepeatDays.map(dayNum => ({
@@ -636,13 +644,15 @@ export default function AgendaTenant() {
       endDateObj.setHours(h, m + duration, 0, 0);
       const endTime = endDateObj.toTimeString().substring(0, 5);
 
+      const parsedProfId = parseProfId(rescheduleProfId);
+
       const { error } = await supabase
         .from('appointments')
         .update({
           appointment_date: rescheduleDate,
           start_time: rescheduleTime,
           end_time: endTime,
-          professional_id: parseInt(rescheduleProfId, 10),
+          professional_id: parsedProfId,
           status: 'agendado'
         })
         .eq('id', editingApp.id);

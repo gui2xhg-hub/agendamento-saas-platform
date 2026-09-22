@@ -86,6 +86,14 @@ export default function AgendaTenant() {
   // FILTRO DE CLIENTES NO MODAL ('prof' = Apenas da Profissional, 'all' = Todos os Clientes)
   const [customerFilterMode, setCustomerFilterMode] = useState('prof');
 
+  // RELATÓRIO FINANCEIRO INDIVIDUAL COM PIN
+  const [showFinModal, setShowFinModal] = useState(false);
+  const [finProfId, setFinProfId] = useState('');
+  const [finPin, setFinPin] = useState('');
+  const [isFinUnlocked, setIsFinUnlocked] = useState(false);
+  const [finPeriodFilter, setFinPeriodFilter] = useState('all'); // 'all', 'today', '7days', '30days'
+  const [allProfAppointments, setAllProfAppointments] = useState([]);
+
   // NORMAS DE DIAS DA SEMANA (0 = Domingo, 1 = Segunda, ..., 6 = Sábado)
   const ALL_DAYS = [
     { id: 1, label: 'Seg' },
@@ -191,6 +199,7 @@ export default function AgendaTenant() {
           setSelectedProf(initialProfId);
           setBlockProfId(initialProfId);
           setManualProfId(initialProfId);
+          setFinProfId(initialProfId);
         }
 
         if (sData) {
@@ -218,7 +227,7 @@ export default function AgendaTenant() {
       }
     } catch (err) {
       console.error("Erro ao carregar dados da agenda:", err);
-    } font-sans finally {
+    } finally {
       setLoading(false);
     }
   };
@@ -326,6 +335,56 @@ export default function AgendaTenant() {
     } catch (err) {
       console.error("Erro ao carregar diretório de clientes:", err);
     }
+  };
+
+  // BUSCA HISTÓRICO FINANCEIRO COMPLETO DO PROFISSIONAL SELECIONADO
+  const fetchProfFinancials = async (profId) => {
+    if (!tenant?.id || !profId) return;
+    try {
+      const { data, error } = await supabase
+        .from('appointments')
+        .select('*')
+        .eq('tenant_id', tenant.id)
+        .eq('professional_id', profId)
+        .neq('status', 'cancelado')
+        .order('appointment_date', { ascending: false });
+
+      if (error) {
+        alert("Erro ao buscar histórico financeiro: " + error.message);
+      } else if (data) {
+        setAllProfAppointments(data);
+      }
+    } catch (err) {
+      console.error("Erro ao buscar extrato do profissional:", err);
+    }
+  };
+
+  const handleUnlockProfFin = (e) => {
+    e.preventDefault();
+    const profObj = professionals.find(p => String(p.id) === String(finProfId));
+    if (!profObj) return alert("Selecione um profissional!");
+
+    if (profObj.pin && String(profObj.pin).trim() === String(finPin).trim()) {
+      setIsFinUnlocked(true);
+      fetchProfFinancials(profObj.id);
+    } else {
+      alert("❌ PIN / Senha incorreta! Tente novamente.");
+    }
+  };
+
+  const getFilteredProfApps = () => {
+    const now = new Date();
+    return allProfAppointments.filter(a => {
+      if (finPeriodFilter === 'all') return true;
+      if (!a.appointment_date) return true;
+      const appDate = new Date(a.appointment_date + 'T00:00:00');
+      const diffDays = (now - appDate) / (1000 * 60 * 60 * 24);
+
+      if (finPeriodFilter === 'today') return a.appointment_date === getTodayLocal();
+      if (finPeriodFilter === '7days') return diffDays >= 0 && diffDays <= 7;
+      if (finPeriodFilter === '30days') return diffDays >= 0 && diffDays <= 30;
+      return true;
+    });
   };
 
   const getWeekDays = (baseDateStr) => {
@@ -821,11 +880,29 @@ export default function AgendaTenant() {
 
   const activeManualProfObj = professionals.find(p => String(p.id) === String(manualProfId));
 
+  // CÁLCULOS DO RELATÓRIO FINANCEIRO
+  const filteredProfApps = getFilteredProfApps();
+  const activeFinProfObj = professionals.find(p => String(p.id) === String(finProfId));
+  const finTotalRevenue = filteredProfApps.reduce((acc, a) => acc + Number(a.total_price || a.price || 0), 0);
+  const finCommRate = Number(activeFinProfObj?.commission_percentage || 50) / 100;
+  const finTotalCommission = finTotalRevenue * finCommRate;
+
   return (
     <div 
       className="min-h-screen p-4 max-w-5xl mx-auto font-sans pb-20 transition-colors duration-300"
       style={{ backgroundColor: secondaryColor, color: textColor }}
     >
+      <style jsx global>{`
+        @media print {
+          body * { visibility: hidden !important; }
+          #print-fin-report, #print-fin-report * { visibility: visible !important; }
+          #print-fin-report {
+            position: absolute !important; left: 0 !important; top: 0 !important;
+            width: 100% !important; color: #000 !important; background: #fff !important; padding: 15px !important; font-family: sans-serif !important;
+          }
+        }
+      `}</style>
+
       {/* BARRA DE SELEÇÃO DE TEMA EXCLUSIVA DA AGENDA */}
       <div className="flex flex-col sm:flex-row justify-between items-center p-3 rounded-2xl mb-4 border space-y-2 sm:space-y-0" style={{ backgroundColor: cardBgColor, borderColor: borderColor }}>
         <span className="text-xs font-bold opacity-80 flex items-center space-x-1">
@@ -870,6 +947,17 @@ export default function AgendaTenant() {
             className="border p-2.5 rounded-xl text-xs font-bold focus:outline-none cursor-pointer"
             style={{ backgroundColor: cardBgColor, color: textColor, borderColor: borderColor }}
           />
+
+          <button
+            onClick={() => {
+              setFinProfId(selectedProf || (professionals[0]?.id || ''));
+              setFinPin('');
+              setIsFinUnlocked(false);
+              setShowFinModal(true);
+            }}
+            className="bg-amber-600 hover:bg-amber-700 text-white px-3.5 py-2.5 rounded-xl text-xs font-bold transition shadow-lg flex items-center space-x-1 whitespace-nowrap">
+            <span>💰 Meu Financeiro</span>
+          </button>
 
           <button
             onClick={() => openManualModalWithProf(selectedProf)}
@@ -1197,6 +1285,151 @@ export default function AgendaTenant() {
           return null;
         })}
       </div>
+
+      {/* MODAL DE RELATÓRIO FINANCEIRO INDIVIDUAL (PROTEGIDO POR PIN) */}
+      {showFinModal && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <div className="border w-full max-w-lg rounded-2xl p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto" style={{ backgroundColor: cardBgColor, color: textColor, borderColor: borderColor }}>
+            
+            {!isFinUnlocked ? (
+              /* TELA DE AUTENTICAÇÃO POR PIN */
+              <form onSubmit={handleUnlockProfFin} className="space-y-4">
+                <div className="flex justify-between items-center border-b pb-2" style={{ borderColor: borderColor }}>
+                  <h3 className="font-bold text-sm text-amber-500 flex items-center space-x-1">
+                    <span>🔒 Acesso Restrito ao Extrato Financeiro</span>
+                  </h3>
+                  <button type="button" onClick={() => setShowFinModal(false)} className="opacity-60 font-bold text-xs hover:opacity-100">✕ Fechar</button>
+                </div>
+
+                <p className="text-xs opacity-70">
+                  Selecione seu perfil profissional e insira seu PIN de segurança para visualizar suas comissões e atendimentos.
+                </p>
+
+                <div>
+                  <label className="opacity-70 block mb-1 text-xs">Selecione seu perfil:</label>
+                  <select
+                    value={finProfId}
+                    onChange={(e) => setFinProfId(e.target.value)}
+                    className="w-full border p-2.5 rounded-xl text-xs focus:outline-none cursor-pointer"
+                    style={{ backgroundColor: secondaryColor, color: textColor, borderColor: borderColor }}>
+                    {professionals.map(p => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="opacity-70 block mb-1 text-xs">Código PIN de 4 dígitos:</label>
+                  <input
+                    type="password"
+                    required
+                    placeholder="****"
+                    value={finPin}
+                    onChange={(e) => setFinPin(e.target.value)}
+                    className="w-full border p-2.5 rounded-xl text-xs focus:outline-none"
+                    style={{ backgroundColor: secondaryColor, color: textColor, borderColor: borderColor }}
+                  />
+                </div>
+
+                <div className="flex space-x-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowFinModal(false)}
+                    className="w-1/2 border opacity-70 py-3 rounded-xl font-bold text-xs"
+                    style={{ backgroundColor: secondaryColor, borderColor: borderColor }}>
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="w-1/2 bg-amber-600 hover:bg-amber-700 text-white py-3 rounded-xl font-bold transition text-xs">
+                    Acessar Extrato 🔓
+                  </button>
+                </div>
+              </form>
+            ) : (
+              /* RELATÓRIO / EXTRATO DO PROFISSIONAL */
+              <div id="print-fin-report" className="space-y-4">
+                <div className="flex justify-between items-center border-b pb-2" style={{ borderColor: borderColor }}>
+                  <div>
+                    <h3 className="font-bold text-sm text-amber-500">
+                      💰 Extrato Individual — {activeFinProfObj?.name}
+                    </h3>
+                    <p className="text-[10px] opacity-70">Taxa de Comissão: {activeFinProfObj?.commission_percentage}%</p>
+                  </div>
+
+                  <div className="flex space-x-1.5">
+                    <button
+                      type="button"
+                      onClick={() => window.print()}
+                      className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition">
+                      🖨️ Imprimir
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setIsFinUnlocked(false); setFinPin(''); }}
+                      className="border opacity-70 hover:opacity-100 px-3 py-1.5 rounded-lg text-xs font-bold transition"
+                      style={{ backgroundColor: secondaryColor, borderColor: borderColor }}>
+                      🔒 Sair
+                    </button>
+                  </div>
+                </div>
+
+                {/* FILTROS DE PERÍODO */}
+                <div className="flex space-x-1 border p-1 rounded-xl text-[11px] font-bold" style={{ backgroundColor: secondaryColor, borderColor: borderColor }}>
+                  <button onClick={() => setFinPeriodFilter('all')} className={`flex-1 py-1.5 rounded-lg transition ${finPeriodFilter === 'all' ? 'bg-amber-600 text-white' : 'opacity-60'}`}>Tudo</button>
+                  <button onClick={() => setFinPeriodFilter('today')} className={`flex-1 py-1.5 rounded-lg transition ${finPeriodFilter === 'today' ? 'bg-amber-600 text-white' : 'opacity-60'}`}>Hoje</button>
+                  <button onClick={() => setFinPeriodFilter('7days')} className={`flex-1 py-1.5 rounded-lg transition ${finPeriodFilter === '7days' ? 'bg-amber-600 text-white' : 'opacity-60'}`}>7 Dias</button>
+                  <button onClick={() => setFinPeriodFilter('30days')} className={`flex-1 py-1.5 rounded-lg transition ${finPeriodFilter === '30days' ? 'bg-amber-600 text-white' : 'opacity-60'}`}>30 Dias</button>
+                </div>
+
+                {/* CARTÕES DE MÉTRICA */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="border p-3 rounded-xl" style={{ backgroundColor: secondaryColor, borderColor: borderColor }}>
+                    <span className="text-[10px] font-bold opacity-60 uppercase block">Total Atendido</span>
+                    <span className="text-base font-bold text-white">R$ {finTotalRevenue.toFixed(2)}</span>
+                    <span className="text-[10px] opacity-50 block">{filteredProfApps.length} serviços realizados</span>
+                  </div>
+
+                  <div className="border p-3 rounded-xl" style={{ backgroundColor: secondaryColor, borderColor: borderColor }}>
+                    <span className="text-[10px] font-bold text-green-500 uppercase block">Sua Comissão ({activeFinProfObj?.commission_percentage}%)</span>
+                    <span className="text-base font-bold text-green-500">R$ {finTotalCommission.toFixed(2)}</span>
+                  </div>
+                </div>
+
+                {/* LISTAGEM DOS ATENDIMENTOS */}
+                <div className="space-y-2">
+                  <h4 className="font-bold text-xs opacity-80">Histórico de Atendimentos:</h4>
+                  <div className="space-y-2 max-h-60 overflow-y-auto">
+                    {filteredProfApps.length === 0 ? (
+                      <p className="text-xs opacity-50 text-center py-4">Nenhum atendimento registrado no período selecionado.</p>
+                    ) : (
+                      filteredProfApps.map(a => {
+                        const servicesStr = Array.isArray(a.services_json) 
+                          ? a.services_json.map(s => s.name).join(', ') 
+                          : (a.service_name || 'Atendimento');
+                        const priceVal = Number(a.total_price || a.price || 0);
+
+                        return (
+                          <div key={a.id} className="p-2.5 rounded-xl border flex justify-between items-center text-xs" style={{ backgroundColor: secondaryColor, borderColor: borderColor }}>
+                            <div>
+                              <span className="font-bold block">{a.customer_name || a.client_name}</span>
+                              <span className="text-[10px] opacity-60">{servicesStr} • {a.appointment_date ? a.appointment_date.split('-').reverse().join('/') : '—'}</span>
+                            </div>
+                            <div className="text-right">
+                              <span className="font-bold text-green-500 block">R$ {priceVal.toFixed(2)}</span>
+                              <span className="text-[9px] opacity-50">Comissão: R$ {(priceVal * finCommRate).toFixed(2)}</span>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* MODAL DE AGENDAMENTO MANUAL */}
       {showManualAppModal && (

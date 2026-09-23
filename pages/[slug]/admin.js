@@ -25,6 +25,95 @@ const formatDuration = (minutes) => {
   return `${hrs}h ${remMins}min`;
 };
 
+// COMPONENTE DE SELEÇÃO/ENTRADA DE DURAÇÃO (COM OPÇÃO PERSONALIZADA DE HORAS E MINUTOS)
+const PRESET_DURATIONS = [15, 30, 45, 60, 75, 90, 105, 120, 135, 150, 180, 210, 240];
+
+function DurationInput({ value, onChange }) {
+  const currentMins = Number(value) || 30;
+  const isPreset = PRESET_DURATIONS.includes(currentMins);
+  const [isCustom, setIsCustom] = useState(!isPreset);
+
+  useEffect(() => {
+    if (!PRESET_DURATIONS.includes(Number(value) || 30)) {
+      setIsCustom(true);
+    }
+  }, [value]);
+
+  const hours = Math.floor(currentMins / 60);
+  const mins = currentMins % 60;
+
+  const handleSelectChange = (e) => {
+    const val = e.target.value;
+    if (val === 'custom') {
+      setIsCustom(true);
+    } else {
+      setIsCustom(false);
+      onChange(val);
+    }
+  };
+
+  const handleCustomChange = (newH, newM) => {
+    const h = Math.max(0, parseInt(newH) || 0);
+    const m = Math.max(0, parseInt(newM) || 0);
+    const total = h * 60 + m;
+    onChange(total.toString());
+  };
+
+  return (
+    <div className="w-1/3 flex flex-col gap-1">
+      <select
+        value={isCustom ? 'custom' : currentMins.toString()}
+        onChange={handleSelectChange}
+        className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none cursor-pointer"
+      >
+        <option value="15">15 min</option>
+        <option value="30">30 min</option>
+        <option value="45">45 min</option>
+        <option value="60">1 hora</option>
+        <option value="75">1h 15min</option>
+        <option value="90">1h 30min</option>
+        <option value="105">1h 45min</option>
+        <option value="120">2 horas</option>
+        <option value="135">2h 15min</option>
+        <option value="150">2h 30min</option>
+        <option value="180">3 horas</option>
+        <option value="210">3h 30min</option>
+        <option value="240">4 horas</option>
+        <option value="custom">✏️ Outro (Personalizado)...</option>
+      </select>
+
+      {isCustom && (
+        <div className="flex items-center space-x-1 bg-gray-800 border border-gray-700 p-1.5 rounded-lg text-xs">
+          <div className="flex items-center space-x-1 flex-1">
+            <input
+              type="number"
+              min="0"
+              max="24"
+              placeholder="0"
+              value={hours || ''}
+              onChange={(e) => handleCustomChange(e.target.value, mins)}
+              className="w-full bg-gray-900 border border-gray-700 p-1 rounded text-center text-xs text-white focus:outline-none font-bold"
+            />
+            <span className="text-[10px] text-gray-400">h</span>
+          </div>
+          <div className="flex items-center space-x-1 flex-1">
+            <input
+              type="number"
+              min="0"
+              max="59"
+              placeholder="0"
+              value={mins || ''}
+              onChange={(e) => handleCustomChange(hours, e.target.value)}
+              className="w-full bg-gray-900 border border-gray-700 p-1 rounded text-center text-xs text-white focus:outline-none font-bold"
+            />
+            <span className="text-[10px] text-gray-400">min</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AdminTenant() {
   const router = useRouter();
   const { slug } = router.query;
@@ -868,27 +957,13 @@ export default function AdminTenant() {
             <form onSubmit={handleAddService} className="space-y-3">
               <input type="text" placeholder="Nome Ex: Corte Degradê ou Unha em Gel" value={newService.name} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewService({ ...newService, name: e.target.value })} />
               
-              <div className="flex space-x-2">
+              <div className="flex space-x-2 items-start">
                 <input type="text" placeholder="Preço R$" value={newService.price} className="w-1/3 bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewService({ ...newService, price: e.target.value })} />
                 
-                <select 
+                <DurationInput 
                   value={newService.duration_minutes} 
-                  onChange={(e) => setNewService({ ...newService, duration_minutes: e.target.value })} 
-                  className="w-1/3 bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none cursor-pointer">
-                  <option value="15">15 min</option>
-                  <option value="30">30 min</option>
-                  <option value="45">45 min</option>
-                  <option value="60">1 hora</option>
-                  <option value="75">1h 15min</option>
-                  <option value="90">1h 30min</option>
-                  <option value="105">1h 45min</option>
-                  <option value="120">2 horas</option>
-                  <option value="135">2h 15min</option>
-                  <option value="150">2h 30min</option>
-                  <option value="180">3 horas</option>
-                  <option value="210">3h 30min</option>
-                  <option value="240">4 horas</option>
-                </select>
+                  onChange={(val) => setNewService({ ...newService, duration_minutes: val })} 
+                />
 
                 <input 
                   type="text" 
@@ -2115,27 +2190,13 @@ export default function AdminTenant() {
             
             <input type="text" value={editingService.name} onChange={(e) => setEditingService({ ...editingService, name: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
             
-            <div className="flex space-x-2">
+            <div className="flex space-x-2 items-start">
               <input type="text" value={editingService.price} onChange={(e) => setEditingService({ ...editingService, price: e.target.value })} className="w-1/3 bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
               
-              <select 
+              <DurationInput 
                 value={editingService.duration_minutes} 
-                onChange={(e) => setEditingService({ ...editingService, duration_minutes: e.target.value })} 
-                className="w-1/3 bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none cursor-pointer">
-                <option value="15">15 min</option>
-                <option value="30">30 min</option>
-                <option value="45">45 min</option>
-                <option value="60">1 hora</option>
-                <option value="75">1h 15min</option>
-                <option value="90">1h 30min</option>
-                <option value="105">1h 45min</option>
-                <option value="120">2 horas</option>
-                <option value="135">2h 15min</option>
-                <option value="150">2h 30min</option>
-                <option value="180">3 horas</option>
-                <option value="210">3h 30min</option>
-                <option value="240">4 horas</option>
-              </select>
+                onChange={(val) => setEditingService({ ...editingService, duration_minutes: val })} 
+              />
 
               <input 
                 type="text" 

@@ -152,20 +152,21 @@ export default function AgendamentoCliente() {
     setLoading(false);
   };
 
+  // BUSCA SELOS UNIFICADA NA TABELA tenant_customers PARA SINCRONIA COM ADMIN E AGENDA
   const fetchCustomerLoyalty = async (phone) => {
     if (!tenant?.id || !phone) return;
     const clean = phone.replace(/\D/g, '');
     if (clean.length < 10) return;
 
     const { data } = await supabase
-      .from('tenant_customer_loyalty')
-      .select('loyalty_count')
+      .from('tenant_customers')
+      .select('loyalty_stamps')
       .eq('tenant_id', tenant.id)
       .eq('customer_phone', clean)
       .maybeSingle();
 
     if (data) {
-      setLoyaltyCount(data.loyalty_count || 0);
+      setLoyaltyCount(data.loyalty_stamps || 0);
     } else {
       setLoyaltyCount(0);
     }
@@ -541,8 +542,9 @@ export default function AgendamentoCliente() {
     endDateObj.setHours(h, m + totalDuration, 0, 0);
     const endTime = endDateObj.toTimeString().substring(0, 5);
 
-    const chosenProfId = parseInt(selectedProf);
-    const chosenProfObj = professionals.find(p => String(p.id) === String(chosenProfId));
+    // TRATAMENTO SEGURO DE ID DO PROFISSIONAL (NUMÉRICO OU STRING/UUID)
+    const chosenProfId = isNaN(Number(selectedProf)) ? String(selectedProf) : Number(selectedProf);
+    const chosenProfObj = professionals.find(p => String(p.id) === String(selectedProf));
     const chosenProfName = chosenProfObj?.name || '';
 
     const appointmentData = {

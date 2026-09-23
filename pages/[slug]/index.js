@@ -400,6 +400,7 @@ export default function AgendamentoCliente() {
     setSelectedTime('');
   };
 
+  // FUNÇÃO DE VERIFICAÇÃO DE HORÁRIOS COM BLOQUEIO DE PAUSA/ALMOÇO
   const getSlotAvailability = (targetProfId = selectedProf, targetServices = selectedServices, targetDate = selectedDate, ignoreAppId = null) => {
     if (targetServices.length === 0 || !targetDate) {
       return { slots: [], status: 'select_service', message: 'Selecione o serviço desejado.' };
@@ -439,6 +440,16 @@ export default function AgendamentoCliente() {
     const closeHour = parseInt((dayHours.close || '18:00').split(':')[0]);
     const closeMin = parseInt((dayHours.close || '18:00').split(':')[1] || '0');
 
+    // CONVERTE HORÁRIO DE ALMOÇO / PAUSA DO PROFISSIONAL EM MINUTOS
+    let breakStartMin = -1;
+    let breakEndMin = -1;
+    if (profObj.break_start && profObj.break_end) {
+      const [bStartH, bStartM] = profObj.break_start.split(':').map(Number);
+      const [bEndH, bEndM] = profObj.break_end.split(':').map(Number);
+      breakStartMin = bStartH * 60 + bStartM;
+      breakEndMin = bEndH * 60 + bEndM;
+    }
+
     const dayBlocks = blockedTimes.filter(b => {
       const isProfTarget = b.professional_id === null || String(b.professional_id) === String(targetProfId);
       if (!isProfTarget) return false;
@@ -471,6 +482,7 @@ export default function AgendamentoCliente() {
       const slotStartMin = currentMin;
       const slotEndMin = currentMin + totalDur;
 
+      // CHECA CONFLITO COM AGENDAMENTOS EXISTENTES
       const profApps = existingAppointments.filter(app => String(app.professional_id) === String(targetProfId) && app.id !== ignoreAppId);
       const hasAppConflict = profApps.some(app => {
         const [aStartH, aStartM] = app.start_time.split(':').map(Number);
@@ -479,6 +491,7 @@ export default function AgendamentoCliente() {
         return Math.max(slotStartMin, aStartMin) < Math.min(slotEndMin, aEndMin);
       });
 
+      // CHECA CONFLITO COM BLOQUEIOS MANUAIS
       const hasBlockConflict = dayBlocks.some(b => {
         const [bStartH, bStartM] = b.start_time.split(':').map(Number);
         const [bEndH, bEndM] = b.end_time.split(':').map(Number);
@@ -487,7 +500,11 @@ export default function AgendamentoCliente() {
         return Math.max(slotStartMin, bStartMin) < Math.min(slotEndMin, bEndMin);
       });
 
-      if (!hasAppConflict && !hasBlockConflict) {
+      // CHECA CONFLITO COM O HORÁRIO DE ALMOÇO DA PROFISSIONAL
+      const hasBreakConflict = (breakStartMin !== -1 && breakEndMin !== -1) && 
+        (Math.max(slotStartMin, breakStartMin) < Math.min(slotEndMin, breakEndMin));
+
+      if (!hasAppConflict && !hasBlockConflict && !hasBreakConflict) {
         slots.push(timeString);
       }
 
@@ -670,7 +687,7 @@ export default function AgendamentoCliente() {
             </div>
           )}
 
-          {/* CARTÃO FIDELIDADE DIGITAL (SE ATIVADO NAS CONFIGURAÇÕES DA LOJA E TELEFONE INFORMADO) */}
+          {/* CARTÃO FIDELIDADE DIGITAL */}
           {tenant.loyalty_enabled && customerPhone.replace(/\D/g, '').length >= 10 && (
             <div 
               style={{ backgroundColor: cardColor, color: textColor }} 
@@ -895,7 +912,7 @@ export default function AgendamentoCliente() {
             </div>
           )}
 
-          {/* PASSO 4: CONFIRMAÇÃO DE DADOS (INCLUI ANIVERSÁRIO DIA/MÊS) */}
+          {/* PASSO 4: CONFIRMAÇÃO DE DADOS */}
           {selectedTime && (
             <form onSubmit={handleConfirmAppointment} className="space-y-3 pt-4 border-t border-black/10">
               <h3 className="font-bold text-xs uppercase tracking-wider opacity-80">

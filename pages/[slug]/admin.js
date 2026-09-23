@@ -31,7 +31,7 @@ export default function AdminTenant() {
 
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [password, setPassword] = useState('');
-  const [activeTab, setActiveTab] = useState('services'); // services, professionals, customers, reports, links, bot, settings
+  const [activeTab, setActiveTab] = useState('services'); // services, professionals, customers, appointments, reports, bot, links, settings
   const [loading, setLoading] = useState(true);
 
   const [tenant, setTenant] = useState(null);
@@ -39,6 +39,15 @@ export default function AdminTenant() {
   const [professionals, setProfessionals] = useState([]);
   const [appointments, setAppointments] = useState([]);
   const [reportFilter, setReportFilter] = useState('all');
+
+  // FILTRO CUSTOMIZADO DE DATAS NO FINANCEIRO
+  const [customStartDate, setCustomStartDate] = useState('');
+  const [customEndDate, setCustomEndDate] = useState('');
+
+  // GESTÃO DA AGENDA DE AGENDAMENTOS
+  const [appointmentStatusFilter, setAppointmentStatusFilter] = useState('all');
+  const [appointmentProfFilter, setAppointmentProfFilter] = useState('');
+  const [appointmentSearch, setAppointmentSearch] = useState('');
 
   // GESTÃO DE CLIENTES & OBSERVAÇÕES
   const [customerSearch, setCustomerSearch] = useState('');
@@ -96,6 +105,8 @@ export default function AdminTenant() {
     commission_percentage: '50',
     work_days: [1, 2, 3, 4, 5, 6],
     work_hours: DEFAULT_WORK_HOURS,
+    break_start: '12:00',
+    break_end: '13:00',
     pin: '1234',
     bot_message_template: ''
   });
@@ -233,7 +244,6 @@ export default function AdminTenant() {
     let finalFinPassword = originalFinPass;
 
     if (originalFinPass && originalFinPass.trim() !== '') {
-      // Se tentou alterar a senha financeira
       if (newFinPassInput.trim() !== originalFinPass) {
         if (oldFinPassInput.trim() !== originalFinPass && oldFinPassInput.trim() !== 'master123') {
           return alert("❌ Para alterar a Senha Financeira, você precisa informar a Senha Financeira ATUAL (antiga) corretamente!");
@@ -241,7 +251,6 @@ export default function AdminTenant() {
         finalFinPassword = newFinPassInput.trim();
       }
     } else {
-      // Se ainda não existia senha financeira
       finalFinPassword = newFinPassInput.trim();
     }
 
@@ -374,6 +383,8 @@ export default function AdminTenant() {
       commission_percentage: parseFloat(newProf.commission_percentage || 50),
       work_days: newProf.work_days || [1, 2, 3, 4, 5, 6],
       work_hours: newProf.work_hours || DEFAULT_WORK_HOURS,
+      break_start: newProf.break_start || '12:00',
+      break_end: newProf.break_end || '13:00',
       pin: newProf.pin ? String(newProf.pin).trim() : '1234',
       bot_message_template: newProf.bot_message_template ? newProf.bot_message_template.trim() : '',
       active: true
@@ -395,6 +406,8 @@ export default function AdminTenant() {
         commission_percentage: '50', 
         work_days: [1, 2, 3, 4, 5, 6], 
         work_hours: DEFAULT_WORK_HOURS, 
+        break_start: '12:00',
+        break_end: '13:00',
         pin: '1234', 
         bot_message_template: '' 
       });
@@ -422,6 +435,8 @@ export default function AdminTenant() {
       commission_percentage: parseFloat(editingProf.commission_percentage || 50),
       work_days: editingProf.work_days || [1, 2, 3, 4, 5, 6],
       work_hours: editingProf.work_hours || DEFAULT_WORK_HOURS,
+      break_start: editingProf.break_start || '12:00',
+      break_end: editingProf.break_end || '13:00',
       pin: editingProf.pin ? String(editingProf.pin).trim() : '1234',
       bot_message_template: editingProf.bot_message_template ? editingProf.bot_message_template.trim() : ''
     }).eq('id', editingProf.id);
@@ -444,11 +459,32 @@ export default function AdminTenant() {
     }
   };
 
+  // NOVA FUNÇÃO: GESTÃO E ALTERAÇÃO DE STATUS DE AGENDAMENTOS
+  const handleUpdateAppointmentStatus = async (appointmentId, newStatus) => {
+    const { error } = await supabase
+      .from('appointments')
+      .update({ status: newStatus })
+      .eq('id', appointmentId);
+
+    if (error) {
+      alert("Erro ao atualizar status: " + error.message);
+    } else {
+      fetchData();
+    }
+  };
+
   const getFilteredAppointments = () => {
     const now = new Date();
     return appointments.filter(a => {
-      if (a.status === 'cancelado') return false;
+      if (a.status === 'cancelado' && reportFilter !== 'custom') return false;
       if (reportFilter === 'all') return true;
+      if (reportFilter === 'custom') {
+        if (!a.appointment_date) return false;
+        const appDateStr = a.appointment_date.split('T')[0];
+        if (customStartDate && appDateStr < customStartDate) return false;
+        if (customEndDate && appDateStr > customEndDate) return false;
+        return true;
+      }
       if (!a.appointment_date) return true;
       const appDate = new Date(a.appointment_date);
       const diffDays = (now - appDate) / (1000 * 60 * 60 * 24);
@@ -460,14 +496,15 @@ export default function AdminTenant() {
   };
 
   const filteredApps = getFilteredAppointments();
-  const totalRevenue = filteredApps.reduce((sum, a) => sum + Number(a.total_price || 0), 0);
+  const totalRevenue = filteredApps.reduce((sum, a) => sum + Number(a.total_price || a.price || 0), 0);
 
   const profCommissionsMap = {};
   filteredApps.forEach(a => {
+    if (a.status === 'cancelado') return;
     const prof = professionals.find(p => p.id === a.professional_id);
     if (prof) {
       const commRate = Number(prof.commission_percentage || 50) / 100;
-      const commValue = Number(a.total_price || 0) * commRate;
+      const commValue = Number(a.total_price || a.price || 0) * commRate;
       profCommissionsMap[prof.name] = (profCommissionsMap[prof.name] || 0) + commValue;
     }
   });
@@ -503,7 +540,6 @@ export default function AdminTenant() {
     });
 
     let list = Object.values(custMap).map(c => {
-      // Ordena os agendamentos do cliente do mais recente para o mais antigo
       const sortedApps = c.appointments.sort((a, b) => 
         new Date(b.appointment_date || b.created_at) - new Date(a.appointment_date || a.created_at)
       );
@@ -516,24 +552,21 @@ export default function AdminTenant() {
       return {
         ...c,
         prof_ids: Array.from(c.prof_ids),
-        last_date: lastApp.appointment_date ? lastApp.appointment_date.split('-').reverse().join('/') : '—',
+        last_date: lastApp.appointment_date ? lastApp.appointment_date.split('T')[0].split('-').reverse().join('/') : '—',
         last_services: lastServices,
         notes: customerNotesMap[c.phone] || ''
       };
     });
 
-    // FILTRO POR PROFISSIONAL
     if (customerProfFilter) {
       list = list.filter(c => c.prof_ids.includes(String(customerProfFilter)));
     }
 
-    // BUSCA POR NOME OU WHATSAPP
     if (customerSearch) {
       const q = customerSearch.toLowerCase().trim();
       list = list.filter(c => c.name.toLowerCase().includes(q) || c.phone.includes(q));
     }
 
-    // ORDENAÇÃO POR NOME (A-Z)
     list.sort((a, b) => a.name.localeCompare(b.name, 'pt-BR', { sensitivity: 'base' }));
 
     return list;
@@ -546,6 +579,45 @@ export default function AdminTenant() {
     .sort((a, b) => b.total_spent - a.total_spent)
     .slice(0, 3);
 
+  // NOVA FUNÇÃO: EXPORTAR CLIENTES EM CSV (EXCEL)
+  const exportCustomersCSV = () => {
+    if (processedCustomers.length === 0) return alert("Nenhum cliente para exportar.");
+    let csvContent = "data:text/csv;charset=utf-8,Nome,Telefone,Visitas,Total Gasto (R$),Ultimo Atendimento,Observacoes\n";
+    processedCustomers.forEach(c => {
+      const notesClean = (c.notes || '').replace(/"/g, '""');
+      csvContent += `"${c.name}","${c.phone}",${c.total_visits},"${c.total_spent.toFixed(2)}","${c.last_services}","${notesClean}"\n`;
+    });
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `clientes_${tenant?.slug || 'salao'}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // NOVA FUNÇÃO: EXPORTAR FINANCEIRO EM CSV
+  const exportFinancialCSV = () => {
+    if (filteredApps.length === 0) return alert("Nenhum registro para exportar.");
+    let csvContent = "data:text/csv;charset=utf-8,Data,Cliente,Telefone,Profissional,Servico,Valor (R$),Status\n";
+    filteredApps.forEach(a => {
+      const prof = professionals.find(p => p.id === a.professional_id);
+      const profName = prof ? prof.name : '—';
+      const cName = a.customer_name || a.client_name || 'Cliente';
+      const cPhone = a.customer_phone || a.client_phone || a.phone || '';
+      const sName = a.service_name || (Array.isArray(a.services_json) ? a.services_json.map(s => s.name).join(' + ') : 'Serviço');
+      const price = Number(a.total_price || a.price || 0).toFixed(2);
+      csvContent += `"${a.appointment_date || ''}","${cName}","${cPhone}","${profName}","${sName}","${price}","${a.status || 'confirmado'}"\n`;
+    });
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `relatorio_financeiro_${tenant?.slug || 'salao'}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   // LIBERAÇÃO RESTRITA DO FINANCEIRO GERAL
   const handleUnlockGlobalFin = (e) => {
     e.preventDefault();
@@ -553,15 +625,13 @@ export default function AdminTenant() {
     const hasFinPass = tenant && tenant.financial_password && tenant.financial_password.trim() !== '';
 
     if (hasFinPass) {
-      // Se EXISTE senha financeira configurada, APENAS ela (ou master) desbloqueia
       if (adminFinPass === tenant.financial_password || isMaster) {
         setIsGlobalFinUnlocked(true);
         setAdminFinPass('');
       } else {
-        alert('❌ Senha Financeira incorreta! (A senha de Admin não tem permissão para acessar esta área quando há uma Senha Financeira cadastrada).');
+        alert('❌ Senha Financeira incorreta!');
       }
     } else {
-      // Se NÃO existe senha financeira, permite que a Senha de Admin acesse como fallback
       if ((tenant && adminFinPass === tenant.admin_password) || isMaster) {
         setIsGlobalFinUnlocked(true);
         setAdminFinPass('');
@@ -601,6 +671,32 @@ export default function AdminTenant() {
 
   const { finalLink, customMsg } = getShareLinkAndMsg();
 
+  // FILTRAGEM DOS AGENDAMENTOS NA ABA AGENDA
+  const getManageAppointmentsList = () => {
+    let list = [...appointments];
+
+    if (appointmentStatusFilter !== 'all') {
+      list = list.filter(a => (a.status || 'confirmado') === appointmentStatusFilter);
+    }
+
+    if (appointmentProfFilter) {
+      list = list.filter(a => String(a.professional_id) === String(appointmentProfFilter));
+    }
+
+    if (appointmentSearch) {
+      const q = appointmentSearch.toLowerCase().trim();
+      list = list.filter(a => {
+        const name = (a.customer_name || a.client_name || '').toLowerCase();
+        const phone = (a.customer_phone || a.client_phone || a.phone || '');
+        return name.includes(q) || phone.includes(q);
+      });
+    }
+
+    return list;
+  };
+
+  const manageAppointments = getManageAppointmentsList();
+
   if (loading) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><p className="text-sm text-gray-400">Carregando painel...</p></div>;
   if (!tenant) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><h1 className="text-xl font-bold text-orange-500">Estabelecimento não encontrado</h1></div>;
 
@@ -620,7 +716,7 @@ export default function AdminTenant() {
   const profApps = unlockedProfData
     ? filteredApps.filter(a => String(a.professional_id) === String(unlockedProfData.id))
     : [];
-  const profTotalRev = profApps.reduce((sum, a) => sum + Number(a.total_price || 0), 0);
+  const profTotalRev = profApps.reduce((sum, a) => sum + Number(a.total_price || a.price || 0), 0);
   const profCommEarned = profTotalRev * (Number(unlockedProfData?.commission_percentage || 50) / 100);
 
   return (
@@ -664,10 +760,11 @@ export default function AdminTenant() {
         </button>
       </header>
 
-      {/* BARRA DE TABS */}
+      {/* BARRA DE TABS ATUALIZADA COM ABA AGENDA */}
       <div className="flex space-x-1 bg-gray-900 p-1 rounded-xl border border-gray-800 mb-6 text-[11px] font-bold overflow-x-auto scrollbar-none">
         <button onClick={() => setActiveTab('services')} className={`flex-1 py-2 px-3 rounded-lg whitespace-nowrap transition ${activeTab === 'services' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>💈 Serviços</button>
         <button onClick={() => setActiveTab('professionals')} className={`flex-1 py-2 px-3 rounded-lg whitespace-nowrap transition ${activeTab === 'professionals' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>👨‍🔬 Equipe</button>
+        <button onClick={() => setActiveTab('appointments')} className={`flex-1 py-2 px-3 rounded-lg whitespace-nowrap transition ${activeTab === 'appointments' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>📅 Agenda</button>
         <button onClick={() => setActiveTab('customers')} className={`flex-1 py-2 px-3 rounded-lg whitespace-nowrap transition ${activeTab === 'customers' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>👥 Clientes</button>
         <button onClick={() => setActiveTab('reports')} className={`flex-1 py-2 px-3 rounded-lg whitespace-nowrap transition ${activeTab === 'reports' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>📊 Financeiro</button>
         <button onClick={() => setActiveTab('bot')} className={`flex-1 py-2 px-3 rounded-lg whitespace-nowrap transition ${activeTab === 'bot' ? 'bg-green-600 text-white' : 'text-gray-400'}`}>🤖 Robô Zap</button>
@@ -686,7 +783,6 @@ export default function AdminTenant() {
               <div className="flex space-x-2">
                 <input type="text" placeholder="Preço R$" value={newService.price} className="w-1/3 bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewService({ ...newService, price: e.target.value })} />
                 
-                {/* SELECT DE DURAÇÃO EM HORAS/MINUTOS */}
                 <select 
                   value={newService.duration_minutes} 
                   onChange={(e) => setNewService({ ...newService, duration_minutes: e.target.value })} 
@@ -706,7 +802,6 @@ export default function AdminTenant() {
                   <option value="240">4 horas</option>
                 </select>
 
-                {/* CAMPO DE CATEGORIA COM AUTO-COMPLETE DE EXISTENTES */}
                 <input 
                   type="text" 
                   list="existing-categories-list"
@@ -838,6 +933,17 @@ export default function AdminTenant() {
                 <input type="password" placeholder="****" value={newProf.pin} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProf({ ...newProf, pin: e.target.value })} />
               </div>
 
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[10px] text-gray-400 block mb-1">☕ Início Pausa/Almoço:</label>
+                  <input type="time" value={newProf.break_start || '12:00'} className="w-full bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white font-mono" onChange={(e) => setNewProf({ ...newProf, break_start: e.target.value })} />
+                </div>
+                <div>
+                  <label className="text-[10px] text-gray-400 block mb-1">☕ Fim Pausa/Almoço:</label>
+                  <input type="time" value={newProf.break_end || '13:00'} className="w-full bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white font-mono" onChange={(e) => setNewProf({ ...newProf, break_end: e.target.value })} />
+                </div>
+              </div>
+
               <div>
                 <label className="text-[10px] text-green-400 font-bold block mb-1">🤖 Mensagem Personalizada do Robô para este Profissional (Opcional):</label>
                 <textarea rows={2} placeholder="Ex: Olá {cliente}! Lembrete do seu horário comigo ({profissional}) amanhã..." value={newProf.bot_message_template} className="w-full bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white focus:outline-none font-mono" onChange={(e) => setNewProf({ ...newProf, bot_message_template: e.target.value })} />
@@ -850,7 +956,6 @@ export default function AdminTenant() {
                 <input type="number" value={newProf.commission_percentage} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProf({ ...newProf, commission_percentage: e.target.value })} />
               </div>
 
-              {/* SELEÇÃO DE DIAS E HORÁRIOS INDIVIDUAIS DA JORNADA */}
               <div className="bg-gray-950 p-3 rounded-xl border border-gray-800 space-y-2">
                 <label className="text-[11px] font-bold text-purple-400 block">📅 Dias e Horários de Atendimento:</label>
                 <p className="text-[10px] text-gray-500 mb-1">Selecione os dias e ajuste o horário de entrada e saída:</p>
@@ -920,6 +1025,7 @@ export default function AdminTenant() {
             {professionals.map((p) => {
               const pWorkDays = p.work_days || [1, 2, 3, 4, 5, 6];
               const pWorkHours = p.work_hours || DEFAULT_WORK_HOURS;
+              const isProfActive = p.active !== false;
 
               return (
                 <div key={p.id} className="bg-gray-900 p-3 rounded-xl border border-gray-800 space-y-2 text-xs">
@@ -927,16 +1033,24 @@ export default function AdminTenant() {
                     <div className="flex items-center space-x-3">
                       <img src={p.avatar_url || p.photo_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80'} alt={p.name} className="w-9 h-9 rounded-full object-cover border border-gray-700" />
                       <div>
-                        <span className="font-bold block text-white">
+                        <span className={`font-bold block ${isProfActive ? 'text-white' : 'line-through text-gray-500'}`}>
                           {p.name} {p.specialty && <span className="text-purple-400 text-[10px] font-normal">({p.specialty})</span>}
                         </span>
                         <span className="text-gray-400 text-[10px]">Comissão: <b className="text-green-400">{p.commission_percentage}%</b> {p.phone ? `• 📱 ${p.phone}` : '• Central'}</span>
                         {p.instagram_url && <span className="text-[10px] text-pink-400 block">📸 Insta: {p.instagram_url}</span>}
-                        <span className="text-[10px] text-orange-400 block font-mono">PIN: ••••</span>
+                        <span className="text-[10px] text-gray-500 block">☕ Almoço: {p.break_start || '12:00'} - {p.break_end || '13:00'}</span>
                       </div>
                     </div>
-                    <div className="flex space-x-1.5">
-                      <button onClick={() => setEditingProf({ ...p, work_days: p.work_days || [1, 2, 3, 4, 5, 6], work_hours: p.work_hours || DEFAULT_WORK_HOURS, pin: p.pin || '1234', instagram_url: p.instagram_url || '', specialty: p.specialty || '', bot_message_template: p.bot_message_template || '' })} className="bg-blue-600/20 text-blue-400 p-1.5 rounded-lg font-bold border border-blue-500/30">✏️ Editar</button>
+                    <div className="flex space-x-1.5 items-center">
+                      <button 
+                        onClick={async () => {
+                          await supabase.from('professionals').update({ active: !isProfActive }).eq('id', p.id);
+                          fetchData();
+                        }}
+                        className={`text-[10px] font-bold px-2 py-1 rounded-lg ${isProfActive ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'}`}>
+                        {isProfActive ? 'Ativo' : 'Pausado'}
+                      </button>
+                      <button onClick={() => setEditingProf({ ...p, work_days: p.work_days || [1, 2, 3, 4, 5, 6], work_hours: p.work_hours || DEFAULT_WORK_HOURS, break_start: p.break_start || '12:00', break_end: p.break_end || '13:00', pin: p.pin || '1234', instagram_url: p.instagram_url || '', specialty: p.specialty || '', bot_message_template: p.bot_message_template || '' })} className="bg-blue-600/20 text-blue-400 p-1.5 rounded-lg font-bold border border-blue-500/30">✏️ Editar</button>
                       <button onClick={async () => { if (confirm("Excluir profissional?")) { await supabase.from('professionals').delete().eq('id', p.id); fetchData(); } }} className="text-red-400 font-bold p-1.5">🗑</button>
                     </div>
                   </div>
@@ -961,10 +1075,136 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* ABA 3: GESTÃO DE CLIENTES */}
+      {/* ABA 3: NOVA ABA DE GESTÃO DA AGENDA DE AGENDAMENTOS */}
+      {activeTab === 'appointments' && (
+        <div className="space-y-6">
+          <section className="bg-gray-900 p-4 rounded-2xl border border-gray-800 space-y-4 shadow-xl">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+              <div>
+                <h3 className="font-bold text-xs text-orange-400 uppercase tracking-wider">
+                  📅 Central de Agendamentos ({manageAppointments.length})
+                </h3>
+                <p className="text-[11px] text-gray-400">Gerencie status, confirme ou cancele horários marcados</p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                <select
+                  value={appointmentStatusFilter}
+                  onChange={(e) => setAppointmentStatusFilter(e.target.value)}
+                  className="bg-gray-800 border border-gray-700 p-2 rounded-xl text-xs text-white focus:outline-none">
+                  <option value="all">-- Todos Status --</option>
+                  <option value="confirmado">Confirmados</option>
+                  <option value="pendente">Pendentes</option>
+                  <option value="concluido">Concluídos</option>
+                  <option value="cancelado">Cancelados</option>
+                </select>
+
+                <select
+                  value={appointmentProfFilter}
+                  onChange={(e) => setAppointmentProfFilter(e.target.value)}
+                  className="bg-gray-800 border border-gray-700 p-2 rounded-xl text-xs text-white focus:outline-none">
+                  <option value="">-- Todos Profissionais --</option>
+                  {professionals.map(p => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+
+                <input
+                  type="text"
+                  placeholder="🔍 Cliente ou Telefone..."
+                  value={appointmentSearch}
+                  onChange={(e) => setAppointmentSearch(e.target.value)}
+                  className="bg-gray-800 border border-gray-700 p-2 rounded-xl text-xs text-white focus:outline-none w-full sm:w-auto"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-3 pt-2">
+              {manageAppointments.length === 0 ? (
+                <p className="text-xs text-gray-500 text-center py-6">Nenhum agendamento encontrado com os filtros selecionados.</p>
+              ) : (
+                manageAppointments.map((app) => {
+                  const prof = professionals.find(p => String(p.id) === String(app.professional_id));
+                  const clientName = app.customer_name || app.client_name || 'Cliente';
+                  const clientPhone = (app.customer_phone || app.client_phone || app.phone || '').replace(/\D/g, '');
+                  const serviceTitle = app.service_name || (Array.isArray(app.services_json) ? app.services_json.map(s => s.name).join(', ') : 'Serviço');
+                  const status = app.status || 'confirmado';
+
+                  let statusBadgeClass = "bg-green-500/20 text-green-400 border-green-500/30";
+                  if (status === 'pendente') statusBadgeClass = "bg-yellow-500/20 text-yellow-400 border-yellow-500/30";
+                  if (status === 'cancelado') statusBadgeClass = "bg-red-500/20 text-red-400 border-red-500/30";
+                  if (status === 'concluido') statusBadgeClass = "bg-blue-500/20 text-blue-400 border-blue-500/30";
+
+                  const zapMsg = `Olá ${clientName}! Confirmando seu agendamento de *${serviceTitle}* no *${tenant.name}* no dia *${app.appointment_date || ''}* às *${app.appointment_time || app.time || ''}* com *${prof?.name || 'nossa equipe'}*.`;
+
+                  return (
+                    <div key={app.id} className="bg-gray-950 p-3.5 rounded-xl border border-gray-800 space-y-2 text-xs">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <div className="flex items-center space-x-2">
+                            <span className="font-bold text-white text-sm">{clientName}</span>
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${statusBadgeClass}`}>
+                              {status.toUpperCase()}
+                            </span>
+                          </div>
+                          <span className="text-[11px] text-orange-400 block font-semibold mt-0.5">✂️ {serviceTitle}</span>
+                          <span className="text-[10px] text-gray-400 block font-mono">
+                            📅 {app.appointment_date} • ⏰ {app.appointment_time || app.time || 'Horário N/I'} • Profissional: <b className="text-purple-300">{prof?.name || 'Toda Equipe'}</b>
+                          </span>
+                        </div>
+
+                        <span className="font-bold text-green-400 text-sm">
+                          R$ {Number(app.total_price || app.price || 0).toFixed(2)}
+                        </span>
+                      </div>
+
+                      <div className="flex flex-wrap justify-between items-center border-t border-gray-800/80 pt-2 gap-2">
+                        {clientPhone && (
+                          <a
+                            href={`https://wa.me/55${clientPhone}?text=${encodeURIComponent(zapMsg)}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="bg-green-600/20 hover:bg-green-600/40 text-green-400 border border-green-500/30 px-2.5 py-1 rounded-lg text-[10px] font-bold flex items-center space-x-1">
+                            <span>💬 WhatsApp Cliente</span>
+                          </a>
+                        )}
+
+                        <div className="flex items-center space-x-1 ml-auto">
+                          {status !== 'concluido' && (
+                            <button
+                              onClick={() => handleUpdateAppointmentStatus(app.id, 'concluido')}
+                              className="bg-blue-600/20 text-blue-400 border border-blue-500/30 px-2 py-1 rounded-lg text-[10px] font-bold">
+                              ✓ Concluir
+                            </button>
+                          )}
+                          {status !== 'confirmado' && (
+                            <button
+                              onClick={() => handleUpdateAppointmentStatus(app.id, 'confirmado')}
+                              className="bg-green-600/20 text-green-400 border border-green-500/30 px-2 py-1 rounded-lg text-[10px] font-bold">
+                              ✓ Confirmar
+                            </button>
+                          )}
+                          {status !== 'cancelado' && (
+                            <button
+                              onClick={() => handleUpdateAppointmentStatus(app.id, 'cancelado')}
+                              className="bg-red-600/20 text-red-400 border border-red-500/30 px-2 py-1 rounded-lg text-[10px] font-bold">
+                              ✕ Cancelar
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </section>
+        </div>
+      )}
+
+      {/* ABA 4: GESTÃO DE CLIENTES */}
       {activeTab === 'customers' && (
         <div className="space-y-6">
-          {/* DESTAQUE TOP CLIENTES VIP */}
           {topVipCustomers.length > 0 && (
             <section className="bg-gradient-to-r from-orange-950/40 via-gray-900 to-amber-950/40 p-4 rounded-2xl border border-orange-500/30 space-y-3 shadow-xl">
               <div className="flex items-center space-x-2">
@@ -993,12 +1233,18 @@ export default function AdminTenant() {
             </section>
           )}
 
-          {/* FILTROS E BUSCA DE CLIENTES */}
           <section className="bg-gray-900 p-4 rounded-2xl border border-gray-800 space-y-3">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
-              <h3 className="font-bold text-xs text-gray-300 uppercase tracking-wider">
-                👥 Diretório de Clientes ({processedCustomers.length})
-              </h3>
+              <div className="flex items-center space-x-3">
+                <h3 className="font-bold text-xs text-gray-300 uppercase tracking-wider">
+                  👥 Diretório de Clientes ({processedCustomers.length})
+                </h3>
+                <button
+                  onClick={exportCustomersCSV}
+                  className="bg-green-600/20 hover:bg-green-600/40 text-green-400 border border-green-500/30 px-2.5 py-1 rounded-lg text-[10px] font-bold transition">
+                  📥 Exportar CSV
+                </button>
+              </div>
 
               <div className="flex items-center space-x-2 w-full sm:w-auto">
                 <select
@@ -1021,7 +1267,6 @@ export default function AdminTenant() {
               </div>
             </div>
 
-            {/* LISTAGEM DE CLIENTES */}
             <div className="space-y-3 pt-2">
               {processedCustomers.length === 0 ? (
                 <p className="text-xs text-gray-500 text-center py-6">Nenhum cliente encontrado com os filtros aplicados.</p>
@@ -1063,7 +1308,6 @@ export default function AdminTenant() {
                         </div>
                       </div>
 
-                      {/* ÚLTIMO PROCEDIMENTO REALIZADO */}
                       <div className="bg-gray-900 p-2.5 rounded-xl border border-gray-800/80 text-[11px] flex justify-between items-center">
                         <div>
                           <span className="text-gray-400 text-[10px] block">Último Procedimento:</span>
@@ -1074,7 +1318,6 @@ export default function AdminTenant() {
                         </span>
                       </div>
 
-                      {/* CAMPO DE OBSERVAÇÃO INDIVIDUAL DO CLIENTE */}
                       <div className="space-y-1.5 pt-1">
                         <div className="flex justify-between items-center">
                           <label className="text-[10px] font-bold text-purple-300 block">
@@ -1111,7 +1354,7 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* ABA 4: FINANCEIRO */}
+      {/* ABA 5: FINANCEIRO */}
       {activeTab === 'reports' && (
         <div className="space-y-4">
           <div className="flex space-x-2 bg-gray-900 p-1.5 rounded-xl border border-gray-800 text-xs font-bold">
@@ -1159,21 +1402,42 @@ export default function AdminTenant() {
                 <div className="space-y-4">
                   <div className="flex justify-between items-center bg-gray-900/80 p-3 rounded-xl border border-gray-800">
                     <span className="text-xs font-bold text-green-400">🔓 Financeiro Desbloqueado</span>
-                    <button
-                      onClick={() => setIsGlobalFinUnlocked(false)}
-                      className="bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700 px-3 py-1 rounded-lg text-xs font-bold transition">
-                      🔒 Ocultar Dados
-                    </button>
+                    <div className="flex items-center space-x-2">
+                      <button
+                        onClick={exportFinancialCSV}
+                        className="bg-green-600/20 hover:bg-green-600/40 text-green-400 border border-green-500/30 px-3 py-1 rounded-lg text-xs font-bold transition">
+                        📥 Exportar CSV
+                      </button>
+                      <button
+                        onClick={() => setIsGlobalFinUnlocked(false)}
+                        className="bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700 px-3 py-1 rounded-lg text-xs font-bold transition">
+                        🔒 Ocultar Dados
+                      </button>
+                    </div>
                   </div>
 
                   <div className="flex flex-col space-y-2 bg-gray-900 p-3 rounded-xl border border-gray-800 text-xs">
                     <span className="text-gray-400 font-bold">Filtro de Período:</span>
-                    <div className="flex space-x-1 overflow-x-auto pb-1">
+                    <div className="flex flex-wrap gap-1">
                       <button onClick={() => setReportFilter('all')} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${reportFilter === 'all' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400'}`}>Tudo</button>
                       <button onClick={() => setReportFilter('today')} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${reportFilter === 'today' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400'}`}>Hoje</button>
                       <button onClick={() => setReportFilter('7days')} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${reportFilter === '7days' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400'}`}>7 Dias</button>
                       <button onClick={() => setReportFilter('30days')} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${reportFilter === '30days' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400'}`}>30 Dias</button>
+                      <button onClick={() => setReportFilter('custom')} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${reportFilter === 'custom' ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-400'}`}>📅 Personalizado</button>
                     </div>
+
+                    {reportFilter === 'custom' && (
+                      <div className="flex items-center space-x-2 pt-2 border-t border-gray-800">
+                        <div>
+                          <label className="text-[10px] text-gray-400 block">De:</label>
+                          <input type="date" value={customStartDate} onChange={(e) => setCustomStartDate(e.target.value)} className="bg-gray-800 border border-gray-700 p-1.5 rounded-lg text-xs text-white" />
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-gray-400 block">Até:</label>
+                          <input type="date" value={customEndDate} onChange={(e) => setCustomEndDate(e.target.value)} className="bg-gray-800 border border-gray-700 p-1.5 rounded-lg text-xs text-white" />
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
@@ -1312,7 +1576,7 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* ABA 5: ROBÔ WHATSAPP / LEMBRETES AUTOMÁTICOS */}
+      {/* ABA 6: ROBÔ WHATSAPP / LEMBRETES AUTOMÁTICOS */}
       {activeTab === 'bot' && (
         <div className="space-y-6">
           <section className="bg-gray-900 p-5 rounded-2xl border border-green-500/30 space-y-4 shadow-xl">
@@ -1406,7 +1670,7 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* ABA 6: DIVULGAÇÃO & LINKS PERSONALIZADOS */}
+      {/* ABA 7: DIVULGAÇÃO & LINKS PERSONALIZADOS */}
       {activeTab === 'links' && (
         <div className="space-y-6">
           <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
@@ -1471,7 +1735,7 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* ABA 7: CONFIGURAÇÕES DA LOJA */}
+      {/* ABA 8: CONFIGURAÇÕES DA LOJA */}
       {activeTab === 'settings' && (
         <div className="space-y-6">
           <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
@@ -1600,7 +1864,6 @@ export default function AdminTenant() {
             <div className="flex space-x-2">
               <input type="text" value={editingService.price} onChange={(e) => setEditingService({ ...editingService, price: e.target.value })} className="w-1/3 bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
               
-              {/* SELECT DE DURAÇÃO NO MODAL DE EDIÇÃO */}
               <select 
                 value={editingService.duration_minutes} 
                 onChange={(e) => setEditingService({ ...editingService, duration_minutes: e.target.value })} 
@@ -1620,7 +1883,6 @@ export default function AdminTenant() {
                 <option value="240">4 horas</option>
               </select>
 
-              {/* CAMPO DE CATEGORIA COM AUTO-COMPLETE DE EXISTENTES */}
               <input 
                 type="text" 
                 list="existing-categories-list"
@@ -1687,6 +1949,17 @@ export default function AdminTenant() {
             <input type="text" value={editingProf.instagram_url || ''} onChange={(e) => setEditingProf({ ...editingProf, instagram_url: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" placeholder="Instagram (Ex: @ana_designer)" />
             <input type="password" value={editingProf.pin || ''} onChange={(e) => setEditingProf({ ...editingProf, pin: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" placeholder="PIN de 4 Dígitos" />
             
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-[10px] text-gray-400 block mb-1">Início Almoço:</label>
+                <input type="time" value={editingProf.break_start || '12:00'} onChange={(e) => setEditingProf({ ...editingProf, break_start: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-1.5 rounded-lg text-xs text-white font-mono" />
+              </div>
+              <div>
+                <label className="text-[10px] text-gray-400 block mb-1">Fim Almoço:</label>
+                <input type="time" value={editingProf.break_end || '13:00'} onChange={(e) => setEditingProf({ ...editingProf, break_end: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-1.5 rounded-lg text-xs text-white font-mono" />
+              </div>
+            </div>
+
             <div>
               <label className="text-[10px] text-green-400 font-bold block mb-1">🤖 Mensagem Personalizada do Robô para este Profissional (Opcional):</label>
               <textarea rows={2} placeholder="Ex: Olá {cliente}! Lembrete do seu horário comigo ({profissional}) amanhã..." value={editingProf.bot_message_template || ''} className="w-full bg-gray-800 border border-gray-700 p-2 rounded-lg text-xs text-white focus:outline-none font-mono" onChange={(e) => setEditingProf({ ...editingProf, bot_message_template: e.target.value })} />
@@ -1695,7 +1968,6 @@ export default function AdminTenant() {
             <input type="text" value={editingProf.avatar_url || ''} onChange={(e) => setEditingProf({ ...editingProf, avatar_url: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" placeholder="URL Avatar" />
             <input type="number" value={editingProf.commission_percentage || ''} onChange={(e) => setEditingProf({ ...editingProf, commission_percentage: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" placeholder="% Comissão" />
 
-            {/* EDIÇÃO DE DIAS E HORÁRIOS INDIVIDUAIS */}
             <div className="bg-gray-950 p-3 rounded-xl border border-gray-800 space-y-2">
               <label className="text-[11px] font-bold text-purple-400 block">📅 Dias e Horários de Atendimento:</label>
               <div className="space-y-2">

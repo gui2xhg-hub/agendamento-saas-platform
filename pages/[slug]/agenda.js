@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../../lib/supabase';
 
-// PRESETS DE CORES EXCLUSIVOS E PREDEFINIDOS PARA A AGENDA
+// PRESETS DE CORES EXCLUSIVOS E PREDEFINIDOS PARA A AGENDA (INCLUI TEMA CLARO)
 const THEME_PRESETS = {
   dark: {
     name: 'Dark 🌙',
@@ -50,7 +50,7 @@ const THEME_PRESETS = {
     secondary: '#F3F4F6',
     cardBg: '#FFFFFF',
     text: '#111827',
-    border: 'rgba(0, 0, 0, 0.1)'
+    border: 'rgba(0, 0, 0, 0.12)'
   }
 };
 
@@ -67,6 +67,16 @@ const formatDuration = (minutes) => {
   return `${hrs}h ${remMins}min`;
 };
 
+// MÁSCARA AUXILIAR DE TELEFONE / WHATSAPP
+const maskPhone = (value) => {
+  if (!value) return '';
+  const clean = value.replace(/\D/g, '');
+  if (clean.length <= 10) {
+    return clean.replace(/(\d{2})(\d{4})(\d{0,4})/, '($1) $2-$3').trim();
+  }
+  return clean.replace(/(\d{2})(\d{5})(\d{0,4})/, '($1) $2-$3').slice(0, 15);
+};
+
 // AUXILIAR PARA PARSE DE ID (SUPORTA TANTO INTEGER QUANTO UUID/STRING)
 const parseProfId = (id) => {
   if (!id) return null;
@@ -78,7 +88,7 @@ export default function AgendaTenant() {
   const router = useRouter();
   const { slug } = router.query;
 
-  // Função auxiliar para obter a data local formatada YYYY-MM-DD
+  // Obter data local formatada YYYY-MM-DD
   const getTodayLocal = () => new Date().toLocaleDateString('sv-SE');
 
   const [tenant, setTenant] = useState(null);
@@ -90,7 +100,7 @@ export default function AgendaTenant() {
   const [customerList, setCustomerList] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // SELETOR DE TEMA PRÓPRIO DA AGENDA (INICIA EM 'dark')
+  // SELETOR DE TEMA PRÓPRIO DA AGENDA
   const [agendaTheme, setAgendaTheme] = useState('dark');
 
   // FILTROS DE DATA E PROFISSIONAL
@@ -109,7 +119,7 @@ export default function AgendaTenant() {
   const [finPeriodFilter, setFinPeriodFilter] = useState('all'); // 'all', 'today', '7days', '30days'
   const [allProfAppointments, setAllProfAppointments] = useState([]);
 
-  // NORMAS DE DIAS DA SEMANA (0 = Domingo, 1 = Segunda, ..., 6 = Sábado)
+  // DIAS DA SEMANA (0 = Domingo, 1 = Segunda, ..., 6 = Sábado)
   const ALL_DAYS = [
     { id: 1, label: 'Seg' },
     { id: 2, label: 'Ter' },
@@ -275,10 +285,8 @@ export default function AgendaTenant() {
       if (blocks) {
         const selectedDayOfWeek = new Date(selectedDate + 'T00:00:00').getDay();
         const filteredBlocks = blocks.filter(b => {
-          // 1. SE O BLOQUEIO É DA DATA EXATA, RETORNA TRUE
           if (b.block_date === selectedDate) return true;
 
-          // 2. SE É RECORRENTE, VERIFICA O DIA DA SEMANA
           const isRec = b.is_recurring || (b.reason && b.reason.includes('[RECORRENTE]'));
           if (isRec && Number(b.recurring_day) === selectedDayOfWeek) return true;
 
@@ -443,7 +451,7 @@ export default function AgendaTenant() {
     const found = customerList.find(c => c.customer_phone === phone);
     if (found) {
       setManualCustomerName(found.customer_name);
-      setManualCustomerPhone(found.customer_phone);
+      setManualCustomerPhone(maskPhone(found.customer_phone));
     }
   };
 
@@ -464,7 +472,8 @@ export default function AgendaTenant() {
 
   const handleCreateManualApp = async (e) => {
     e.preventDefault();
-    if (!manualCustomerName || !manualCustomerPhone) return alert("Preencha o Nome e WhatsApp do cliente!");
+    const cleanPhone = manualCustomerPhone.replace(/\D/g, '');
+    if (!manualCustomerName || cleanPhone.length < 10) return alert("Preencha o Nome e WhatsApp válido do cliente!");
     if (!manualSelectedServiceId) return alert("Selecione o procedimento!");
 
     setIsSavingManualApp(true);
@@ -480,9 +489,8 @@ export default function AgendaTenant() {
       const endTime = endDateObj.toTimeString().substring(0, 5);
 
       const chosenProfObj = professionals.find(p => String(p.id) === String(manualProfId));
-      const cleanPhone = manualCustomerPhone.replace(/\D/g, '');
-
       const parsedProfId = parseProfId(manualProfId);
+
       if (!parsedProfId) {
         setIsSavingManualApp(false);
         return alert("Selecione um profissional válido.");
@@ -535,7 +543,7 @@ export default function AgendaTenant() {
       }
     } catch (err) {
       console.error("Erro na requisição de agendamento:", err);
-      alert("Falha de conexão ao criar agendamento. Verifique sua internet e tente novamente.");
+      alert("Falha de conexão ao criar agendamento.");
     } finally {
       setIsSavingManualApp(false);
     }
@@ -715,6 +723,7 @@ export default function AgendaTenant() {
       if (error) {
         alert("Erro ao atualizar status: " + error.message);
       } else {
+        // CREDITAR SELOS NO CARTÃO FIDELIDADE AO CONCLUIR ATENDIMENTO
         if (newStatus === 'concluido' && tenant?.loyalty_enabled && app.customer_phone) {
           const cleanPhone = app.customer_phone.replace(/\D/g, '');
           if (cleanPhone.length >= 10) {
@@ -729,6 +738,7 @@ export default function AgendaTenant() {
               const currentStamps = custData?.loyalty_stamps || 0;
               const newStamps = currentStamps + 1;
 
+              // UPSERT UNIFICADO NA TABELA tenant_customers
               await supabase
                 .from('tenant_customers')
                 .upsert({
@@ -738,6 +748,7 @@ export default function AgendaTenant() {
                   loyalty_stamps: newStamps
                 }, { onConflict: 'tenant_id,customer_phone' });
 
+              // MANTÉM TABELA DE BACKWARD COMPATIBILITY
               await supabase
                 .from('tenant_customer_loyalty')
                 .upsert({
@@ -814,10 +825,9 @@ export default function AgendaTenant() {
     openManualModalWithProf(selectedProf, timeSlot);
   };
 
-  // BLOQUEIO RÁPIDO: CORRIGIDO PARA INICIAR SEM RECORRÊNCIA OBRIGATÓRIA
   const handleQuickBlockSlot = (timeSlot) => {
     const [h, m] = timeSlot.split(':').map(Number);
-    const endMin = h * 60 + m + 60; // 1 Hora de bloqueio padrão
+    const endMin = h * 60 + m + 60;
     const endH = Math.floor(endMin / 60);
     const endM = endMin % 60;
     const endTimeStr = `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`;
@@ -828,7 +838,7 @@ export default function AgendaTenant() {
     setBlockEndTime(endTimeStr);
     setBlockReason('Almoço / Intervalo');
     setIsFullDayBlock(false);
-    setIsRecurringBlock(false); // Inicia como Falso para evitar erros
+    setIsRecurringBlock(false);
     setShowBlockModal(true);
   };
 
@@ -859,7 +869,6 @@ export default function AgendaTenant() {
     let currentMin = openH * 60 + (openM || 0);
     const endMin = closeH * 60 + (closeM || 0);
 
-    // HORÁRIO DE PAUSA / ALMOÇO FIXO DA PROFISSIONAL
     let breakStartMin = -1;
     let breakEndMin = -1;
     if (currentProf?.break_start && currentProf?.break_end) {
@@ -996,8 +1005,8 @@ export default function AgendaTenant() {
         }
       `}</style>
 
-      {/* BARRA DE SELEÇÃO DE TEMA */}
-      <div className="flex flex-col sm:flex-row justify-between items-center p-3 rounded-2xl mb-4 border space-y-2 sm:space-y-0" style={{ backgroundColor: cardBgColor, borderColor: borderColor }}>
+      {/* BARRA DE SELEÇÃO DE TEMA DA AGENDA */}
+      <div className="flex flex-col sm:flex-row justify-between items-center p-3 rounded-2xl mb-4 border space-y-2 sm:space-y-0 shadow-sm" style={{ backgroundColor: cardBgColor, borderColor: borderColor }}>
         <span className="text-xs font-bold opacity-80 flex items-center space-x-1">
           <span>🎨 Aparência da Agenda:</span>
         </span>
@@ -1010,7 +1019,7 @@ export default function AgendaTenant() {
                 type="button"
                 onClick={() => handleThemeChange(key)}
                 className={`px-3 py-1.5 rounded-xl text-[11px] font-bold transition flex items-center space-x-1 ${
-                  isActive ? 'shadow-md scale-105' : 'opacity-60 hover:opacity-100'
+                  isActive ? 'shadow-md scale-105' : 'opacity-70 hover:opacity-100'
                 }`}
                 style={{
                   backgroundColor: isActive ? themeObj.primary : secondaryColor,
@@ -1037,7 +1046,7 @@ export default function AgendaTenant() {
             type="date"
             value={selectedDate}
             onChange={(e) => setSelectedDate(e.target.value)}
-            className="border p-2.5 rounded-xl text-xs font-bold focus:outline-none cursor-pointer"
+            className="border p-2.5 rounded-xl text-xs font-bold focus:outline-none cursor-pointer shadow-sm"
             style={{ backgroundColor: cardBgColor, color: textColor, borderColor: borderColor }}
           />
 
@@ -1048,13 +1057,13 @@ export default function AgendaTenant() {
               setIsFinUnlocked(false);
               setShowFinModal(true);
             }}
-            className="bg-amber-600 hover:bg-amber-700 text-white px-3.5 py-2.5 rounded-xl text-xs font-bold transition shadow-lg flex items-center space-x-1 whitespace-nowrap">
+            className="bg-amber-600 hover:bg-amber-700 text-white px-3.5 py-2.5 rounded-xl text-xs font-bold transition shadow-md flex items-center space-x-1 whitespace-nowrap">
             <span>💰 Meu Financeiro</span>
           </button>
 
           <button
             onClick={() => openManualModalWithProf(selectedProf)}
-            className="bg-green-600 hover:bg-green-700 text-white px-3.5 py-2.5 rounded-xl text-xs font-bold transition shadow-lg flex items-center space-x-1 whitespace-nowrap">
+            className="bg-green-600 hover:bg-green-700 text-white px-3.5 py-2.5 rounded-xl text-xs font-bold transition shadow-md flex items-center space-x-1 whitespace-nowrap">
             <span>➕ Agendar Cliente</span>
           </button>
 
@@ -1066,13 +1075,13 @@ export default function AgendaTenant() {
               setIsRecurringBlock(false);
               setShowBlockModal(true);
             }}
-            className="bg-purple-600 hover:bg-purple-700 text-white px-3.5 py-2.5 rounded-xl text-xs font-bold transition shadow-lg flex items-center space-x-1 whitespace-nowrap">
+            className="bg-purple-600 hover:bg-purple-700 text-white px-3.5 py-2.5 rounded-xl text-xs font-bold transition shadow-md flex items-center space-x-1 whitespace-nowrap">
             <span>🔒 Fechar Horário</span>
           </button>
 
           <button 
             onClick={() => fetchAppointmentsAndBlocks()} 
-            className="border p-2.5 rounded-xl text-xs font-bold transition hover:opacity-80"
+            className="border p-2.5 rounded-xl text-xs font-bold transition hover:opacity-80 shadow-sm"
             style={{ backgroundColor: cardBgColor, color: textColor, borderColor: borderColor }}>
             🔄
           </button>
@@ -1081,7 +1090,7 @@ export default function AgendaTenant() {
 
       {/* PAINEL DE LEMBRETES DO DIA SEGUINTE */}
       <div 
-        className="mb-6 border rounded-2xl p-4 space-y-3 shadow-lg"
+        className="mb-6 border rounded-2xl p-4 space-y-3 shadow-md"
         style={{ backgroundColor: cardBgColor, borderColor: borderColor }}>
         <div className="flex justify-between items-center cursor-pointer" onClick={() => setShowTomorrowSummary(!showTomorrowSummary)}>
           <div className="flex items-center space-x-2">
@@ -1113,7 +1122,7 @@ export default function AgendaTenant() {
                   </div>
                   <button 
                     onClick={() => handleSendWhatsappReminder(app)}
-                    className="bg-green-600/20 hover:bg-green-600/30 text-green-500 border border-green-500/30 px-3 py-1.5 rounded-lg text-[10px] font-bold flex items-center space-x-1 transition">
+                    className="bg-green-600/20 hover:bg-green-600/30 text-green-600 border border-green-500/30 px-3 py-1.5 rounded-lg text-[10px] font-bold flex items-center space-x-1 transition">
                     <span>📲 Enviar Lembrete</span>
                   </button>
                 </div>
@@ -1137,7 +1146,7 @@ export default function AgendaTenant() {
               <button
                 key={item.dateStr}
                 onClick={() => setSelectedDate(item.dateStr)}
-                className="py-2.5 px-1 rounded-xl border flex flex-col items-center justify-center transition"
+                className="py-2.5 px-1 rounded-xl border flex flex-col items-center justify-center transition shadow-sm"
                 style={{
                   backgroundColor: isSelected ? primaryColor : cardBgColor,
                   borderColor: isSelected ? primaryColor : borderColor,
@@ -1170,7 +1179,7 @@ export default function AgendaTenant() {
                   setBlockProfId(prof.id);
                   setManualProfId(prof.id);
                 }}
-                className="p-3 rounded-2xl border flex items-center space-x-3 min-w-[170px] transition text-left relative"
+                className="p-3 rounded-2xl border flex items-center space-x-3 min-w-[170px] transition text-left relative shadow-sm"
                 style={{
                   backgroundColor: isSelected ? `${primaryColor}20` : cardBgColor,
                   borderColor: isSelected ? primaryColor : borderColor,
@@ -1201,15 +1210,15 @@ export default function AgendaTenant() {
 
       {/* MÉTRICAS */}
       <div className="grid grid-cols-3 gap-3 mb-6">
-        <div className="border p-3 rounded-2xl" style={{ backgroundColor: cardBgColor, borderColor: borderColor }}>
+        <div className="border p-3 rounded-2xl shadow-sm" style={{ backgroundColor: cardBgColor, borderColor: borderColor }}>
           <span className="text-[10px] font-bold opacity-70 uppercase block">Atendimentos</span>
           <span className="text-base font-bold" style={{ color: textColor }}>{displayedAppointments.length}</span>
         </div>
-        <div className="border p-3 rounded-2xl" style={{ backgroundColor: cardBgColor, borderColor: borderColor }}>
+        <div className="border p-3 rounded-2xl shadow-sm" style={{ backgroundColor: cardBgColor, borderColor: borderColor }}>
           <span className="text-[10px] font-bold text-yellow-500 uppercase block">Pendentes</span>
           <span className="text-base font-bold text-yellow-500">{pendingCount}</span>
         </div>
-        <div className="border p-3 rounded-2xl" style={{ backgroundColor: cardBgColor, borderColor: borderColor }}>
+        <div className="border p-3 rounded-2xl shadow-sm" style={{ backgroundColor: cardBgColor, borderColor: borderColor }}>
           <span className="text-[10px] font-bold text-green-500 uppercase block">Concluídos</span>
           <span className="text-base font-bold text-green-500">{completedCount}</span>
         </div>
@@ -1240,7 +1249,7 @@ export default function AgendaTenant() {
             return (
               <div 
                 key={`free-${selectedProf}-${item.time}`} 
-                className={`border border-dashed p-3 rounded-2xl flex justify-between items-center transition ${item.isPast ? 'opacity-50' : ''}`}
+                className={`border border-dashed p-3 rounded-2xl flex justify-between items-center transition shadow-sm ${item.isPast ? 'opacity-50' : ''}`}
                 style={{ backgroundColor: cardBgColor, borderColor: borderColor }}>
                 <div className="flex items-center space-x-3">
                   <span className="text-xs font-bold px-2.5 py-1 rounded-lg border" style={{ backgroundColor: secondaryColor, borderColor: borderColor }}>
@@ -1260,12 +1269,12 @@ export default function AgendaTenant() {
                 <div className="flex space-x-1.5">
                   <button
                     onClick={() => handleQuickManualAppSlot(item.time)}
-                    className="bg-green-600/20 hover:bg-green-600/40 text-green-500 border border-green-500/30 px-3 py-1 rounded-xl text-[11px] font-bold transition">
+                    className="bg-green-600/20 hover:bg-green-600/40 text-green-600 border border-green-500/30 px-3 py-1 rounded-xl text-[11px] font-bold transition">
                     ➕ Agendar
                   </button>
                   <button
                     onClick={() => handleQuickBlockSlot(item.time)}
-                    className="bg-purple-600/20 hover:bg-purple-600/40 text-purple-400 border border-purple-500/30 px-3 py-1 rounded-xl text-[11px] font-bold transition">
+                    className="bg-purple-600/20 hover:bg-purple-600/40 text-purple-600 border border-purple-500/30 px-3 py-1 rounded-xl text-[11px] font-bold transition">
                     🔒 Bloquear
                   </button>
                 </div>
@@ -1279,12 +1288,12 @@ export default function AgendaTenant() {
               <div key={`break-${idx}`} className="bg-orange-500/10 border border-orange-500/30 p-3.5 rounded-2xl flex justify-between items-center text-xs">
                 <div>
                   <div className="flex items-center space-x-1.5">
-                    <span className="text-orange-400 font-bold block">☕ Intervalo / Almoço da Profissional</span>
+                    <span className="text-orange-500 font-bold block">☕ Intervalo / Almoço da Profissional</span>
                   </div>
-                  <span className="text-orange-300 text-xs font-bold">⏰ {brk.start_time} às {brk.end_time}</span>
+                  <span className="text-orange-600 font-bold">⏰ {brk.start_time} às {brk.end_time}</span>
                   <span className="opacity-70 text-[10px] block italic">{brk.reason}</span>
                 </div>
-                <span className="text-[10px] opacity-60 bg-orange-500/20 text-orange-300 px-2.5 py-1 rounded-lg border border-orange-500/30 font-semibold">
+                <span className="text-[10px] opacity-80 bg-orange-500/20 text-orange-600 px-2.5 py-1 rounded-lg border border-orange-500/30 font-semibold">
                   Pausa Programada
                 </span>
               </div>
@@ -1299,7 +1308,7 @@ export default function AgendaTenant() {
             return (
               <div 
                 key={`app-${app.id}-${idx}`} 
-                className={`border p-4 rounded-2xl space-y-3 shadow-lg border-l-4 ${item.isPast ? 'opacity-80' : ''}`}
+                className={`border p-4 rounded-2xl space-y-3 shadow-md border-l-4 ${item.isPast ? 'opacity-80' : ''}`}
                 style={{ backgroundColor: cardBgColor, borderColor: borderColor, borderLeftColor: primaryColor }}>
                 <div className="flex justify-between items-start border-b pb-2.5" style={{ borderColor: borderColor }}>
                   <div className="flex items-center space-x-3">
@@ -1316,19 +1325,19 @@ export default function AgendaTenant() {
                             href={`https://wa.me/55${cleanPhone}`}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-[10px] bg-green-500/20 hover:bg-green-500/40 text-green-500 border border-green-500/30 px-2 py-0.5 rounded-full ml-1">
+                            className="text-[10px] bg-green-500/20 hover:bg-green-500/40 text-green-600 border border-green-500/30 px-2 py-0.5 rounded-full ml-1 font-semibold">
                             💬 WhatsApp
                           </a>
                         )}
                       </h3>
-                      <p className="text-[10px] opacity-70">📱 {app.customer_phone}</p>
+                      <p className="text-[10px] opacity-70">📱 {maskPhone(app.customer_phone)}</p>
                     </div>
                   </div>
 
                   <span className={`text-[10px] uppercase font-bold px-2.5 py-1 rounded-lg ${
-                    app.status === 'agendado' ? 'bg-yellow-500/20 text-yellow-500 border border-yellow-500/30' :
-                    app.status === 'concluido' ? 'bg-green-500/20 text-green-500 border border-green-500/30' :
-                    'bg-red-500/20 text-red-500 border border-red-500/30'
+                    app.status === 'agendado' ? 'bg-yellow-500/20 text-yellow-600 border border-yellow-500/30' :
+                    app.status === 'concluido' ? 'bg-green-500/20 text-green-600 border border-green-500/30' :
+                    'bg-red-500/20 text-red-600 border border-red-500/30'
                   }`}>
                     {app.status}
                   </span>
@@ -1346,17 +1355,17 @@ export default function AgendaTenant() {
                     <>
                       <button
                         onClick={() => handleOpenReschedule(app)}
-                        className="bg-purple-600/20 hover:bg-purple-600/40 text-purple-400 border border-purple-500/30 px-3 py-1.5 rounded-xl font-bold text-xs transition">
+                        className="bg-purple-600/20 hover:bg-purple-600/40 text-purple-600 border border-purple-500/30 px-3 py-1.5 rounded-xl font-bold text-xs transition">
                         ✏️ Reagendar
                       </button>
                       <button
                         onClick={() => handleUpdateAppStatus(app, 'concluido')}
-                        className="bg-green-600/20 hover:bg-green-600/40 text-green-500 border border-green-500/30 px-3.5 py-1.5 rounded-xl font-bold text-xs transition">
+                        className="bg-green-600/20 hover:bg-green-600/40 text-green-600 border border-green-500/30 px-3.5 py-1.5 rounded-xl font-bold text-xs transition">
                         ✅ Concluir
                       </button>
                       <button
                         onClick={() => handleUpdateAppStatus(app, 'cancelado')}
-                        className="bg-red-600/20 hover:bg-red-600/40 text-red-500 border border-red-500/30 px-3.5 py-1.5 rounded-xl font-bold text-xs transition">
+                        className="bg-red-600/20 hover:bg-red-600/40 text-red-600 border border-red-500/30 px-3.5 py-1.5 rounded-xl font-bold text-xs transition">
                         ❌ Cancelar
                       </button>
                     </>
@@ -1376,17 +1385,17 @@ export default function AgendaTenant() {
                   <div className="flex items-center space-x-1.5">
                     <span className="text-red-500 font-bold block">🔒 Horário Bloqueado</span>
                     {isRecurring && (
-                      <span className="bg-purple-500/20 text-purple-400 border border-purple-500/30 text-[9px] font-bold px-2 py-0.5 rounded-full">
+                      <span className="bg-purple-500/20 text-purple-600 border border-purple-500/30 text-[9px] font-bold px-2 py-0.5 rounded-full">
                         🔁 Recorrente
                       </span>
                     )}
                   </div>
-                  <span className="text-red-400 text-xs font-bold">⏰ {block.start_time} às {block.end_time}</span>
+                  <span className="text-red-600 text-xs font-bold">⏰ {block.start_time} às {block.end_time}</span>
                   {block.reason && <span className="opacity-70 text-[10px] block italic">{block.reason.replace(' [RECORRENTE]', '')}</span>}
                 </div>
                 <button
                   onClick={() => handleDeleteBlock(block.id)}
-                  className="bg-red-500/20 hover:bg-red-500/40 text-red-500 border border-red-500/30 px-3 py-1.5 rounded-xl font-bold text-[11px] transition">
+                  className="bg-red-500/20 hover:bg-red-500/40 text-red-600 border border-red-500/30 px-3 py-1.5 rounded-xl font-bold text-[11px] transition">
                   🔓 Desbloquear
                 </button>
               </div>
@@ -1493,7 +1502,7 @@ export default function AgendaTenant() {
                 <div className="grid grid-cols-2 gap-2">
                   <div className="border p-3 rounded-xl" style={{ backgroundColor: secondaryColor, borderColor: borderColor }}>
                     <span className="text-[10px] font-bold opacity-60 uppercase block">Total Atendido</span>
-                    <span className="text-base font-bold text-white">R$ {finTotalRevenue.toFixed(2)}</span>
+                    <span className="text-base font-bold" style={{ color: textColor }}>R$ {finTotalRevenue.toFixed(2)}</span>
                     <span className="text-[10px] opacity-50 block">{filteredProfApps.length} serviços realizados</span>
                   </div>
 
@@ -1585,7 +1594,7 @@ export default function AgendaTenant() {
                   </option>
                   {filteredCustomerList.map((c, i) => (
                     <option key={i} value={c.customer_phone}>
-                      {c.customer_name} ({c.customer_phone})
+                      {c.customer_name} ({maskPhone(c.customer_phone)})
                     </option>
                   ))}
                 </select>
@@ -1631,9 +1640,9 @@ export default function AgendaTenant() {
                 <input
                   type="text"
                   required
-                  placeholder="Ex: 47999999999"
+                  placeholder="(DDD) 99999-9999"
                   value={manualCustomerPhone}
-                  onChange={(e) => setManualCustomerPhone(e.target.value)}
+                  onChange={(e) => setManualCustomerPhone(maskPhone(e.target.value))}
                   className="w-full border p-2.5 rounded-xl focus:outline-none"
                   style={{ backgroundColor: secondaryColor, color: textColor, borderColor: borderColor }}
                 />
@@ -1709,7 +1718,7 @@ export default function AgendaTenant() {
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
           <div className="border w-full max-w-md rounded-2xl p-5 space-y-4 shadow-2xl" style={{ backgroundColor: cardBgColor, color: textColor, borderColor: borderColor }}>
             <div className="flex justify-between items-center border-b pb-2" style={{ borderColor: borderColor }}>
-              <h3 className="font-bold text-sm text-purple-400">✏️ Reagendar Atendimento #{editingApp.id}</h3>
+              <h3 className="font-bold text-sm text-purple-600">✏️ Reagendar Atendimento #{editingApp.id}</h3>
               <button onClick={() => setEditingApp(null)} className="opacity-60 font-bold text-xs">✕ Fechar</button>
             </div>
 
@@ -1781,7 +1790,7 @@ export default function AgendaTenant() {
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
           <div className="border w-full max-w-md rounded-2xl p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto" style={{ backgroundColor: cardBgColor, color: textColor, borderColor: borderColor }}>
             <div className="flex justify-between items-center border-b pb-2" style={{ borderColor: borderColor }}>
-              <h3 className="font-bold text-sm text-purple-400 flex items-center space-x-1">
+              <h3 className="font-bold text-sm text-purple-600 flex items-center space-x-1">
                 <span>🔒 Fechar Agenda / Bloquear Horário</span>
               </h3>
               <button onClick={() => setShowBlockModal(false)} className="opacity-60 font-bold text-xs hover:opacity-100">✕ Fechar</button>
@@ -1823,21 +1832,21 @@ export default function AgendaTenant() {
                   type="checkbox"
                   checked={isFullDayBlock}
                   onChange={(e) => setIsFullDayBlock(e.target.checked)}
-                  className="w-4 h-4 accent-purple-500 cursor-pointer"
+                  className="w-4 h-4 accent-purple-600 cursor-pointer"
                 />
               </div>
 
               <div className="p-3 rounded-xl border border-purple-500/30 space-y-2 bg-purple-500/10">
                 <div className="flex items-center justify-between">
                   <div>
-                    <span className="font-bold text-purple-400 block">🔁 Repetir semanalmente (Recorrente)</span>
+                    <span className="font-bold text-purple-600 block">🔁 Repetir semanalmente (Recorrente)</span>
                     <span className="text-[10px] opacity-70">Ideal para Almoço, Intervalos e Cursos fixos</span>
                   </div>
                   <input
                     type="checkbox"
                     checked={isRecurringBlock}
                     onChange={(e) => setIsRecurringBlock(e.target.checked)}
-                    className="w-4 h-4 accent-purple-500 cursor-pointer"
+                    className="w-4 h-4 accent-purple-600 cursor-pointer"
                   />
                 </div>
 
@@ -1846,10 +1855,10 @@ export default function AgendaTenant() {
                     <div className="flex justify-between items-center text-[10px] opacity-80">
                       <span>Aplicar nos dias:</span>
                       <div className="flex space-x-1">
-                        <button type="button" onClick={() => setBlockRepeatDays([1, 2, 3, 4, 5])} className="bg-purple-900/60 hover:bg-purple-800 text-purple-200 px-1.5 py-0.5 rounded font-bold">Seg-Sex</button>
-                        <button type="button" onClick={() => setBlockRepeatDays([1, 2, 3, 4, 5, 6])} className="bg-purple-900/60 hover:bg-purple-800 text-purple-200 px-1.5 py-0.5 rounded font-bold">Seg-Sáb</button>
-                        <button type="button" onClick={() => setBlockRepeatDays([0, 1, 2, 3, 4, 5, 6])} className="bg-purple-900/60 hover:bg-purple-800 text-purple-200 px-1.5 py-0.5 rounded font-bold">Todos</button>
-                        <button type="button" onClick={() => setBlockRepeatDays([selectedDayOfWeekNum])} className="bg-purple-900/60 hover:bg-purple-800 text-purple-200 px-1.5 py-0.5 rounded font-bold">Toda {selectedDayLabel}</button>
+                        <button type="button" onClick={() => setBlockRepeatDays([1, 2, 3, 4, 5])} className="bg-purple-600 text-white px-1.5 py-0.5 rounded font-bold">Seg-Sex</button>
+                        <button type="button" onClick={() => setBlockRepeatDays([1, 2, 3, 4, 5, 6])} className="bg-purple-600 text-white px-1.5 py-0.5 rounded font-bold">Seg-Sáb</button>
+                        <button type="button" onClick={() => setBlockRepeatDays([0, 1, 2, 3, 4, 5, 6])} className="bg-purple-600 text-white px-1.5 py-0.5 rounded font-bold">Todos</button>
+                        <button type="button" onClick={() => setBlockRepeatDays([selectedDayOfWeekNum])} className="bg-purple-600 text-white px-1.5 py-0.5 rounded font-bold">Toda {selectedDayLabel}</button>
                       </div>
                     </div>
 
@@ -1864,7 +1873,7 @@ export default function AgendaTenant() {
                             className={`py-1.5 rounded-lg text-[10px] font-bold border transition ${
                               isSelected 
                                 ? 'bg-purple-600 text-white border-purple-400' 
-                                : 'opacity-50'
+                                : 'opacity-60'
                             }`}
                             style={{ 
                               backgroundColor: !isSelected ? secondaryColor : undefined,

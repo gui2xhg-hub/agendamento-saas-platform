@@ -21,10 +21,12 @@ export default function HomePortalAgendamento() {
   const PIX_COPIA_COLA = "00020101021126330014br.gov.bcb.pix011107758777945520400005303986540599.995802BR5925HENRIQUE GONCALVES DE OLI6009SAO PAULO622905251M24TWWDEN5A3XEVQZMREE1D56304C896";
   const SUPPORT_WHATSAPP = "5547996302864";
 
-  // MURAL DE NOVIDADES DO SAAS DE AGENDAMENTO
+  // MURAL DE NOVIDADES DO SAAS DE AGENDAMENTO (ATUALIZADO)
   const systemUpdates = [
-    { id: 1, tag: 'NOVO', date: '10/09', title: '🤖 Robô de Lembretes Automáticos', desc: 'Disparo no WhatsApp 1 dia antes da agenda para zerar faltas e desistências.' },
-    { id: 2, tag: 'MELHORIA', date: '05/09', title: '✂️ Mensagem por Profissional', desc: 'Cada profissional do salão agora pode ter um texto de lembrete exclusivo.' }
+    { id: 1, tag: 'NOVO', date: '23/09', title: '💳 Cartão Fidelidade 100% Automático', desc: 'Acúmulo automático de selos ao concluir atendimentos na agenda e sincronização instantânea com o cadastro do cliente.' },
+    { id: 2, tag: 'NOVO', date: '22/09', title: '🎨 Tema Amarelo ☀️ / Dourado', desc: 'Novo preset de cores na agenda com contraste moderno e paleta harmônica.' },
+    { id: 3, tag: 'NOVO', date: '20/09', title: '🔐 Extrato Financeiro Protegido por PIN', desc: 'Relatório individual de comissões e faturamento por profissional com senha de segurança.' },
+    { id: 4, tag: 'MELHORIA', date: '15/09', title: '🤖 Lembretes de Amanhã no WhatsApp', desc: 'Painel rápido na agenda para envio de confirmação no WhatsApp 1 dia antes para evitar faltas.' }
   ];
 
   // CARREGA E RE-ATUALIZA OS DADOS DIRETO DO SUPABASE
@@ -125,7 +127,7 @@ export default function HomePortalAgendamento() {
     setTimeout(() => setCopiedPix(false), 2500);
   };
 
-  // 🟢 FORMATADOR DE MOEDA BRASILEIRA (CORRIGIDO PARA PRESERVAR R$ 0,00)
+  // FORMATADOR DE MOEDA BRASILEIRA (CORRIGIDO PARA PRESERVAR R$ 0,00)
   const formatCurrency = (amount, fallback = 0) => {
     const val = Number(amount ?? fallback);
     return val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -148,7 +150,7 @@ export default function HomePortalAgendamento() {
     }
   };
 
-  // 🎨 CORES E TEMAS DINÂMICOS DO CLIENTE
+  // CORES E TEMAS DINÂMICOS DO CLIENTE
   const primaryColor = tenant?.primary_color || '#A855F7';
   const buttonTextColor = tenant?.button_text_color || '#FFFFFF';
   const secondaryColor = tenant?.secondary_color || '#090D16';
@@ -303,7 +305,7 @@ export default function HomePortalAgendamento() {
               </div>
             </div>
 
-            {/* 💳 BARRA DE VENCIMENTO E MENSALIDADE PIX */}
+            {/* BARRA DE VENCIMENTO E MENSALIDADE PIX */}
             <div 
               className={`p-5 rounded-3xl border flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 transition ${
                 dueInfo.isExpired 
@@ -331,7 +333,7 @@ export default function HomePortalAgendamento() {
               </button>
             </div>
 
-            {/* 📢 MURAL DE NOVIDADES DO SISTEMA */}
+            {/* MURAL DE NOVIDADES DO SISTEMA */}
             <div 
               className="p-5 rounded-3xl border space-y-3"
               style={{ backgroundColor: cardBgColor, borderColor: 'rgba(255,255,255,0.1)' }}>

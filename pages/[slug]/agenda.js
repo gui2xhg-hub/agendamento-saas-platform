@@ -275,9 +275,13 @@ export default function AgendaTenant() {
       if (blocks) {
         const selectedDayOfWeek = new Date(selectedDate + 'T00:00:00').getDay();
         const filteredBlocks = blocks.filter(b => {
-          if (b.block_date === selectedDate && !b.is_recurring) return true;
-          if (b.is_recurring && b.recurring_day === selectedDayOfWeek) return true;
-          if (b.reason && b.reason.includes('[RECORRENTE]') && b.recurring_day === selectedDayOfWeek) return true;
+          // 1. SE O BLOQUEIO É DA DATA EXATA, RETORNA TRUE
+          if (b.block_date === selectedDate) return true;
+
+          // 2. SE É RECORRENTE, VERIFICA O DIA DA SEMANA
+          const isRec = b.is_recurring || (b.reason && b.reason.includes('[RECORRENTE]'));
+          if (isRec && Number(b.recurring_day) === selectedDayOfWeek) return true;
+
           return false;
         });
         setBlockedTimes(filteredBlocks);
@@ -358,7 +362,6 @@ export default function AgendaTenant() {
     }
   };
 
-  // BUSCA HISTÓRICO FINANCEIRO COMPLETO DO PROFISSIONAL SELECIONADO
   const fetchProfFinancials = async (profId) => {
     if (!tenant?.id || !profId) return;
     try {
@@ -444,7 +447,6 @@ export default function AgendaTenant() {
     }
   };
 
-  // 1. LEMBRETE DE AMANHÃ
   const handleSendWhatsappReminder = (app) => {
     const cleanPhone = (app.customer_phone || '').replace(/\D/g, '');
     if (!cleanPhone) return alert("Cliente não possui WhatsApp válido.");
@@ -460,7 +462,6 @@ export default function AgendaTenant() {
     window.location.href = `https://wa.me/55${cleanPhone}?text=${encodeURIComponent(msg)}`;
   };
 
-  // 2. AGENDAMENTO MANUAL
   const handleCreateManualApp = async (e) => {
     e.preventDefault();
     if (!manualCustomerName || !manualCustomerPhone) return alert("Preencha o Nome e WhatsApp do cliente!");
@@ -575,7 +576,7 @@ export default function AgendaTenant() {
       if (isRecurringBlock) finalReason += ' [RECORRENTE]';
 
       let payloads = [];
-      const parsedProfId = parseProfId(blockProfId);
+      const parsedProfId = blockProfId ? parseProfId(blockProfId) : null;
 
       if (isRecurringBlock) {
         payloads = blockRepeatDays.map(dayNum => ({
@@ -643,7 +644,6 @@ export default function AgendaTenant() {
     setRescheduleProfId(app.professional_id);
   };
 
-  // 3. REAGENDAMENTO
   const handleSaveReschedule = async (e) => {
     e.preventDefault();
     if (!rescheduleDate || !rescheduleTime) return alert("Selecione nova data e horário!");
@@ -715,12 +715,10 @@ export default function AgendaTenant() {
       if (error) {
         alert("Erro ao atualizar status: " + error.message);
       } else {
-        // SE CONCLUÍDO E FIDELIDADE ATIVA -> CREDITAR SELO COMPLETO E SINCRONIZADO
         if (newStatus === 'concluido' && tenant?.loyalty_enabled && app.customer_phone) {
           const cleanPhone = app.customer_phone.replace(/\D/g, '');
           if (cleanPhone.length >= 10) {
             try {
-              // 1. Busca os selos atuais na tabela de clientes do tenant
               const { data: custData } = await supabase
                 .from('tenant_customers')
                 .select('loyalty_stamps')
@@ -731,7 +729,6 @@ export default function AgendaTenant() {
               const currentStamps = custData?.loyalty_stamps || 0;
               const newStamps = currentStamps + 1;
 
-              // 2. Atualiza a tabela principal tenant_customers
               await supabase
                 .from('tenant_customers')
                 .upsert({
@@ -741,7 +738,6 @@ export default function AgendaTenant() {
                   loyalty_stamps: newStamps
                 }, { onConflict: 'tenant_id,customer_phone' });
 
-              // 3. Atualiza também tenant_customer_loyalty para retrocompatibilidade
               await supabase
                 .from('tenant_customer_loyalty')
                 .upsert({
@@ -818,9 +814,10 @@ export default function AgendaTenant() {
     openManualModalWithProf(selectedProf, timeSlot);
   };
 
+  // BLOQUEIO RÁPIDO: CORRIGIDO PARA INICIAR SEM RECORRÊNCIA OBRIGATÓRIA
   const handleQuickBlockSlot = (timeSlot) => {
     const [h, m] = timeSlot.split(':').map(Number);
-    const endMin = h * 60 + m + 90;
+    const endMin = h * 60 + m + 60; // 1 Hora de bloqueio padrão
     const endH = Math.floor(endMin / 60);
     const endM = endMin % 60;
     const endTimeStr = `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`;
@@ -831,7 +828,7 @@ export default function AgendaTenant() {
     setBlockEndTime(endTimeStr);
     setBlockReason('Almoço / Intervalo');
     setIsFullDayBlock(false);
-    setIsRecurringBlock(true);
+    setIsRecurringBlock(false); // Inicia como Falso para evitar erros
     setShowBlockModal(true);
   };
 
@@ -862,6 +859,16 @@ export default function AgendaTenant() {
     let currentMin = openH * 60 + (openM || 0);
     const endMin = closeH * 60 + (closeM || 0);
 
+    // HORÁRIO DE PAUSA / ALMOÇO FIXO DA PROFISSIONAL
+    let breakStartMin = -1;
+    let breakEndMin = -1;
+    if (currentProf?.break_start && currentProf?.break_end) {
+      const [bStartH, bStartM] = currentProf.break_start.split(':').map(Number);
+      const [bEndH, bEndM] = currentProf.break_end.split(':').map(Number);
+      breakStartMin = bStartH * 60 + bStartM;
+      breakEndMin = bEndH * 60 + bEndM;
+    }
+
     const now = new Date();
     const todayStr = getTodayLocal();
     const isToday = selectedDate === todayStr;
@@ -888,6 +895,8 @@ export default function AgendaTenant() {
         return (bStartH * 60 + bStartM) === currentMin;
       });
 
+      const isBreakStart = (breakStartMin !== -1 && currentMin === breakStartMin);
+
       if (appsStarting.length > 0) {
         appsStarting.forEach(app => {
           timeline.push({ time: timeStr, type: 'appointment', data: app, isPast });
@@ -895,6 +904,17 @@ export default function AgendaTenant() {
       } else if (blocksStarting.length > 0) {
         blocksStarting.forEach(block => {
           timeline.push({ time: timeStr, type: 'blocked', data: block, isPast });
+        });
+      } else if (isBreakStart) {
+        timeline.push({
+          time: timeStr,
+          type: 'break',
+          data: {
+            start_time: currentProf.break_start,
+            end_time: currentProf.break_end,
+            reason: 'Horário de Pausa / Almoço'
+          },
+          isPast
         });
       } else {
         const isInsideApp = profApps.some(a => {
@@ -912,7 +932,10 @@ export default function AgendaTenant() {
           return currentMin > bStart && currentMin < bEnd;
         });
 
-        if (!isInsideApp && !isInsideBlock) {
+        const isInsideBreak = (breakStartMin !== -1 && breakEndMin !== -1) && 
+          (currentMin > breakStartMin && currentMin < breakEndMin);
+
+        if (!isInsideApp && !isInsideBlock && !isInsideBreak) {
           timeline.push({ time: timeStr, type: 'free', isPast });
         }
       }
@@ -951,7 +974,6 @@ export default function AgendaTenant() {
 
   const activeManualProfObj = professionals.find(p => String(p.id) === String(manualProfId));
 
-  // CÁLCULOS DO RELATÓRIO FINANCEIRO
   const filteredProfApps = getFilteredProfApps();
   const activeFinProfObj = professionals.find(p => String(p.id) === String(finProfId));
   const finTotalRevenue = filteredProfApps.reduce((acc, a) => acc + Number(a.total_price || a.price || 0), 0);
@@ -974,7 +996,7 @@ export default function AgendaTenant() {
         }
       `}</style>
 
-      {/* BARRA DE SELEÇÃO DE TEMA EXCLUSIVA DA AGENDA */}
+      {/* BARRA DE SELEÇÃO DE TEMA */}
       <div className="flex flex-col sm:flex-row justify-between items-center p-3 rounded-2xl mb-4 border space-y-2 sm:space-y-0" style={{ backgroundColor: cardBgColor, borderColor: borderColor }}>
         <span className="text-xs font-bold opacity-80 flex items-center space-x-1">
           <span>🎨 Aparência da Agenda:</span>
@@ -1251,6 +1273,24 @@ export default function AgendaTenant() {
             );
           }
 
+          if (item.type === 'break') {
+            const brk = item.data;
+            return (
+              <div key={`break-${idx}`} className="bg-orange-500/10 border border-orange-500/30 p-3.5 rounded-2xl flex justify-between items-center text-xs">
+                <div>
+                  <div className="flex items-center space-x-1.5">
+                    <span className="text-orange-400 font-bold block">☕ Intervalo / Almoço da Profissional</span>
+                  </div>
+                  <span className="text-orange-300 text-xs font-bold">⏰ {brk.start_time} às {brk.end_time}</span>
+                  <span className="opacity-70 text-[10px] block italic">{brk.reason}</span>
+                </div>
+                <span className="text-[10px] opacity-60 bg-orange-500/20 text-orange-300 px-2.5 py-1 rounded-lg border border-orange-500/30 font-semibold">
+                  Pausa Programada
+                </span>
+              </div>
+            );
+          }
+
           if (item.type === 'appointment') {
             const app = item.data;
             const servicesList = Array.isArray(app.services_json) ? app.services_json : [];
@@ -1357,13 +1397,12 @@ export default function AgendaTenant() {
         })}
       </div>
 
-      {/* MODAL DE RELATÓRIO FINANCEIRO INDIVIDUAL (PROTEGIDO POR PIN) */}
+      {/* MODAL DE RELATÓRIO FINANCEIRO INDIVIDUAL */}
       {showFinModal && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
           <div className="border w-full max-w-lg rounded-2xl p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto" style={{ backgroundColor: cardBgColor, color: textColor, borderColor: borderColor }}>
             
             {!isFinUnlocked ? (
-              /* TELA DE AUTENTICAÇÃO POR PIN */
               <form onSubmit={handleUnlockProfFin} className="space-y-4">
                 <div className="flex justify-between items-center border-b pb-2" style={{ borderColor: borderColor }}>
                   <h3 className="font-bold text-sm text-amber-500 flex items-center space-x-1">
@@ -1418,7 +1457,6 @@ export default function AgendaTenant() {
                 </div>
               </form>
             ) : (
-              /* RELATÓRIO / EXTRATO DO PROFISSIONAL */
               <div id="print-fin-report" className="space-y-4">
                 <div className="flex justify-between items-center border-b pb-2" style={{ borderColor: borderColor }}>
                   <div>
@@ -1445,7 +1483,6 @@ export default function AgendaTenant() {
                   </div>
                 </div>
 
-                {/* FILTROS DE PERÍODO */}
                 <div className="flex space-x-1 border p-1 rounded-xl text-[11px] font-bold" style={{ backgroundColor: secondaryColor, borderColor: borderColor }}>
                   <button onClick={() => setFinPeriodFilter('all')} className={`flex-1 py-1.5 rounded-lg transition ${finPeriodFilter === 'all' ? 'bg-amber-600 text-white' : 'opacity-60'}`}>Tudo</button>
                   <button onClick={() => setFinPeriodFilter('today')} className={`flex-1 py-1.5 rounded-lg transition ${finPeriodFilter === 'today' ? 'bg-amber-600 text-white' : 'opacity-60'}`}>Hoje</button>
@@ -1453,7 +1490,6 @@ export default function AgendaTenant() {
                   <button onClick={() => setFinPeriodFilter('30days')} className={`flex-1 py-1.5 rounded-lg transition ${finPeriodFilter === '30days' ? 'bg-amber-600 text-white' : 'opacity-60'}`}>30 Dias</button>
                 </div>
 
-                {/* CARTÕES DE MÉTRICA */}
                 <div className="grid grid-cols-2 gap-2">
                   <div className="border p-3 rounded-xl" style={{ backgroundColor: secondaryColor, borderColor: borderColor }}>
                     <span className="text-[10px] font-bold opacity-60 uppercase block">Total Atendido</span>
@@ -1467,7 +1503,6 @@ export default function AgendaTenant() {
                   </div>
                 </div>
 
-                {/* LISTAGEM DOS ATENDIMENTOS */}
                 <div className="space-y-2">
                   <h4 className="font-bold text-xs opacity-80">Histórico de Atendimentos:</h4>
                   <div className="space-y-2 max-h-60 overflow-y-auto">
@@ -1760,6 +1795,7 @@ export default function AgendaTenant() {
                   onChange={(e) => setBlockProfId(e.target.value)}
                   className="w-full border p-2.5 rounded-xl focus:outline-none"
                   style={{ backgroundColor: secondaryColor, color: textColor, borderColor: borderColor }}>
+                  <option value="">Geral (Todos os Profissionais)</option>
                   {professionals.map(p => (
                     <option key={p.id} value={p.id}>{p.name}</option>
                   ))}
@@ -1794,7 +1830,7 @@ export default function AgendaTenant() {
               <div className="p-3 rounded-xl border border-purple-500/30 space-y-2 bg-purple-500/10">
                 <div className="flex items-center justify-between">
                   <div>
-                    <span className="font-bold text-purple-400 block">🔁 Repetir durante o mês todo (Recorrente)</span>
+                    <span className="font-bold text-purple-400 block">🔁 Repetir semanalmente (Recorrente)</span>
                     <span className="text-[10px] opacity-70">Ideal para Almoço, Intervalos e Cursos fixos</span>
                   </div>
                   <input

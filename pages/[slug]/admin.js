@@ -707,7 +707,7 @@ export default function AdminTenant() {
   const profCommissionsMap = {};
   filteredApps.forEach(a => {
     if (a.status === 'cancelado') return;
-    const prof = professionals.find(p => p.id === a.professional_id);
+    const prof = professionals.find(p => String(p.id) === String(a.professional_id));
     if (prof) {
       const commRate = Number(prof.commission_percentage || 50) / 100;
       const commValue = Number(a.total_price || a.price || 0) * commRate;
@@ -811,7 +811,7 @@ export default function AdminTenant() {
     if (filteredApps.length === 0) return alert("Nenhum registro para exportar.");
     let csvContent = "data:text/csv;charset=utf-8,Data,Cliente,Telefone,Profissional,Servico,Valor (R$),Status\n";
     filteredApps.forEach(a => {
-      const prof = professionals.find(p => p.id === a.professional_id);
+      const prof = professionals.find(p => String(p.id) === String(a.professional_id));
       const profName = prof ? prof.name : '—';
       const cName = a.customer_name || a.client_name || 'Cliente';
       const cPhone = a.customer_phone || a.client_phone || a.phone || '';
@@ -1025,7 +1025,7 @@ export default function AdminTenant() {
                   
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-36 overflow-y-auto">
                     {professionals.map(p => {
-                      const isChecked = (newService.professional_ids || []).includes(p.id);
+                      const isChecked = (newService.professional_ids || []).map(String).includes(String(p.id));
                       return (
                         <label key={p.id} className={`flex items-center space-x-2 p-2 rounded-lg text-xs cursor-pointer border transition ${isChecked ? 'bg-orange-500/10 border-orange-500 text-orange-400' : 'bg-gray-800 border-gray-700 text-gray-300'}`}>
                           <input
@@ -1034,7 +1034,7 @@ export default function AdminTenant() {
                             onChange={(e) => {
                               let currentArr = [...(newService.professional_ids || [])];
                               if (e.target.checked) currentArr.push(p.id);
-                              else currentArr = currentArr.filter(id => id !== p.id);
+                              else currentArr = currentArr.filter(id => String(id) !== String(p.id));
                               setNewService({ ...newService, professional_ids: currentArr });
                             }}
                             className="accent-orange-500"
@@ -1058,8 +1058,11 @@ export default function AdminTenant() {
             </div>
 
             {services.map((s, index) => {
-              const assignedProfIds = s.professional_ids || [];
-              const assignedProfs = professionals.filter(p => assignedProfIds.includes(p.id));
+              let assignedProfIds = s.professional_ids || [];
+              if (typeof assignedProfIds === 'string') {
+                try { assignedProfIds = JSON.parse(assignedProfIds); } catch(e) { assignedProfIds = []; }
+              }
+              const assignedProfs = professionals.filter(p => assignedProfIds.map(String).includes(String(p.id)));
               const serviceImg = s.image_url || s.image;
               const displayCategory = s.category && s.category.trim() !== '' ? s.category.trim() : 'Geral';
 
@@ -1245,8 +1248,14 @@ export default function AdminTenant() {
           <section className="space-y-2">
             <h3 className="font-bold text-sm text-gray-300">💈 Equipe ({professionals.length})</h3>
             {professionals.map((p) => {
-              const pWorkDays = p.work_days || [1, 2, 3, 4, 5, 6];
-              const pWorkHours = p.work_hours || DEFAULT_WORK_HOURS;
+              let pWorkDays = p.work_days || [1, 2, 3, 4, 5, 6];
+              if (typeof pWorkDays === 'string') {
+                try { pWorkDays = JSON.parse(pWorkDays); } catch (e) { pWorkDays = [1, 2, 3, 4, 5, 6]; }
+              }
+              let pWorkHours = p.work_hours || DEFAULT_WORK_HOURS;
+              if (typeof pWorkHours === 'string') {
+                try { pWorkHours = JSON.parse(pWorkHours); } catch (e) { pWorkHours = DEFAULT_WORK_HOURS; }
+              }
               const isProfActive = p.active !== false;
 
               return (
@@ -1272,7 +1281,7 @@ export default function AdminTenant() {
                         className={`text-[10px] font-bold px-2 py-1 rounded-lg ${isProfActive ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'}`}>
                         {isProfActive ? 'Ativo' : 'Pausado'}
                       </button>
-                      <button onClick={() => setEditingProf({ ...p, work_days: p.work_days || [1, 2, 3, 4, 5, 6], work_hours: p.work_hours || DEFAULT_WORK_HOURS, break_start: p.break_start || '12:00', break_end: p.break_end || '13:00', pin: p.pin || '1234', instagram_url: p.instagram_url || '', specialty: p.specialty || '', bot_message_template: p.bot_message_template || '' })} className="bg-blue-600/20 text-blue-400 p-1.5 rounded-lg font-bold border border-blue-500/30">✏️ Editar</button>
+                      <button onClick={() => setEditingProf({ ...p, work_days: pWorkDays, work_hours: pWorkHours, break_start: p.break_start || '12:00', break_end: p.break_end || '13:00', pin: p.pin || '1234', instagram_url: p.instagram_url || '', specialty: p.specialty || '', bot_message_template: p.bot_message_template || '' })} className="bg-blue-600/20 text-blue-400 p-1.5 rounded-lg font-bold border border-blue-500/30">✏️ Editar</button>
                       <button onClick={async () => { if (confirm("Excluir profissional?")) { await supabase.from('professionals').delete().eq('id', p.id); fetchData(); } }} className="text-red-400 font-bold p-1.5">🗑</button>
                     </div>
                   </div>
@@ -1332,8 +1341,8 @@ export default function AdminTenant() {
                   onChange={(e) => setAppointmentStatusFilter(e.target.value)}
                   className="bg-gray-800 border border-gray-700 p-2 rounded-xl text-xs text-white focus:outline-none">
                   <option value="all">-- Todos Status --</option>
+                  <option value="agendado">Agendados</option>
                   <option value="confirmado">Confirmados</option>
-                  <option value="pendente">Pendentes</option>
                   <option value="concluido">Concluídos</option>
                   <option value="cancelado">Cancelados</option>
                 </select>
@@ -1367,14 +1376,15 @@ export default function AdminTenant() {
                   const clientName = app.customer_name || app.client_name || 'Cliente';
                   const clientPhone = (app.customer_phone || app.client_phone || app.phone || '').replace(/\D/g, '');
                   const serviceTitle = app.service_name || (Array.isArray(app.services_json) ? app.services_json.map(s => s.name).join(', ') : 'Serviço');
-                  const status = app.status || 'confirmado';
+                  const status = app.status || 'agendado';
 
-                  let statusBadgeClass = "bg-green-500/20 text-green-400 border-green-500/30";
-                  if (status === 'pendente') statusBadgeClass = "bg-yellow-500/20 text-yellow-400 border-yellow-500/30";
+                  let statusBadgeClass = "bg-yellow-500/20 text-yellow-400 border-yellow-500/30";
+                  if (status === 'confirmado') statusBadgeClass = "bg-green-500/20 text-green-400 border-green-500/30";
                   if (status === 'cancelado') statusBadgeClass = "bg-red-500/20 text-red-400 border-red-500/30";
                   if (status === 'concluido') statusBadgeClass = "bg-blue-500/20 text-blue-400 border-blue-500/30";
 
-                  const zapMsg = `Olá ${clientName}! Confirmando seu agendamento de *${serviceTitle}* no *${tenant.name}* no dia *${app.appointment_date || ''}* às *${app.appointment_time || app.time || ''}* com *${prof?.name || 'nossa equipe'}*.`;
+                  const formattedDate = app.appointment_date ? app.appointment_date.split('-').reverse().join('/') : '';
+                  const zapMsg = `Olá ${clientName}! Confirmando seu agendamento de *${serviceTitle}* no *${tenant.name}* no dia *${formattedDate}* às *${app.start_time || app.appointment_time || app.time || ''}* com *${prof?.name || 'nossa equipe'}*.`;
 
                   return (
                     <div key={app.id} className="bg-gray-950 p-3.5 rounded-xl border border-gray-800 space-y-2 text-xs">
@@ -1388,7 +1398,7 @@ export default function AdminTenant() {
                           </div>
                           <span className="text-[11px] text-orange-400 block font-semibold mt-0.5">✂️ {serviceTitle}</span>
                           <span className="text-[10px] text-gray-400 block font-mono">
-                            📅 {app.appointment_date} • ⏰ {app.appointment_time || app.time || 'Horário N/I'} • Profissional: <b className="text-purple-300">{prof?.name || 'Toda Equipe'}</b>
+                            📅 {formattedDate} • ⏰ {app.start_time || app.appointment_time || app.time || 'Horário N/I'} • Profissional: <b className="text-purple-300">{prof?.name || 'Toda Equipe'}</b>
                           </span>
                         </div>
 
@@ -1800,7 +1810,7 @@ export default function AdminTenant() {
                     <select
                       value={selectedProfForFin}
                       onChange={(e) => setSelectedProfForFin(e.target.value)}
-                      className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none"
+                      className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none cursor-pointer"
                     >
                       <option value="">-- Selecionar Profissional --</option>
                       {professionals.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -1863,7 +1873,7 @@ export default function AdminTenant() {
                           <div key={a.id} className="bg-gray-950 p-2.5 rounded-xl border border-gray-800/80 flex justify-between items-center text-xs">
                             <div>
                               <span className="font-bold text-white block">{a.client_name || a.customer_name}</span>
-                              <span className="text-[10px] text-gray-400">{a.service_name} • {a.appointment_date || a.date}</span>
+                              <span className="text-[10px] text-gray-400">{a.service_name || (Array.isArray(a.services_json) ? a.services_json.map(s=>s.name).join(', ') : 'Serviço')} • {a.appointment_date || a.date}</span>
                             </div>
                             <span className="font-bold text-green-400">R$ {Number(a.total_price || a.price || 0).toFixed(2)}</span>
                           </div>
@@ -1999,7 +2009,7 @@ export default function AdminTenant() {
               <select
                 value={selectedProfForLink}
                 onChange={(e) => setSelectedProfForLink(e.target.value)}
-                className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none"
+                className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none cursor-pointer"
               >
                 <option value="">-- Link Geral do Estabelecimento --</option>
                 {professionals.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -2282,16 +2292,20 @@ export default function AdminTenant() {
                 </label>
                 <div className="grid grid-cols-2 gap-2 max-h-36 overflow-y-auto">
                   {professionals.map(p => {
-                    const isChecked = (editingService.professional_ids || []).includes(p.id);
+                    let currentAssigned = editingService.professional_ids || [];
+                    if (typeof currentAssigned === 'string') {
+                      try { currentAssigned = JSON.parse(currentAssigned); } catch(e) { currentAssigned = []; }
+                    }
+                    const isChecked = currentAssigned.map(String).includes(String(p.id));
                     return (
                       <label key={p.id} className={`flex items-center space-x-2 p-2 rounded-lg text-xs cursor-pointer border transition ${isChecked ? 'bg-blue-500/10 border-blue-500 text-blue-400' : 'bg-gray-800 border-gray-700 text-gray-300'}`}>
                         <input
                           type="checkbox"
                           checked={isChecked}
                           onChange={(e) => {
-                            let currentArr = [...(editingService.professional_ids || [])];
+                            let currentArr = [...currentAssigned];
                             if (e.target.checked) currentArr.push(p.id);
-                            else currentArr = currentArr.filter(id => id !== p.id);
+                            else currentArr = currentArr.filter(id => String(id) !== String(p.id));
                             setEditingService({ ...editingService, professional_ids: currentArr });
                           }}
                           className="accent-blue-500"
@@ -2346,8 +2360,17 @@ export default function AdminTenant() {
               <label className="text-[11px] font-bold text-purple-400 block">📅 Dias e Horários de Atendimento:</label>
               <div className="space-y-2">
                 {ALL_DAYS.map(day => {
-                  const isSelected = (editingProf.work_days || []).includes(day.id);
-                  const dayHours = (editingProf.work_hours || DEFAULT_WORK_HOURS)[day.id] || { open: '08:00', close: '18:00' };
+                  let editDays = editingProf.work_days || [1, 2, 3, 4, 5, 6];
+                  if (typeof editDays === 'string') {
+                    try { editDays = JSON.parse(editDays); } catch (e) { editDays = [1, 2, 3, 4, 5, 6]; }
+                  }
+                  let editHours = editingProf.work_hours || DEFAULT_WORK_HOURS;
+                  if (typeof editHours === 'string') {
+                    try { editHours = JSON.parse(editHours); } catch (e) { editHours = DEFAULT_WORK_HOURS; }
+                  }
+
+                  const isSelected = editDays.includes(day.id);
+                  const dayHours = editHours[day.id] || { open: '08:00', close: '18:00' };
 
                   return (
                     <div key={day.id} className={`p-2 rounded-lg border transition text-xs flex items-center justify-between ${isSelected ? 'bg-purple-950/40 border-purple-500/50' : 'bg-gray-900 border-gray-800 opacity-60'}`}>
@@ -2356,7 +2379,7 @@ export default function AdminTenant() {
                           type="checkbox"
                           checked={isSelected}
                           onChange={() => {
-                            const updatedDays = toggleDaySelection(editingProf.work_days, day.id);
+                            const updatedDays = toggleDaySelection(editDays, day.id);
                             setEditingProf({ ...editingProf, work_days: updatedDays });
                           }}
                           className="accent-purple-500 w-4 h-4 cursor-pointer"
@@ -2372,7 +2395,7 @@ export default function AdminTenant() {
                             value={dayHours.open || '08:00'}
                             onChange={(e) => {
                               const updatedHours = {
-                                ...(editingProf.work_hours || DEFAULT_WORK_HOURS),
+                                ...editHours,
                                 [day.id]: { ...dayHours, open: e.target.value }
                               };
                               setEditingProf({ ...editingProf, work_hours: updatedHours });
@@ -2385,7 +2408,7 @@ export default function AdminTenant() {
                             value={dayHours.close || '18:00'}
                             onChange={(e) => {
                               const updatedHours = {
-                                ...(editingProf.work_hours || DEFAULT_WORK_HOURS),
+                                ...editHours,
                                 [day.id]: { ...dayHours, close: e.target.value }
                               };
                               setEditingProf({ ...editingProf, work_hours: updatedHours });

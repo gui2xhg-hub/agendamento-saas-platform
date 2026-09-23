@@ -195,7 +195,13 @@ export default function AgendaTenant() {
       if (tErr) throw tErr;
 
       if (tData) {
-        setTenant(tData);
+        setTenant({
+          ...tData,
+          loyalty_enabled: tData.loyalty_enabled || false,
+          loyalty_target_visits: tData.loyalty_target_visits || 10,
+          loyalty_reward_text: tData.loyalty_reward_text || '1 Atendimento Grátis'
+        });
+
         const { data: pData } = await supabase.from('professionals').select('*').eq('tenant_id', tData.id).eq('active', true);
         const { data: sData } = await supabase.from('services').select('*').eq('tenant_id', tData.id).eq('active', true);
         
@@ -702,6 +708,42 @@ export default function AgendaTenant() {
       if (error) {
         alert("Erro ao atualizar status: " + error.message);
       } else {
+        // SE CONCLUÍDO E FIDELIDADE ATIVA -> CREDITAR SELO AUTOMATIZADO
+        if (newStatus === 'concluido' && tenant?.loyalty_enabled && app.customer_phone) {
+          const cleanPhone = app.customer_phone.replace(/\D/g, '');
+          if (cleanPhone.length >= 10) {
+            try {
+              // 1. Busca os selos atuais do cliente
+              const { data: loyaltyData } = await supabase
+                .from('tenant_customer_loyalty')
+                .select('loyalty_count')
+                .eq('tenant_id', tenant.id)
+                .eq('customer_phone', cleanPhone)
+                .maybeSingle();
+
+              const currentStamps = loyaltyData?.loyalty_count || 0;
+              const newStamps = currentStamps + 1;
+
+              // 2. Atualiza ou insere o registro na tabela dedicada
+              await supabase
+                .from('tenant_customer_loyalty')
+                .upsert({
+                  tenant_id: tenant.id,
+                  customer_phone: cleanPhone,
+                  loyalty_count: newStamps,
+                  updated_at: new Date().toISOString()
+                }, { onConflict: 'tenant_id,customer_phone' });
+
+              const targetVisits = Number(tenant.loyalty_target_visits || 10);
+              if (newStamps === targetVisits) {
+                alert(`🎉 PARABÉNS! ${app.customer_name} completou ${targetVisits} selos e ganhou: ${tenant.loyalty_reward_text}!`);
+              }
+            } catch (loyaltyErr) {
+              console.error("Erro ao creditar selo no Cartão Fidelidade:", loyaltyErr);
+            }
+          }
+        }
+
         try {
           let pushTitle = '';
           let pushMessage = '';

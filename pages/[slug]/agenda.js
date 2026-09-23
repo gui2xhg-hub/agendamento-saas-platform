@@ -183,6 +183,34 @@ export default function AgendaTenant() {
     }
   }, [tenant?.id, selectedDate, selectedProf]);
 
+  // ATUALIZAÇÃO EM TEMPO REAL (SUPABASE REALTIME) NA AGENDA
+  useEffect(() => {
+    if (!tenant?.id) return;
+
+    const appointmentsChannel = supabase
+      .channel(`realtime-agenda-${tenant.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*', // Escuta INSERT, UPDATE e DELETE
+          schema: 'public',
+          table: 'appointments',
+          filter: `tenant_id=eq.${tenant.id}`
+        },
+        () => {
+          // Atualiza a grade instantaneamente quando entra um agendamento novo
+          fetchAppointmentsAndBlocks(tenant.id);
+          fetchTomorrowAppointments(tenant.id);
+          fetchCustomersDirectory(tenant.id);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(appointmentsChannel);
+    };
+  }, [tenant?.id, selectedDate, selectedProf]);
+
   const handleThemeChange = (newThemeKey) => {
     setAgendaTheme(newThemeKey);
     if (slug) {
@@ -746,16 +774,6 @@ export default function AgendaTenant() {
                   customer_phone: cleanPhone,
                   customer_name: app.customer_name,
                   loyalty_stamps: newStamps
-                }, { onConflict: 'tenant_id,customer_phone' });
-
-              // MANTÉM TABELA DE BACKWARD COMPATIBILITY
-              await supabase
-                .from('tenant_customer_loyalty')
-                .upsert({
-                  tenant_id: tenant.id,
-                  customer_phone: cleanPhone,
-                  loyalty_count: newStamps,
-                  updated_at: new Date().toISOString()
                 }, { onConflict: 'tenant_id,customer_phone' });
 
               const targetVisits = Number(tenant.loyalty_target_visits || 10);

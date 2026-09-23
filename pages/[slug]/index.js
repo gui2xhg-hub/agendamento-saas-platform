@@ -51,12 +51,13 @@ export default function AgendamentoCliente() {
   const [selectedTime, setSelectedTime] = useState('');
   const [existingAppointments, setExistingAppointments] = useState([]);
 
-  // DADOS DO CLIENTE
+  // DADOS DO CLIENTE E CARTÃO FIDELIDADE
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [customerBirthDate, setCustomerBirthDate] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('No Local');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [loyaltyCount, setLoyaltyCount] = useState(0);
 
   // MODAL MEUS AGENDAMENTOS
   const [showMyAppsModal, setShowMyAppsModal] = useState(false);
@@ -110,6 +111,13 @@ export default function AgendamentoCliente() {
     }
   }, [tenant?.id, selectedDate, selectedProf, userNewDate, editingUserApp]);
 
+  // BUSCA OS DADOS DE FIDELIDADE SEMPRE QUE O TELEFONE DO CLIENTE FOR ALTERADO
+  useEffect(() => {
+    if (tenant?.id && tenant?.loyalty_enabled && customerPhone) {
+      fetchCustomerLoyalty(customerPhone);
+    }
+  }, [tenant?.id, tenant?.loyalty_enabled, customerPhone]);
+
   const fetchTenantData = async () => {
     setLoading(true);
     const cleanSlug = String(slug).toLowerCase().trim();
@@ -118,7 +126,10 @@ export default function AgendamentoCliente() {
     if (tData) {
       setTenant({
         ...tData,
-        work_days: tData.work_days || [1, 2, 3, 4, 5, 6]
+        work_days: tData.work_days || [1, 2, 3, 4, 5, 6],
+        loyalty_enabled: tData.loyalty_enabled || false,
+        loyalty_target_visits: tData.loyalty_target_visits || 10,
+        loyalty_reward_text: tData.loyalty_reward_text || '1 Atendimento Grátis'
       });
 
       const { data: pData } = await supabase.from('professionals').select('*').eq('tenant_id', tData.id).eq('active', true);
@@ -130,6 +141,25 @@ export default function AgendamentoCliente() {
       if (psData) setProfServices(psData);
     }
     setLoading(false);
+  };
+
+  const fetchCustomerLoyalty = async (phone) => {
+    if (!tenant?.id || !phone) return;
+    const clean = phone.replace(/\D/g, '');
+    if (clean.length < 10) return;
+
+    const { data } = await supabase
+      .from('tenant_customer_loyalty')
+      .select('loyalty_count')
+      .eq('tenant_id', tenant.id)
+      .eq('customer_phone', clean)
+      .maybeSingle();
+
+    if (data) {
+      setLoyaltyCount(data.loyalty_count || 0);
+    } else {
+      setLoyaltyCount(0);
+    }
   };
 
   const fetchExistingAppointmentsAndBlocks = async (targetDate = selectedDate, targetProf = selectedProf) => {
@@ -165,6 +195,8 @@ export default function AgendamentoCliente() {
 
     localStorage.setItem('client_saved_phone', clean);
     setIsSearchingApps(true);
+
+    fetchCustomerLoyalty(clean);
 
     const { data } = await supabase
       .from('appointments')
@@ -560,6 +592,9 @@ export default function AgendamentoCliente() {
     }
   };
 
+  const targetLoyaltyVisits = tenant?.loyalty_target_visits || 10;
+  const isRewardReady = loyaltyCount >= targetLoyaltyVisits;
+
   return (
     <div className="min-h-screen font-sans pb-12 transition-colors duration-300 flex flex-col justify-between" style={{ backgroundColor: bgColor, color: textColor }}>
       
@@ -623,6 +658,53 @@ export default function AgendamentoCliente() {
               <p className="opacity-90 leading-relaxed text-[11px] sm:text-xs">
                 {tenant.custom_message}
               </p>
+            </div>
+          )}
+
+          {/* CARTÃO FIDELIDADE DIGITAL (SE ATIVADO NAS CONFIGURAÇÕES DA LOJA E TELEFONE INFORMADO) */}
+          {tenant.loyalty_enabled && customerPhone.replace(/\D/g, '').length >= 10 && (
+            <div 
+              style={{ backgroundColor: cardColor, color: textColor }} 
+              className="p-4 rounded-2xl border border-black/10 shadow-sm space-y-3">
+              <div className="flex justify-between items-center">
+                <div>
+                  <h4 className="font-bold text-xs flex items-center space-x-1" style={{ color: priceColor }}>
+                    <span>💳 Cartão Fidelidade</span>
+                  </h4>
+                  <p className="text-[10px] opacity-70">
+                    {isRewardReady 
+                      ? `🎉 Parabéns! Atingiu a meta. Resgate: ${tenant.loyalty_reward_text}` 
+                      : `Complete ${targetLoyaltyVisits} selos e ganhe: ${tenant.loyalty_reward_text}`}
+                  </p>
+                </div>
+                <span 
+                  className="text-xs font-bold px-2.5 py-1 rounded-lg border border-black/10" 
+                  style={{ backgroundColor: bgColor, color: textColor }}>
+                  {loyaltyCount}/{targetLoyaltyVisits}
+                </span>
+              </div>
+
+              {/* GRID DE SELOS */}
+              <div className="grid grid-cols-5 sm:grid-cols-10 gap-1.5 pt-1">
+                {Array.from({ length: targetLoyaltyVisits }).map((_, index) => {
+                  const isStamped = index < loyaltyCount;
+                  return (
+                    <div
+                      key={index}
+                      style={{
+                        backgroundColor: isStamped ? primaryColor : bgColor,
+                        color: isStamped ? btnTextColor : textColor,
+                        borderColor: 'rgba(0,0,0,0.1)'
+                      }}
+                      className={`h-8 sm:h-9 rounded-xl flex items-center justify-center text-xs font-bold border transition-all ${
+                        isStamped ? 'shadow-md scale-105' : 'opacity-40'
+                      }`}
+                    >
+                      {isStamped ? '✂️' : index + 1}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
 
@@ -923,6 +1005,40 @@ export default function AgendamentoCliente() {
                     </button>
                   </div>
                 </form>
+
+                {/* VISUALIZAÇÃO DO CARTÃO FIDELIDADE DENTRO DO MODAL */}
+                {tenant.loyalty_enabled && searchPhone.replace(/\D/g, '').length >= 10 && (
+                  <div style={{ backgroundColor: bgColor }} className="p-3.5 rounded-xl border border-black/10 space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="font-bold text-xs" style={{ color: priceColor }}>💳 Seu Cartão Fidelidade</span>
+                      <span className="font-bold text-xs">{loyaltyCount}/{targetLoyaltyVisits} Selos</span>
+                    </div>
+                    <p className="text-[10px] opacity-70">
+                      {isRewardReady 
+                        ? `🎉 Meta atingida! Prêmio disponível: ${tenant.loyalty_reward_text}` 
+                        : `Complete ${targetLoyaltyVisits} selos e ganhe: ${tenant.loyalty_reward_text}`}
+                    </p>
+                    <div className="grid grid-cols-5 gap-1.5 pt-1">
+                      {Array.from({ length: targetLoyaltyVisits }).map((_, index) => {
+                        const isStamped = index < loyaltyCount;
+                        return (
+                          <div
+                            key={index}
+                            style={{
+                              backgroundColor: isStamped ? primaryColor : cardColor,
+                              color: isStamped ? btnTextColor : textColor
+                            }}
+                            className={`h-7 rounded-lg flex items-center justify-center text-[10px] font-bold border border-black/10 ${
+                              isStamped ? 'shadow-sm scale-105' : 'opacity-50'
+                            }`}
+                          >
+                            {isStamped ? '✂️' : index + 1}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
 
                 <div className="space-y-2 max-h-72 overflow-y-auto">
                   {myAppointments.length === 0 ? (

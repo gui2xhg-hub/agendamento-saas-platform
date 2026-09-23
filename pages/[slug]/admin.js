@@ -265,7 +265,15 @@ export default function AdminTenant() {
   const fetchData = async (tenantId = tenant?.id) => {
     if (!tenantId) return;
     const { data: tData } = await supabase.from('tenants').select('*').eq('id', tenantId).single();
-    const { data: sData } = await supabase.from('services').select('*').eq('tenant_id', tenantId).order('id', { ascending: true });
+    
+    // BUSCA OS SERVIÇOS ORDENADOS POR 'position' ASCENDENTE E DEPOIS 'id'
+    const { data: sData } = await supabase
+      .from('services')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .order('position', { ascending: true })
+      .order('id', { ascending: true });
+
     const { data: pData } = await supabase.from('professionals').select('*').eq('tenant_id', tenantId).order('id', { ascending: true });
     const { data: aData } = await supabase.from('appointments').select('*').eq('tenant_id', tenantId).order('appointment_date', { ascending: false });
     
@@ -307,6 +315,28 @@ export default function AdminTenant() {
       });
       setCustomerNotesMap(nMap);
       setCustomerStampsMap(sMap);
+    }
+  };
+
+  // FUNÇÃO PARA MOVER SERVIÇO PARA CIMA OU PARA BAIXO
+  const handleMoveService = async (index, direction) => {
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= services.length) return;
+
+    const newServices = [...services];
+    const temp = newServices[index];
+    newServices[index] = newServices[targetIndex];
+    newServices[targetIndex] = temp;
+
+    // Atualiza o estado da tela de forma imediata
+    setServices(newServices);
+
+    // Atualiza a posição de todos os serviços no Supabase
+    for (let i = 0; i < newServices.length; i++) {
+      await supabase
+        .from('services')
+        .update({ position: i })
+        .eq('id', newServices[i].id);
     }
   };
 
@@ -469,6 +499,8 @@ export default function AdminTenant() {
       ? newService.category.trim() 
       : 'Geral';
 
+    const nextPosition = services.length;
+
     const { error } = await supabase.from('services').insert([{
       tenant_id: tenant.id,
       name: newService.name.trim(),
@@ -477,6 +509,7 @@ export default function AdminTenant() {
       category: categoryVal,
       professional_ids: newService.professional_ids || [],
       image_url: cleanImage,
+      position: nextPosition,
       active: true
     }]);
 
@@ -1019,8 +1052,12 @@ export default function AdminTenant() {
           </section>
 
           <section className="space-y-2">
-            <h3 className="font-bold text-sm text-gray-300">📋 Catálogo de Serviços ({services.length})</h3>
-            {services.map((s) => {
+            <div className="flex justify-between items-center">
+              <h3 className="font-bold text-sm text-gray-300">📋 Catálogo de Serviços ({services.length})</h3>
+              <span className="text-[10px] text-gray-400">Ordene a exibição com ⬆️ e ⬇️</span>
+            </div>
+
+            {services.map((s, index) => {
               const assignedProfIds = s.professional_ids || [];
               const assignedProfs = professionals.filter(p => assignedProfIds.includes(p.id));
               const serviceImg = s.image_url || s.image;
@@ -1029,7 +1066,29 @@ export default function AdminTenant() {
               return (
                 <div key={s.id} className="bg-gray-900 p-3 rounded-xl border border-gray-800 space-y-2">
                   <div className="flex justify-between items-center">
-                    <div className="flex items-center space-x-3">
+                    <div className="flex items-center space-x-2">
+                      {/* BOTOES DE ORDENAÇÃO DE SERVIÇOS */}
+                      <div className="flex flex-col space-y-0.5">
+                        <button
+                          type="button"
+                          disabled={index === 0}
+                          onClick={() => handleMoveService(index, 'up')}
+                          className="bg-gray-800 hover:bg-gray-700 disabled:opacity-30 text-gray-200 text-[10px] px-1.5 py-0.5 rounded border border-gray-700 transition cursor-pointer"
+                          title="Mover para cima"
+                        >
+                          ⬆️
+                        </button>
+                        <button
+                          type="button"
+                          disabled={index === services.length - 1}
+                          onClick={() => handleMoveService(index, 'down')}
+                          className="bg-gray-800 hover:bg-gray-700 disabled:opacity-30 text-gray-200 text-[10px] px-1.5 py-0.5 rounded border border-gray-700 transition cursor-pointer"
+                          title="Mover para baixo"
+                        >
+                          ⬇️
+                        </button>
+                      </div>
+
                       {serviceImg && (
                         <img 
                           src={serviceImg} 

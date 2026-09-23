@@ -49,10 +49,11 @@ export default function AdminTenant() {
   const [appointmentProfFilter, setAppointmentProfFilter] = useState('');
   const [appointmentSearch, setAppointmentSearch] = useState('');
 
-  // GESTÃO DE CLIENTES & OBSERVAÇÕES
+  // GESTÃO DE CLIENTES & OBSERVAÇÕES & FIDELIDADE
   const [customerSearch, setCustomerSearch] = useState('');
   const [customerProfFilter, setCustomerProfFilter] = useState('');
   const [customerNotesMap, setCustomerNotesMap] = useState({});
+  const [customerStampsMap, setCustomerStampsMap] = useState({});
   const [savingNotePhone, setSavingNotePhone] = useState(null);
 
   // CONTROLE DO FINANCEIRO GERAL / SENHA FINANCIAL
@@ -133,7 +134,10 @@ export default function AdminTenant() {
         bot_send_time: tData.bot_send_time || '08:00',
         bot_message_template: tData.bot_message_template || 'Olá {cliente}! 👋 Passando para lembrar do seu agendamento de *{servico}* amanhã ({data}) às *{horario}* no *{empresa}* com *{profissional}*.',
         bot_whatsapp_instance: tData.bot_whatsapp_instance || '',
-        bot_whatsapp_token: tData.bot_whatsapp_token || ''
+        bot_whatsapp_token: tData.bot_whatsapp_token || '',
+        loyalty_enabled: tData.loyalty_enabled || false,
+        loyalty_target_visits: tData.loyalty_target_visits ?? 10,
+        loyalty_reward_text: tData.loyalty_reward_text || '1 Atendimento Cortesia'
       });
 
       setOriginalFinPass(currentFinPass);
@@ -171,8 +175,8 @@ export default function AdminTenant() {
     const { data: pData } = await supabase.from('professionals').select('*').eq('tenant_id', tenantId).order('id', { ascending: true });
     const { data: aData } = await supabase.from('appointments').select('*').eq('tenant_id', tenantId).order('appointment_date', { ascending: false });
     
-    // Busca Observações Salvas dos Clientes
-    const { data: cNotes } = await supabase.from('tenant_customers').select('customer_phone, notes').eq('tenant_id', tenantId);
+    // Busca Observações e Selos de Fidelidade dos Clientes
+    const { data: cData } = await supabase.from('tenant_customers').select('customer_phone, notes, loyalty_stamps').eq('tenant_id', tenantId);
 
     if (tData) {
       const currentFinPass = tData.financial_password || '';
@@ -184,7 +188,10 @@ export default function AdminTenant() {
         bot_send_time: tData.bot_send_time || '08:00',
         bot_message_template: tData.bot_message_template || 'Olá {cliente}! 👋 Passando para lembrar do seu agendamento de *{servico}* amanhã ({data}) às *{horario}* no *{empresa}* com *{profissional}*.',
         bot_whatsapp_instance: tData.bot_whatsapp_instance || '',
-        bot_whatsapp_token: tData.bot_whatsapp_token || ''
+        bot_whatsapp_token: tData.bot_whatsapp_token || '',
+        loyalty_enabled: tData.loyalty_enabled || false,
+        loyalty_target_visits: tData.loyalty_target_visits ?? 10,
+        loyalty_reward_text: tData.loyalty_reward_text || '1 Atendimento Cortesia'
       });
 
       setOriginalFinPass(currentFinPass);
@@ -194,12 +201,18 @@ export default function AdminTenant() {
     if (pData) setProfessionals(pData);
     if (aData) setAppointments(aData);
 
-    if (cNotes) {
+    if (cData) {
       const nMap = {};
-      cNotes.forEach(cn => {
-        if (cn.customer_phone) nMap[cn.customer_phone.replace(/\D/g, '')] = cn.notes || '';
+      const sMap = {};
+      cData.forEach(cn => {
+        if (cn.customer_phone) {
+          const cleanP = cn.customer_phone.replace(/\D/g, '');
+          nMap[cleanP] = cn.notes || '';
+          sMap[cleanP] = cn.loyalty_stamps || 0;
+        }
       });
       setCustomerNotesMap(nMap);
+      setCustomerStampsMap(sMap);
     }
   };
 
@@ -234,6 +247,51 @@ export default function AdminTenant() {
     } else {
       setCustomerNotesMap(prev => ({ ...prev, [cleanPhone]: noteText }));
       alert("✓ Observação do cliente salva com sucesso!");
+    }
+  };
+
+  // GESTÃO DOS SELOS DE FIDELIDADE (RESGATE E AJUSTE MANUAL)
+  const handleResetCustomerStamps = async (phone, name) => {
+    const cleanPhone = phone.replace(/\D/g, '');
+    if (!cleanPhone) return;
+
+    if (!confirm(`🎁 Confirmar resgate da recompensa de ${name}?\n\nIsso zerará a cartela de selos para que ele(a) recomece um novo ciclo.`)) return;
+
+    const { error } = await supabase
+      .from('tenant_customers')
+      .upsert({
+        tenant_id: tenant.id,
+        customer_phone: cleanPhone,
+        customer_name: name,
+        loyalty_stamps: 0
+      }, { onConflict: 'tenant_id,customer_phone' });
+
+    if (error) {
+      alert("Erro ao resgatar cartão fidelidade: " + error.message);
+    } else {
+      setCustomerStampsMap(prev => ({ ...prev, [cleanPhone]: 0 }));
+      alert(`🎉 Prêmio resgatado com sucesso! Cartão Fidelidade de ${name} foi zerado.`);
+    }
+  };
+
+  const handleAdjustCustomerStamps = async (phone, name, currentStamps, delta) => {
+    const cleanPhone = phone.replace(/\D/g, '');
+    if (!cleanPhone) return;
+    const newStamps = Math.max(0, (currentStamps || 0) + delta);
+
+    const { error } = await supabase
+      .from('tenant_customers')
+      .upsert({
+        tenant_id: tenant.id,
+        customer_phone: cleanPhone,
+        customer_name: name,
+        loyalty_stamps: newStamps
+      }, { onConflict: 'tenant_id,customer_phone' });
+
+    if (error) {
+      alert("Erro ao atualizar selos: " + error.message);
+    } else {
+      setCustomerStampsMap(prev => ({ ...prev, [cleanPhone]: newStamps }));
     }
   };
 
@@ -274,7 +332,10 @@ export default function AdminTenant() {
       bot_send_time: tenant.bot_send_time || '08:00',
       bot_message_template: tenant.bot_message_template || '',
       bot_whatsapp_instance: tenant.bot_whatsapp_instance || '',
-      bot_whatsapp_token: tenant.bot_whatsapp_token || ''
+      bot_whatsapp_token: tenant.bot_whatsapp_token || '',
+      loyalty_enabled: tenant.loyalty_enabled || false,
+      loyalty_target_visits: parseInt(tenant.loyalty_target_visits || 10),
+      loyalty_reward_text: tenant.loyalty_reward_text || ''
     }).eq('id', tenant.id);
 
     if (error) {
@@ -459,7 +520,7 @@ export default function AdminTenant() {
     }
   };
 
-  // NOVA FUNÇÃO: GESTÃO E ALTERAÇÃO DE STATUS DE AGENDAMENTOS
+  // GESTÃO E ALTERAÇÃO DE STATUS DE AGENDAMENTOS
   const handleUpdateAppointmentStatus = async (appointmentId, newStatus) => {
     const { error } = await supabase
       .from('appointments')
@@ -549,12 +610,16 @@ export default function AdminTenant() {
         ? lastApp.services_json.map(s => s.name).join(', ')
         : (lastApp.service_name || 'Atendimento');
 
+      const rawStamps = customerStampsMap[c.phone];
+      const currentStamps = rawStamps !== undefined ? rawStamps : c.total_visits;
+
       return {
         ...c,
         prof_ids: Array.from(c.prof_ids),
         last_date: lastApp.appointment_date ? lastApp.appointment_date.split('T')[0].split('-').reverse().join('/') : '—',
         last_services: lastServices,
-        notes: customerNotesMap[c.phone] || ''
+        notes: customerNotesMap[c.phone] || '',
+        stamps: currentStamps
       };
     });
 
@@ -579,13 +644,13 @@ export default function AdminTenant() {
     .sort((a, b) => b.total_spent - a.total_spent)
     .slice(0, 3);
 
-  // NOVA FUNÇÃO: EXPORTAR CLIENTES EM CSV (EXCEL)
+  // EXPORTAR CLIENTES EM CSV (EXCEL)
   const exportCustomersCSV = () => {
     if (processedCustomers.length === 0) return alert("Nenhum cliente para exportar.");
-    let csvContent = "data:text/csv;charset=utf-8,Nome,Telefone,Visitas,Total Gasto (R$),Ultimo Atendimento,Observacoes\n";
+    let csvContent = "data:text/csv;charset=utf-8,Nome,Telefone,Visitas,Selos Fidelidade,Total Gasto (R$),Ultimo Atendimento,Observacoes\n";
     processedCustomers.forEach(c => {
       const notesClean = (c.notes || '').replace(/"/g, '""');
-      csvContent += `"${c.name}","${c.phone}",${c.total_visits},"${c.total_spent.toFixed(2)}","${c.last_services}","${notesClean}"\n`;
+      csvContent += `"${c.name}","${c.phone}",${c.total_visits},${c.stamps},"${c.total_spent.toFixed(2)}","${c.last_services}","${notesClean}"\n`;
     });
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
@@ -596,7 +661,7 @@ export default function AdminTenant() {
     document.body.removeChild(link);
   };
 
-  // NOVA FUNÇÃO: EXPORTAR FINANCEIRO EM CSV
+  // EXPORTAR FINANCEIRO EM CSV
   const exportFinancialCSV = () => {
     if (filteredApps.length === 0) return alert("Nenhum registro para exportar.");
     let csvContent = "data:text/csv;charset=utf-8,Data,Cliente,Telefone,Profissional,Servico,Valor (R$),Status\n";
@@ -760,7 +825,7 @@ export default function AdminTenant() {
         </button>
       </header>
 
-      {/* BARRA DE TABS ATUALIZADA COM ABA AGENDA */}
+      {/* BARRA DE TABS */}
       <div className="flex space-x-1 bg-gray-900 p-1 rounded-xl border border-gray-800 mb-6 text-[11px] font-bold overflow-x-auto scrollbar-none">
         <button onClick={() => setActiveTab('services')} className={`flex-1 py-2 px-3 rounded-lg whitespace-nowrap transition ${activeTab === 'services' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>💈 Serviços</button>
         <button onClick={() => setActiveTab('professionals')} className={`flex-1 py-2 px-3 rounded-lg whitespace-nowrap transition ${activeTab === 'professionals' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>👨‍🔬 Equipe</button>
@@ -1075,7 +1140,7 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* ABA 3: NOVA ABA DE GESTÃO DA AGENDA DE AGENDAMENTOS */}
+      {/* ABA 3: AGENDA DE AGENDAMENTOS */}
       {activeTab === 'appointments' && (
         <div className="space-y-6">
           <section className="bg-gray-900 p-4 rounded-2xl border border-gray-800 space-y-4 shadow-xl">
@@ -1202,7 +1267,7 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* ABA 4: GESTÃO DE CLIENTES */}
+      {/* ABA 4: GESTÃO DE CLIENTES & CARTÃO FIDELIDADE */}
       {activeTab === 'customers' && (
         <div className="space-y-6">
           {topVipCustomers.length > 0 && (
@@ -1273,6 +1338,10 @@ export default function AdminTenant() {
               ) : (
                 processedCustomers.map((cust, idx) => {
                   const isSavingThisNote = savingNotePhone === cust.phone;
+                  const loyaltyTarget = Number(tenant?.loyalty_target_visits || 10);
+                  const isLoyaltyActive = tenant?.loyalty_enabled;
+                  const currentStamps = cust.stamps || 0;
+                  const hasWonReward = isLoyaltyActive && currentStamps >= loyaltyTarget;
 
                   return (
                     <div key={idx} className="bg-gray-950 p-4 rounded-2xl border border-gray-800 space-y-3 text-xs shadow-md">
@@ -1298,7 +1367,7 @@ export default function AdminTenant() {
 
                         <div className="flex items-center space-x-3 text-[11px]">
                           <div className="text-right">
-                            <span className="text-gray-400 block text-[10px]">Visitas:</span>
+                            <span className="text-gray-400 block text-[10px]">Visitas Totais:</span>
                             <span className="font-bold text-white">{cust.total_visits}x</span>
                           </div>
                           <div className="text-right border-l border-gray-800 pl-3">
@@ -1307,6 +1376,62 @@ export default function AdminTenant() {
                           </div>
                         </div>
                       </div>
+
+                      {/* CARTÃO FIDELIDADE INDIVIDUAL DO CLIENTE */}
+                      {isLoyaltyActive && (
+                        <div className={`p-3 rounded-xl border space-y-2 transition ${hasWonReward ? 'bg-amber-950/30 border-amber-500/60' : 'bg-gray-900 border-gray-800'}`}>
+                          <div className="flex justify-between items-center">
+                            <div className="flex items-center space-x-1.5">
+                              <span className="text-sm">🎁</span>
+                              <span className="font-bold text-xs text-amber-400 uppercase tracking-wide">
+                                Cartão Fidelidade ({currentStamps}/{loyaltyTarget} Selos)
+                              </span>
+                            </div>
+
+                            {hasWonReward && (
+                              <span className="bg-amber-500 text-black font-extrabold text-[10px] px-2 py-0.5 rounded-full uppercase animate-pulse">
+                                🎉 PRÊMIO DISPONÍVEL!
+                              </span>
+                            )}
+                          </div>
+
+                          {/* VISUAL DOS SELOS COM EMOJIS */}
+                          <div className="flex flex-wrap gap-1 items-center bg-gray-950 p-2 rounded-lg border border-gray-800/60 font-mono text-sm">
+                            {Array.from({ length: loyaltyTarget }).map((_, i) => (
+                              <span key={i} title={`Selo ${i + 1}`}>
+                                {i < currentStamps ? '🟢' : '⚪'}
+                              </span>
+                            ))}
+                          </div>
+
+                          <div className="flex flex-wrap justify-between items-center gap-2 pt-1">
+                            <span className="text-[10px] text-gray-400">
+                              Recompensa: <b className="text-amber-300">{tenant.loyalty_reward_text || 'Prêmio Especial'}</b>
+                            </span>
+
+                            <div className="flex items-center space-x-1 ml-auto">
+                              <button
+                                type="button"
+                                onClick={() => handleAdjustCustomerStamps(cust.phone, cust.name, currentStamps, -1)}
+                                className="bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700 px-2 py-1 rounded-lg text-[10px] font-bold">
+                                -1
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleAdjustCustomerStamps(cust.phone, cust.name, currentStamps, 1)}
+                                className="bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700 px-2 py-1 rounded-lg text-[10px] font-bold">
+                                +1 Selo
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleResetCustomerStamps(cust.phone, cust.name)}
+                                className="bg-amber-600/20 hover:bg-amber-600/40 text-amber-400 border border-amber-500/40 px-2.5 py-1 rounded-lg text-[10px] font-bold transition">
+                                🎁 Resgatar / Zerar
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
 
                       <div className="bg-gray-900 p-2.5 rounded-xl border border-gray-800/80 text-[11px] flex justify-between items-center">
                         <div>
@@ -1735,12 +1860,12 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* ABA 8: CONFIGURAÇÕES DA LOJA */}
+      {/* ABA 8: CONFIGURAÇÕES DA LOJA & FIDELIDADE */}
       {activeTab === 'settings' && (
         <div className="space-y-6">
           <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
             <h3 className="font-bold text-sm text-orange-400">⚙️ Configurações da Loja</h3>
-            <form onSubmit={handleSaveTenantSettings} className="space-y-3">
+            <form onSubmit={handleSaveTenantSettings} className="space-y-4">
               <div>
                 <label className="text-[11px] text-gray-400 block mb-1">Nome do Estabelecimento:</label>
                 <input type="text" value={tenant.name || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, name: e.target.value })} />
@@ -1765,6 +1890,53 @@ export default function AdminTenant() {
               <div>
                 <label className="text-[11px] text-gray-400 block mb-1">WhatsApp Geral de Recebimento:</label>
                 <input type="text" value={tenant.whatsapp || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, whatsapp: e.target.value })} />
+              </div>
+
+              {/* SEÇÃO DO CARTÃO FIDELIDADE DIGITAL */}
+              <div className="bg-gray-950 p-4 rounded-xl border border-amber-500/30 space-y-3">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h4 className="font-bold text-xs text-amber-400 flex items-center space-x-1">
+                      <span>🎁 Cartão Fidelidade Digital</span>
+                    </h4>
+                    <p className="text-[10px] text-gray-400">Recompense suas clientes fiéis a cada ciclo de visitas.</p>
+                  </div>
+
+                  <input
+                    type="checkbox"
+                    checked={tenant.loyalty_enabled || false}
+                    onChange={(e) => setTenant({ ...tenant, loyalty_enabled: e.target.checked })}
+                    className="w-5 h-5 accent-amber-500 cursor-pointer"
+                  />
+                </div>
+
+                {tenant.loyalty_enabled && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-gray-800">
+                    <div>
+                      <label className="text-[10px] text-gray-300 font-bold block mb-1">Meta de Visitas / Selos:</label>
+                      <input
+                        type="number"
+                        placeholder="Ex: 10"
+                        value={tenant.loyalty_target_visits || 10}
+                        onChange={(e) => setTenant({ ...tenant, loyalty_target_visits: e.target.value })}
+                        className="w-full bg-gray-900 border border-gray-800 p-2.5 rounded-lg text-xs text-white font-bold focus:outline-none focus:border-amber-500"
+                      />
+                      <span className="text-[9px] text-gray-500 block mt-1">Quantidade de agendamentos para ganhar o prêmio.</span>
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] text-gray-300 font-bold block mb-1">Descrição do Prêmio / Recompensa:</label>
+                      <input
+                        type="text"
+                        placeholder="Ex: 1 Atendimento Cortesia / 50% Off"
+                        value={tenant.loyalty_reward_text || ''}
+                        onChange={(e) => setTenant({ ...tenant, loyalty_reward_text: e.target.value })}
+                        className="w-full bg-gray-900 border border-gray-800 p-2.5 rounded-lg text-xs text-white focus:outline-none focus:border-amber-500"
+                      />
+                      <span className="text-[9px] text-gray-500 block mt-1">Exibido para a cliente e na notificação da equipe.</span>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1847,7 +2019,9 @@ export default function AdminTenant() {
                 )}
               </div>
 
-              <button type="submit" className="w-full bg-green-600 font-bold py-2.5 rounded-lg text-xs">Salvar Configurações</button>
+              <button type="submit" className="w-full bg-green-600 hover:bg-green-700 font-bold py-3 rounded-xl text-xs text-white transition shadow-lg">
+                💾 Salvar Configurações
+              </button>
             </form>
           </section>
         </div>

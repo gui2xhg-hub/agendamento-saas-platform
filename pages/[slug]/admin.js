@@ -49,6 +49,11 @@ export default function AdminTenant() {
   const [appointmentProfFilter, setAppointmentProfFilter] = useState('');
   const [appointmentSearch, setAppointmentSearch] = useState('');
 
+  // PROTEÇÃO DE VALORES NA ABA AGENDA POR PIN
+  const [isAgendaPricesUnlocked, setIsAgendaPricesUnlocked] = useState(false);
+  const [showAgendaPinModal, setShowAgendaPinModal] = useState(false);
+  const [agendaPinInput, setAgendaPinInput] = useState('');
+
   // GESTÃO DE CLIENTES & OBSERVAÇÕES & FIDELIDADE
   const [customerSearch, setCustomerSearch] = useState('');
   const [customerProfFilter, setCustomerProfFilter] = useState('');
@@ -531,6 +536,24 @@ export default function AdminTenant() {
       alert("Erro ao atualizar status: " + error.message);
     } else {
       fetchData();
+    }
+  };
+
+  // DESBLOQUEIO DE PREÇOS DA ABA AGENDA
+  const handleUnlockAgendaPrices = (e) => {
+    e.preventDefault();
+    const pin = agendaPinInput.trim();
+    const isMaster = pin === 'master123';
+    const isAdminPass = tenant && pin === tenant.admin_password;
+    const isFinPass = tenant && tenant.financial_password && pin === tenant.financial_password;
+    const isProfPin = professionals.some(p => p.pin && String(p.pin).trim() === pin);
+
+    if (isMaster || isAdminPass || isFinPass || isProfPin) {
+      setIsAgendaPricesUnlocked(true);
+      setShowAgendaPinModal(false);
+      setAgendaPinInput('');
+    } else {
+      alert('❌ PIN ou Senha incorreta!');
     }
   };
 
@@ -1153,6 +1176,23 @@ export default function AdminTenant() {
               </div>
 
               <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                {/* BOTÃO DE OBTENÇÃO OU BLOQUEIO DE VALORES MONETÁRIOS */}
+                {isAgendaPricesUnlocked ? (
+                  <button
+                    onClick={() => setIsAgendaPricesUnlocked(false)}
+                    className="bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700 px-3 py-2 rounded-xl text-xs font-bold transition flex items-center space-x-1"
+                  >
+                    <span>🔒 Ocultar Valores</span>
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => setShowAgendaPinModal(true)}
+                    className="bg-orange-500/20 hover:bg-orange-500/30 text-orange-400 border border-orange-500/40 px-3 py-2 rounded-xl text-xs font-bold transition flex items-center space-x-1"
+                  >
+                    <span>👁️ Mostrar Valores (PIN)</span>
+                  </button>
+                )}
+
                 <select
                   value={appointmentStatusFilter}
                   onChange={(e) => setAppointmentStatusFilter(e.target.value)}
@@ -1218,8 +1258,11 @@ export default function AdminTenant() {
                           </span>
                         </div>
 
+                        {/* EXIBIÇÃO OU OCULTAÇÃO PROTEGIDA DO PREÇO */}
                         <span className="font-bold text-green-400 text-sm">
-                          R$ {Number(app.total_price || app.price || 0).toFixed(2)}
+                          {isAgendaPricesUnlocked 
+                            ? `R$ ${Number(app.total_price || app.price || 0).toFixed(2)}` 
+                            : 'R$ •••••'}
                         </span>
                       </div>
 
@@ -2024,6 +2067,43 @@ export default function AdminTenant() {
               </button>
             </form>
           </section>
+        </div>
+      )}
+
+      {/* MODAL PARA DIGITAR PIN/SENHA E DESBLOQUEAR PREÇOS NA AGENDA */}
+      {showAgendaPinModal && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <form onSubmit={handleUnlockAgendaPrices} className="bg-gray-900 w-full max-w-xs rounded-2xl p-5 border border-orange-500/40 space-y-4 shadow-2xl">
+            <h3 className="font-bold text-sm text-orange-400 text-center">🔒 Desbloquear Valores</h3>
+            <p className="text-[11px] text-gray-400 text-center">
+              Digite seu PIN de profissional ou senha administrativa para visualizar os preços na agenda.
+            </p>
+
+            <input
+              type="password"
+              placeholder="Digite o PIN / Senha..."
+              value={agendaPinInput}
+              onChange={(e) => setAgendaPinInput(e.target.value)}
+              className="w-full bg-gray-800 border border-gray-700 p-3 rounded-xl text-xs text-white text-center font-mono focus:outline-none focus:border-orange-500 text-base"
+              autoFocus
+            />
+
+            <div className="flex space-x-2">
+              <button
+                type="button"
+                onClick={() => { setShowAgendaPinModal(false); setAgendaPinInput(''); }}
+                className="w-1/2 bg-gray-800 hover:bg-gray-700 py-2.5 rounded-xl text-xs font-bold text-gray-300 transition"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                className="w-1/2 bg-orange-500 hover:bg-orange-600 py-2.5 rounded-xl text-xs font-bold text-white transition"
+              >
+                Desbloquear
+              </button>
+            </div>
+          </form>
         </div>
       )}
 

@@ -133,7 +133,16 @@ export default function AgendamentoCliente() {
       });
 
       const { data: pData } = await supabase.from('professionals').select('*').eq('tenant_id', tData.id).eq('active', true);
-      const { data: sData } = await supabase.from('services').select('*').eq('tenant_id', tData.id).eq('active', true);
+      
+      // BUSCA OS SERVIÇOS ATIVOS ORDENADOS POR 'position' ASCENDENTE E DEPOIS 'id'
+      const { data: sData } = await supabase
+        .from('services')
+        .select('*')
+        .eq('tenant_id', tData.id)
+        .eq('active', true)
+        .order('position', { ascending: true })
+        .order('id', { ascending: true });
+
       const { data: psData } = await supabase.from('professional_services').select('*');
 
       if (pData) setProfessionals(pData);
@@ -365,7 +374,7 @@ export default function AgendamentoCliente() {
     return true;
   });
 
-  // AGRUPAMENTO DE SERVIÇOS POR CATEGORIA
+  // AGRUPAMENTO DE SERVIÇOS POR CATEGORIA (MANTÉM A ORDEM ORIGINAL DE EXIBIÇÃO)
   const groupedServices = displayedServices.reduce((acc, srv) => {
     const categoryName = (srv.category && srv.category.trim() !== '') ? srv.category.trim() : 'Serviços Gerais';
     if (!acc[categoryName]) {

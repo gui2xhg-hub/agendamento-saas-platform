@@ -12,6 +12,14 @@ const THEME_PRESETS = {
     text: '#FFFFFF',
     border: 'rgba(255, 255, 255, 0.1)'
   },
+  amarelo: {
+    name: 'Amarelo ☀️',
+    primary: '#F59E0B',
+    secondary: '#130F02',
+    cardBg: '#221A05',
+    text: '#FEF3C7',
+    border: 'rgba(245, 158, 11, 0.25)'
+  },
   rosa: {
     name: 'Rosa 🌸',
     primary: '#EC4899',
@@ -377,7 +385,6 @@ export default function AgendaTenant() {
     const profObj = professionals.find(p => String(p.id) === String(finProfId));
     if (!profObj) return alert("Selecione um profissional!");
 
-    // Se o profissional não tem PIN cadastrado, permite acesso direto
     if (!profObj.pin || String(profObj.pin).trim() === '' || String(profObj.pin).trim() === String(finPin).trim()) {
       setIsFinUnlocked(true);
       fetchProfFinancials(profObj.id);
@@ -708,23 +715,33 @@ export default function AgendaTenant() {
       if (error) {
         alert("Erro ao atualizar status: " + error.message);
       } else {
-        // SE CONCLUÍDO E FIDELIDADE ATIVA -> CREDITAR SELO AUTOMATIZADO
+        // SE CONCLUÍDO E FIDELIDADE ATIVA -> CREDITAR SELO COMPLETO E SINCRONIZADO
         if (newStatus === 'concluido' && tenant?.loyalty_enabled && app.customer_phone) {
           const cleanPhone = app.customer_phone.replace(/\D/g, '');
           if (cleanPhone.length >= 10) {
             try {
-              // 1. Busca os selos atuais do cliente
-              const { data: loyaltyData } = await supabase
-                .from('tenant_customer_loyalty')
-                .select('loyalty_count')
+              // 1. Busca os selos atuais na tabela de clientes do tenant
+              const { data: custData } = await supabase
+                .from('tenant_customers')
+                .select('loyalty_stamps')
                 .eq('tenant_id', tenant.id)
                 .eq('customer_phone', cleanPhone)
                 .maybeSingle();
 
-              const currentStamps = loyaltyData?.loyalty_count || 0;
+              const currentStamps = custData?.loyalty_stamps || 0;
               const newStamps = currentStamps + 1;
 
-              // 2. Atualiza ou insere o registro na tabela dedicada
+              // 2. Atualiza a tabela principal tenant_customers
+              await supabase
+                .from('tenant_customers')
+                .upsert({
+                  tenant_id: tenant.id,
+                  customer_phone: cleanPhone,
+                  customer_name: app.customer_name,
+                  loyalty_stamps: newStamps
+                }, { onConflict: 'tenant_id,customer_phone' });
+
+              // 3. Atualiza também tenant_customer_loyalty para retrocompatibilidade
               await supabase
                 .from('tenant_customer_loyalty')
                 .upsert({
@@ -735,8 +752,10 @@ export default function AgendaTenant() {
                 }, { onConflict: 'tenant_id,customer_phone' });
 
               const targetVisits = Number(tenant.loyalty_target_visits || 10);
-              if (newStamps === targetVisits) {
-                alert(`🎉 PARABÉNS! ${app.customer_name} completou ${targetVisits} selos e ganhou: ${tenant.loyalty_reward_text}!`);
+              if (newStamps >= targetVisits) {
+                alert(`🎉 PARABÉNS! ${app.customer_name} completou ${targetVisits} selos no Cartão Fidelidade e ganhou: ${tenant.loyalty_reward_text || 'Recompensa Especial'}!`);
+              } else {
+                alert(`⭐ Selo creditado! ${app.customer_name} agora possui ${newStamps}/${targetVisits} selos no Cartão Fidelidade.`);
               }
             } catch (loyaltyErr) {
               console.error("Erro ao creditar selo no Cartão Fidelidade:", loyaltyErr);

@@ -306,7 +306,7 @@ export default function AgendaTenant() {
       }
     } catch (err) {
       console.error("Erro ao carregar dados da agenda:", err);
-    } font-sans {
+    } finally {
       setLoading(false);
     }
   };
@@ -902,7 +902,7 @@ export default function AgendaTenant() {
 
       if (isAppOccupied) {
         setIsSavingReschedule(false);
-        return alert("⚠️️ CONFLITO DE HORÁRIO! O horário selecionado para reagendamento já está ocupado por outro cliente.");
+        return alert("⚠️ CONFLITO DE HORÁRIO! O horário selecionado para reagendamento já está ocupado por outro cliente.");
       }
 
       const { error } = await supabase

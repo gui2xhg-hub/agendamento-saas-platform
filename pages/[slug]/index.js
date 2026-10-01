@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
+import Head from 'next/head';
 import { supabase } from '../../lib/supabase';
 
 // FUNÇÃO AUXILIAR PARA FORMATAR MINUTOS EM HORAS E MINUTOS
@@ -626,6 +627,15 @@ export default function AgendamentoCliente() {
   return (
     <div className="min-h-screen font-sans pb-12 transition-colors duration-300 flex flex-col justify-between" style={{ backgroundColor: bgColor, color: textColor }}>
       
+      {/* PWA & METATAGS DINÂMICAS */}
+      <Head>
+        <title>{tenant?.name ? `${tenant.name} - Agendamento Online` : 'Agendamento Online'}</title>
+        {slug && <link rel="manifest" href={`/api/manifest?slug=${slug}`} />}
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <meta name="apple-mobile-web-app-title" content={tenant?.name || 'Agendamento'} />
+      </Head>
+
       {/* CONTAINER RESPONSIVO */}
       <div className="w-full max-w-md sm:max-w-2xl md:max-w-4xl mx-auto px-0 sm:px-4 md:px-6">
         

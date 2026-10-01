@@ -310,7 +310,7 @@ export default function AdminTenant() {
         if (cn.customer_phone) {
           const cleanP = cn.customer_phone.replace(/\D/g, '');
           nMap[cleanP] = cn.notes || '';
-          sMap[cleanP] = cn.loyalty_stamps || 0;
+          sMap[cleanP] = cn.loyalty_stamps ?? 0;
         }
       });
       setCustomerNotesMap(nMap);
@@ -318,7 +318,7 @@ export default function AdminTenant() {
     }
   };
 
-  // FUNÇÃO PARA MOVER SERVIÇO PARA CIMA OU PARA BAIXO
+  // FUNÇÃO OTIMIZADA PARA MOVER SERVIÇO PARA CIMA OU PARA BAIXO
   const handleMoveService = async (index, direction) => {
     const targetIndex = direction === 'up' ? index - 1 : index + 1;
     if (targetIndex < 0 || targetIndex >= services.length) return;
@@ -331,13 +331,15 @@ export default function AdminTenant() {
     // Atualiza o estado da tela de forma imediata
     setServices(newServices);
 
-    // Atualiza a posição de todos os serviços no Supabase
-    for (let i = 0; i < newServices.length; i++) {
-      await supabase
-        .from('services')
-        .update({ position: i })
-        .eq('id', newServices[i].id);
-    }
+    // Atualiza a posição de todos os serviços no Supabase em paralelo
+    await Promise.all(
+      newServices.map((service, i) =>
+        supabase
+          .from('services')
+          .update({ position: i })
+          .eq('id', service.id)
+      )
+    );
   };
 
   // CATEGORIAS ÚNICAS JÁ EXISTENTES PARA AUTO-COMPLETE
@@ -526,7 +528,7 @@ export default function AdminTenant() {
     e.preventDefault();
     const formattedPrice = parseFloat(String(editingService.price).replace(',', '.'));
     
-    let cleanImage = (editingService.image_url || editingService.image || '').trim();
+    let cleanImage = (editingService.image_url || '').trim();
     if (cleanImage.startsWith('blob:')) cleanImage = '';
 
     const categoryVal = editingService.category && editingService.category.trim() !== '' 
@@ -681,6 +683,8 @@ export default function AdminTenant() {
 
   const getFilteredAppointments = () => {
     const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
     return appointments.filter(a => {
       if (a.status === 'cancelado' && reportFilter !== 'custom') return false;
       if (reportFilter === 'all') return true;
@@ -692,11 +696,14 @@ export default function AdminTenant() {
         return true;
       }
       if (!a.appointment_date) return true;
-      const appDate = new Date(a.appointment_date);
-      const diffDays = (now - appDate) / (1000 * 60 * 60 * 24);
-      if (reportFilter === 'today') return appDate.toDateString() === now.toDateString();
-      if (reportFilter === '7days') return diffDays <= 7;
-      if (reportFilter === '30days') return diffDays <= 30;
+      const appDateStr = a.appointment_date.split('T')[0];
+      const appDate = new Date(`${appDateStr}T00:00:00`);
+      const diffMs = now.getTime() - appDate.getTime();
+      const diffDays = diffMs / (1000 * 60 * 60 * 24);
+
+      if (reportFilter === 'today') return appDateStr === todayStr;
+      if (reportFilter === '7days') return diffDays >= 0 && diffDays <= 7;
+      if (reportFilter === '30days') return diffDays >= 0 && diffDays <= 30;
       return true;
     });
   };
@@ -789,10 +796,10 @@ export default function AdminTenant() {
     .sort((a, b) => b.total_spent - a.total_spent)
     .slice(0, 3);
 
-  // EXPORTAR CLIENTES EM CSV (EXCEL)
+  // EXPORTAR CLIENTES EM CSV (EXCEL COM BOM UTF-8)
   const exportCustomersCSV = () => {
     if (processedCustomers.length === 0) return alert("Nenhum cliente para exportar.");
-    let csvContent = "data:text/csv;charset=utf-8,Nome,Telefone,Visitas,Selos Fidelidade,Total Gasto (R$),Ultimo Atendimento,Observacoes\n";
+    let csvContent = "\uFEFFData:text/csv;charset=utf-8,Nome,Telefone,Visitas,Selos Fidelidade,Total Gasto (R$),Ultimo Atendimento,Observacoes\n";
     processedCustomers.forEach(c => {
       const notesClean = (c.notes || '').replace(/"/g, '""');
       csvContent += `"${c.name}","${c.phone}",${c.total_visits},${c.stamps},"${c.total_spent.toFixed(2)}","${c.last_services}","${notesClean}"\n`;
@@ -809,7 +816,7 @@ export default function AdminTenant() {
   // EXPORTAR FINANCEIRO EM CSV
   const exportFinancialCSV = () => {
     if (filteredApps.length === 0) return alert("Nenhum registro para exportar.");
-    let csvContent = "data:text/csv;charset=utf-8,Data,Cliente,Telefone,Profissional,Servico,Valor (R$),Status\n";
+    let csvContent = "\uFEFFData:text/csv;charset=utf-8,Data,Cliente,Telefone,Profissional,Servico,Valor (R$),Status\n";
     filteredApps.forEach(a => {
       const prof = professionals.find(p => String(p.id) === String(a.professional_id));
       const profName = prof ? prof.name : '—';
@@ -1108,7 +1115,7 @@ export default function AdminTenant() {
                     </div>
 
                     <div className="flex items-center space-x-1.5">
-                      <button onClick={() => setEditingService(s)} className="text-xs bg-blue-600/20 text-blue-400 p-1.5 rounded-lg font-bold border border-blue-500/30">✏️ Editar</button>
+                      <button onClick={() => setEditingService({ ...s, image_url: s.image_url || s.image || '' })} className="text-xs bg-blue-600/20 text-blue-400 p-1.5 rounded-lg font-bold border border-blue-500/30">✏️ Editar</button>
                       <button onClick={async () => { await supabase.from('services').update({ active: !s.active }).eq('id', s.id); fetchData(); }} className={`text-[10px] font-bold px-2 py-1.5 rounded-lg ${s.active ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'}`}>{s.active ? 'Ativo' : 'Pausado'}</button>
                       <button onClick={async () => { if (confirm("Excluir serviço?")) { await supabase.from('services').delete().eq('id', s.id); fetchData(); } }} className="text-xs bg-red-500/20 text-red-400 p-1.5 rounded-lg font-bold">🗑</button>
                     </div>
@@ -1262,7 +1269,7 @@ export default function AdminTenant() {
                 <div key={p.id} className="bg-gray-900 p-3 rounded-xl border border-gray-800 space-y-2 text-xs">
                   <div className="flex justify-between items-center">
                     <div className="flex items-center space-x-3">
-                      <img src={p.avatar_url || p.photo_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80'} alt={p.name} className="w-9 h-9 rounded-full object-cover border border-gray-700" />
+                      <img src={p.avatar_url || p.photo_url || p.photo || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80'} alt={p.name} className="w-9 h-9 rounded-full object-cover border border-gray-700" />
                       <div>
                         <span className={`font-bold block ${isProfActive ? 'text-white' : 'line-through text-gray-500'}`}>
                           {p.name} {p.specialty && <span className="text-purple-400 text-[10px] font-normal">({p.specialty})</span>}
@@ -1281,7 +1288,7 @@ export default function AdminTenant() {
                         className={`text-[10px] font-bold px-2 py-1 rounded-lg ${isProfActive ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'}`}>
                         {isProfActive ? 'Ativo' : 'Pausado'}
                       </button>
-                      <button onClick={() => setEditingProf({ ...p, work_days: pWorkDays, work_hours: pWorkHours, break_start: p.break_start || '12:00', break_end: p.break_end || '13:00', pin: p.pin || '1234', instagram_url: p.instagram_url || '', specialty: p.specialty || '', bot_message_template: p.bot_message_template || '' })} className="bg-blue-600/20 text-blue-400 p-1.5 rounded-lg font-bold border border-blue-500/30">✏️ Editar</button>
+                      <button onClick={() => setEditingProf({ ...p, work_days: pWorkDays, work_hours: pWorkHours, break_start: p.break_start || '12:00', break_end: p.break_end || '13:00', pin: p.pin || '1234', instagram_url: p.instagram_url || '', specialty: p.specialty || '', bot_message_template: p.bot_message_template || '', avatar_url: p.avatar_url || p.photo_url || p.photo || '' })} className="bg-blue-600/20 text-blue-400 p-1.5 rounded-lg font-bold border border-blue-500/30">✏️ Editar</button>
                       <button onClick={async () => { if (confirm("Excluir profissional?")) { await supabase.from('professionals').delete().eq('id', p.id); fetchData(); } }} className="text-red-400 font-bold p-1.5">🗑</button>
                     </div>
                   </div>
@@ -1383,7 +1390,7 @@ export default function AdminTenant() {
                   if (status === 'cancelado') statusBadgeClass = "bg-red-500/20 text-red-400 border-red-500/30";
                   if (status === 'concluido') statusBadgeClass = "bg-blue-500/20 text-blue-400 border-blue-500/30";
 
-                  const formattedDate = app.appointment_date ? app.appointment_date.split('-').reverse().join('/') : '';
+                  const formattedDate = app.appointment_date ? app.appointment_date.split('T')[0].split('-').reverse().join('/') : '';
                   const zapMsg = `Olá ${clientName}! Confirmando seu agendamento de *${serviceTitle}* no *${tenant.name}* no dia *${formattedDate}* às *${app.start_time || app.appointment_time || app.time || ''}* com *${prof?.name || 'nossa equipe'}*.`;
 
                   return (
@@ -1523,7 +1530,7 @@ export default function AdminTenant() {
               {processedCustomers.length === 0 ? (
                 <p className="text-xs text-gray-500 text-center py-6">Nenhum cliente encontrado com os filtros aplicados.</p>
               ) : (
-                processedCustomers.map((cust, idx) => {
+                processedCustomers.map((cust) => {
                   const isSavingThisNote = savingNotePhone === cust.phone;
                   const loyaltyTarget = Number(tenant?.loyalty_target_visits || 10);
                   const isLoyaltyActive = tenant?.loyalty_enabled;
@@ -1531,7 +1538,7 @@ export default function AdminTenant() {
                   const hasWonReward = isLoyaltyActive && currentStamps >= loyaltyTarget;
 
                   return (
-                    <div key={idx} className="bg-gray-950 p-4 rounded-2xl border border-gray-800 space-y-3 text-xs shadow-md">
+                    <div key={cust.phone} className="bg-gray-950 p-4 rounded-2xl border border-gray-800 space-y-3 text-xs shadow-md">
                       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-gray-800 pb-2.5">
                         <div className="flex items-center space-x-3">
                           <div className="w-10 h-10 rounded-full bg-orange-500/10 border border-orange-500/30 text-orange-400 font-bold flex items-center justify-center text-sm shrink-0">
@@ -2228,7 +2235,7 @@ export default function AdminTenant() {
               placeholder="Digite o PIN / Senha..."
               value={agendaPinInput}
               onChange={(e) => setAgendaPinInput(e.target.value)}
-              className="w-full bg-gray-800 border border-gray-700 p-3 rounded-xl text-xs text-white text-center font-mono focus:outline-none focus:border-orange-500 text-base"
+              className="w-full bg-gray-800 border border-gray-700 p-3 rounded-xl text-white text-center font-mono focus:outline-none focus:border-orange-500 text-base"
               autoFocus
             />
 
@@ -2280,7 +2287,7 @@ export default function AdminTenant() {
             <input 
               type="text" 
               placeholder="URL da Foto do Serviço (Opcional)" 
-              value={editingService.image_url || editingService.image || ''} 
+              value={editingService.image_url || ''} 
               onChange={(e) => setEditingService({ ...editingService, image_url: e.target.value })} 
               className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" 
             />

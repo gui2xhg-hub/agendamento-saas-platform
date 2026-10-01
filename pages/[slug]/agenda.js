@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
+import Head from 'next/head';
 import { supabase } from '../../lib/supabase';
 
 // PRESETS DE CORES EXCLUSIVOS E PREDEFINIDOS PARA A AGENDA (INCLUI TEMA CLARO)
@@ -305,7 +306,7 @@ export default function AgendaTenant() {
       }
     } catch (err) {
       console.error("Erro ao carregar dados da agenda:", err);
-    } finally {
+    } font-sans {
       setLoading(false);
     }
   };
@@ -476,7 +477,7 @@ export default function AgendaTenant() {
         .eq('tenant_id', tenant.id);
 
       const filteredDbBlocks = (dbBlocks || []).filter(b => {
-        if (b.professional_id !== null && String(b.professional_id) !== String(parsedProf)) return false;
+        if (b.professional_id !== null && b.professional_id !== undefined && String(b.professional_id) !== String(parsedProf)) return false;
         if (b.block_date === manualDate) return true;
         const isRec = b.is_recurring || (b.reason && b.reason.includes('[RECORRENTE]'));
         if (isRec && Number(b.recurring_day) === dayOfWeek) return true;
@@ -688,12 +689,12 @@ export default function AgendaTenant() {
       // 🔒 CHECAR BLOQUEIOS NA MESMA HORA
       const { data: existingBlocks } = await supabase
         .from('blocked_times')
-        .select('id, start_time, end_time, is_recurring, recurring_day, block_date')
+        .select('id, start_time, end_time, is_recurring, recurring_day, block_date, professional_id, reason')
         .eq('tenant_id', tenant.id);
 
       const dayOfWeek = new Date(manualDate + 'T00:00:00').getDay();
       const isBlockOccupied = (existingBlocks || []).some(b => {
-        if (b.professional_id !== null && String(b.professional_id) !== String(parsedProfId)) return false;
+        if (b.professional_id !== null && b.professional_id !== undefined && String(b.professional_id) !== String(parsedProfId)) return false;
         const isDateMatch = b.block_date === manualDate;
         const isRecMatch = (b.is_recurring || (b.reason && b.reason.includes('[RECORRENTE]'))) && Number(b.recurring_day) === dayOfWeek;
         
@@ -901,7 +902,7 @@ export default function AgendaTenant() {
 
       if (isAppOccupied) {
         setIsSavingReschedule(false);
-        return alert("⚠️ CONFLITO DE HORÁRIO! O horário selecionado para reagendamento já está ocupado por outro cliente.");
+        return alert("⚠️️ CONFLITO DE HORÁRIO! O horário selecionado para reagendamento já está ocupado por outro cliente.");
       }
 
       const { error } = await supabase
@@ -1113,7 +1114,7 @@ export default function AgendaTenant() {
     const timeline = [];
 
     const profApps = appointments.filter(a => String(a.professional_id) === String(selectedProf));
-    const profBlocks = blockedTimes.filter(b => b.professional_id === null || String(b.professional_id) === String(selectedProf));
+    const profBlocks = blockedTimes.filter(b => b.professional_id === null || b.professional_id === undefined || String(b.professional_id) === String(selectedProf));
 
     while (currentMin < endMin) {
       const h = Math.floor(currentMin / 60);
@@ -1221,6 +1222,15 @@ export default function AgendaTenant() {
       className="min-h-screen p-4 max-w-5xl mx-auto font-sans pb-20 transition-colors duration-300"
       style={{ backgroundColor: secondaryColor, color: textColor }}
     >
+      {/* MANIFEST E CONFIGURAÇÕES PWA DINÂMICAS */}
+      <Head>
+        <title>{tenant?.name ? `${tenant.name} - Agendamento` : 'Agendamento Online'}</title>
+        {slug && <link rel="manifest" href={`/api/manifest?slug=${slug}`} />}
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <meta name="apple-mobile-web-app-title" content={tenant?.name || 'Agendamento'} />
+      </Head>
+
       <style jsx global>{`
         @media print {
           body * { visibility: hidden !important; }

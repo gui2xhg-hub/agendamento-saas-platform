@@ -84,6 +84,13 @@ const parseProfId = (id) => {
   return isNaN(num) ? String(id) : num;
 };
 
+// AUXILIAR PARA CONVERTER "HH:MM" EM MINUTOS DO DIA
+const timeToMinutes = (timeStr) => {
+  if (!timeStr) return 0;
+  const [h, m] = timeStr.split(':').map(Number);
+  return (h * 60) + (m || 0);
+};
+
 export default function AgendaTenant() {
   const router = useRouter();
   const { slug } = router.query;
@@ -162,6 +169,10 @@ export default function AgendaTenant() {
   const [manualPaymentMethod, setManualPaymentMethod] = useState('No Local');
   const [isSavingManualApp, setIsSavingManualApp] = useState(false);
 
+  // ESTADOS PARA O CÁLCULO DE HORÁRIOS LIVRES NA MODAL MANUAL
+  const [manualAvailableSlots, setManualAvailableSlots] = useState([]);
+  const [isLoadingSlots, setIsLoadingSlots] = useState(false);
+
   useEffect(() => {
     if (router.isReady && slug) {
       const savedTheme = localStorage.getItem(`agenda_custom_theme_${slug}`);
@@ -183,6 +194,13 @@ export default function AgendaTenant() {
     }
   }, [tenant?.id, selectedDate, selectedProf]);
 
+  // RECALCULAR HORÁRIOS LIVRES NA MODAL DE AGENDAMENTO MANUAL QUANDO HOUVER ALTERAÇÕES
+  useEffect(() => {
+    if (showManualAppModal && tenant?.id && manualProfId && manualDate) {
+      calculateManualAvailableSlots();
+    }
+  }, [showManualAppModal, tenant?.id, manualProfId, manualDate, manualSelectedServiceId]);
+
   // ATUALIZAÇÃO EM TEMPO REAL (SUPABASE REALTIME) NA AGENDA
   useEffect(() => {
     if (!tenant?.id) return;
@@ -202,6 +220,7 @@ export default function AgendaTenant() {
           fetchAppointmentsAndBlocks(tenant.id);
           fetchTomorrowAppointments(tenant.id);
           fetchCustomersDirectory(tenant.id);
+          if (showManualAppModal) calculateManualAvailableSlots();
         }
       )
       .subscribe();
@@ -209,7 +228,7 @@ export default function AgendaTenant() {
     return () => {
       supabase.removeChannel(appointmentsChannel);
     };
-  }, [tenant?.id, selectedDate, selectedProf]);
+  }, [tenant?.id, selectedDate, selectedProf, showManualAppModal, manualProfId, manualDate]);
 
   const handleThemeChange = (newThemeKey) => {
     setAgendaTheme(newThemeKey);
@@ -286,7 +305,7 @@ export default function AgendaTenant() {
       }
     } catch (err) {
       console.error("Erro ao carregar dados da agenda:", err);
-    } finally {
+    } fontally {
       setLoading(false);
     }
   };
@@ -398,6 +417,131 @@ export default function AgendaTenant() {
     }
   };
 
+  // CÁLCULO DE HORÁRIOS LIVRES PARA A MODAL MANUAL DE AGENDAMENTO
+  const calculateManualAvailableSlots = async () => {
+    if (!tenant?.id || !manualProfId || !manualDate) return;
+
+    setIsLoadingSlots(true);
+    try {
+      const parsedProf = parseProfId(manualProfId);
+      const currentProfObj = professionals.find(p => String(p.id) === String(parsedProf));
+      if (!currentProfObj) return setManualAvailableSlots([]);
+
+      const dateObj = new Date(manualDate + 'T00:00:00');
+      const dayOfWeek = dateObj.getDay();
+
+      // Verificar dia de trabalho do profissional
+      let profWorkDays = currentProfObj?.work_days || [1, 2, 3, 4, 5, 6];
+      if (typeof profWorkDays === 'string') {
+        try { profWorkDays = JSON.parse(profWorkDays); } catch (e) { profWorkDays = [1, 2, 3, 4, 5, 6]; }
+      }
+
+      if (!profWorkDays.includes(dayOfWeek)) {
+        setManualAvailableSlots([]);
+        setIsLoadingSlots(false);
+        return;
+      }
+
+      // Horários de expediente no dia
+      let profWorkHours = currentProfObj?.work_hours || {};
+      if (typeof profWorkHours === 'string') {
+        try { profWorkHours = JSON.parse(profWorkHours); } catch (e) { profWorkHours = {}; }
+      }
+
+      const dayHours = profWorkHours[dayOfWeek] || { open: '08:00', close: '18:00' };
+      const openMin = timeToMinutes(dayHours.open || '08:00');
+      const closeMin = timeToMinutes(dayHours.close || '18:00');
+
+      // Intervalo de almoço/pausa
+      let breakStartMin = -1;
+      let breakEndMin = -1;
+      if (currentProfObj?.break_start && currentProfObj?.break_end) {
+        breakStartMin = timeToMinutes(currentProfObj.break_start);
+        breakEndMin = timeToMinutes(currentProfObj.break_end);
+      }
+
+      // Buscar agendamentos existentes na data selecionada
+      const { data: dbApps } = await supabase
+        .from('appointments')
+        .select('*')
+        .eq('tenant_id', tenant.id)
+        .eq('appointment_date', manualDate)
+        .eq('professional_id', parsedProf)
+        .neq('status', 'cancelado');
+
+      // Buscar bloqueios de horário existentes
+      const { data: dbBlocks } = await supabase
+        .from('blocked_times')
+        .select('*')
+        .eq('tenant_id', tenant.id);
+
+      const filteredDbBlocks = (dbBlocks || []).filter(b => {
+        if (b.professional_id !== null && String(b.professional_id) !== String(parsedProf)) return false;
+        if (b.block_date === manualDate) return true;
+        const isRec = b.is_recurring || (b.reason && b.reason.includes('[RECORRENTE]'));
+        if (isRec && Number(b.recurring_day) === dayOfWeek) return true;
+        return false;
+      });
+
+      // Duração do procedimento selecionado
+      const serviceObj = services.find(s => String(s.id) === String(manualSelectedServiceId));
+      const serviceDuration = Number(serviceObj?.duration_minutes || 30);
+
+      const now = new Date();
+      const isToday = manualDate === getTodayLocal();
+      const nowInMinutes = now.getHours() * 60 + now.getMinutes();
+
+      const availableSlots = [];
+      let currentMin = openMin;
+
+      while (currentMin + serviceDuration <= closeMin) {
+        const slotStart = currentMin;
+        const slotEnd = currentMin + serviceDuration;
+
+        // Validar se o horário já passou hoje
+        const isPast = isToday && slotStart < nowInMinutes;
+
+        if (!isPast) {
+          // Checar colisão com agendamentos existentes
+          const hasAppOverlap = (dbApps || []).some(app => {
+            const appStart = timeToMinutes(app.start_time);
+            const appEnd = app.end_time ? timeToMinutes(app.end_time) : appStart + (app.total_duration_minutes || 30);
+            return slotStart < appEnd && slotEnd > appStart;
+          });
+
+          // Checar colisão com bloqueios de agenda
+          const hasBlockOverlap = filteredDbBlocks.some(block => {
+            const bStart = timeToMinutes(block.start_time);
+            const bEnd = timeToMinutes(block.end_time);
+            return slotStart < bEnd && slotEnd > bStart;
+          });
+
+          // Checar colisão com horário de almoço/pausa
+          const hasBreakOverlap = (breakStartMin !== -1 && breakEndMin !== -1) &&
+            (slotStart < breakEndMin && slotEnd > breakStartMin);
+
+          if (!hasAppOverlap && !hasBlockOverlap && !hasBreakOverlap) {
+            const h = Math.floor(slotStart / 60);
+            const m = slotStart % 60;
+            const timeStr = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+            availableSlots.push(timeStr);
+          }
+        }
+
+        currentMin += 30; // Incremento padrão de grade de 30 minutos
+      }
+
+      setManualAvailableSlots(availableSlots);
+      if (availableSlots.length > 0 && !availableSlots.includes(manualStartTime)) {
+        setManualStartTime(availableSlots[0]);
+      }
+    } catch (err) {
+      console.error("Erro ao calcular slots disponíveis:", err);
+    } fontally {
+      setIsLoadingSlots(false);
+    }
+  };
+
   const fetchProfFinancials = async (profId) => {
     if (!tenant?.id || !profId) return;
     try {
@@ -498,31 +642,75 @@ export default function AgendaTenant() {
     window.location.href = `https://wa.me/55${cleanPhone}?text=${encodeURIComponent(msg)}`;
   };
 
+  // CRIAR AGENDAMENTO MANUAL COM VERIFICAÇÃO RIGOROSA ANTI-OVERBOOKING
   const handleCreateManualApp = async (e) => {
     e.preventDefault();
     const cleanPhone = manualCustomerPhone.replace(/\D/g, '');
     if (!manualCustomerName || cleanPhone.length < 10) return alert("Preencha o Nome e WhatsApp válido do cliente!");
     if (!manualSelectedServiceId) return alert("Selecione o procedimento!");
 
+    const parsedProfId = parseProfId(manualProfId);
+    if (!parsedProfId) return alert("Selecione um profissional válido.");
+
     setIsSavingManualApp(true);
 
     try {
       const serviceObj = services.find(s => String(s.id) === String(manualSelectedServiceId));
-      const duration = serviceObj?.duration_minutes || 30;
+      const duration = Number(serviceObj?.duration_minutes || 30);
       const price = Number(serviceObj?.price || 0);
 
-      const [h, m] = manualStartTime.split(':').map(Number);
-      const endDateObj = new Date();
-      endDateObj.setHours(h, m + duration, 0, 0);
-      const endTime = endDateObj.toTimeString().substring(0, 5);
+      const startMin = timeToMinutes(manualStartTime);
+      const endMin = startMin + duration;
+      const endH = Math.floor(endMin / 60);
+      const endM = endMin % 60;
+      const endTime = `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`;
+
+      // 🛑 VALIDAÇÃO RÍGIDA ANTI-OVERBOOKING NO BANCO
+      const { data: existingApps } = await supabase
+        .from('appointments')
+        .select('id, start_time, end_time, customer_name')
+        .eq('tenant_id', tenant.id)
+        .eq('appointment_date', manualDate)
+        .eq('professional_id', parsedProfId)
+        .neq('status', 'cancelado');
+
+      const isAppOccupied = (existingApps || []).some(app => {
+        const appStart = timeToMinutes(app.start_time);
+        const appEnd = app.end_time ? timeToMinutes(app.end_time) : appStart + 30;
+        return startMin < appEnd && endMin > appStart;
+      });
+
+      if (isAppOccupied) {
+        setIsSavingManualApp(false);
+        return alert("⚠️ CONFLITO DE HORÁRIO! Já existe outro cliente agendado neste mesmo intervalo de tempo para este profissional. Por favor, selecione outro horário livre.");
+      }
+
+      // 🔒 CHECAR BLOQUEIOS NA MESMA HORA
+      const { data: existingBlocks } = await supabase
+        .from('blocked_times')
+        .select('id, start_time, end_time, is_recurring, recurring_day, block_date')
+        .eq('tenant_id', tenant.id);
+
+      const dayOfWeek = new Date(manualDate + 'T00:00:00').getDay();
+      const isBlockOccupied = (existingBlocks || []).some(b => {
+        if (b.professional_id !== null && String(b.professional_id) !== String(parsedProfId)) return false;
+        const isDateMatch = b.block_date === manualDate;
+        const isRecMatch = (b.is_recurring || (b.reason && b.reason.includes('[RECORRENTE]'))) && Number(b.recurring_day) === dayOfWeek;
+        
+        if (isDateMatch || isRecMatch) {
+          const bStart = timeToMinutes(b.start_time);
+          const bEnd = timeToMinutes(b.end_time);
+          return startMin < bEnd && endMin > bStart;
+        }
+        return false;
+      });
+
+      if (isBlockOccupied) {
+        setIsSavingManualApp(false);
+        return alert("⚠️ HORÁRIO BLOQUEADO! Este horário está reservado para bloqueio ou intervalo do profissional.");
+      }
 
       const chosenProfObj = professionals.find(p => String(p.id) === String(manualProfId));
-      const parsedProfId = parseProfId(manualProfId);
-
-      if (!parsedProfId) {
-        setIsSavingManualApp(false);
-        return alert("Selecione um profissional válido.");
-      }
 
       const appointmentPayload = {
         tenant_id: tenant.id,
@@ -540,7 +728,7 @@ export default function AgendaTenant() {
         is_paid: false
       };
 
-      const { data: createdApp, error } = await supabase
+      const { error } = await supabase
         .from('appointments')
         .insert([appointmentPayload])
         .select()
@@ -572,7 +760,7 @@ export default function AgendaTenant() {
     } catch (err) {
       console.error("Erro na requisição de agendamento:", err);
       alert("Falha de conexão ao criar agendamento.");
-    } finally {
+    } fontally {
       setIsSavingManualApp(false);
     }
   };
@@ -651,7 +839,7 @@ export default function AgendaTenant() {
     } catch (err) {
       console.error("Erro ao salvar bloqueio:", err);
       alert("Erro de conexão ao bloquear horário.");
-    } finally {
+    } fontally {
       setIsSavingBlock(false);
     }
   };
@@ -684,16 +872,37 @@ export default function AgendaTenant() {
     e.preventDefault();
     if (!rescheduleDate || !rescheduleTime) return alert("Selecione nova data e horário!");
 
+    const parsedProfId = parseProfId(rescheduleProfId);
     setIsSavingReschedule(true);
 
     try {
       const duration = editingApp.total_duration_minutes || 30;
-      const [h, m] = rescheduleTime.split(':').map(Number);
-      const endDateObj = new Date();
-      endDateObj.setHours(h, m + duration, 0, 0);
-      const endTime = endDateObj.toTimeString().substring(0, 5);
+      const startMin = timeToMinutes(rescheduleTime);
+      const endMin = startMin + duration;
+      const endH = Math.floor(endMin / 60);
+      const endM = endMin % 60;
+      const endTime = `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`;
 
-      const parsedProfId = parseProfId(rescheduleProfId);
+      // 🛑 VALIDAÇÃO ANTI-OVERBOOKING AO REAGENDAR
+      const { data: existingApps } = await supabase
+        .from('appointments')
+        .select('id, start_time, end_time')
+        .eq('tenant_id', tenant.id)
+        .eq('appointment_date', rescheduleDate)
+        .eq('professional_id', parsedProfId)
+        .neq('id', editingApp.id) // Ignorar o próprio agendamento sendo alterado
+        .neq('status', 'cancelado');
+
+      const isAppOccupied = (existingApps || []).some(app => {
+        const appStart = timeToMinutes(app.start_time);
+        const appEnd = app.end_time ? timeToMinutes(app.end_time) : appStart + 30;
+        return startMin < appEnd && endMin > appStart;
+      });
+
+      if (isAppOccupied) {
+        setIsSavingReschedule(false);
+        return alert("⚠️ CONFLITO DE HORÁRIO! O horário selecionado para reagendamento já está ocupado por outro cliente.");
+      }
 
       const { error } = await supabase
         .from('appointments')
@@ -739,7 +948,7 @@ export default function AgendaTenant() {
     } catch (err) {
       console.error("Erro ao reagendar:", err);
       alert("Erro de conexão ao reagendar.");
-    } finally {
+    } fontally {
       setIsSavingReschedule(false);
     }
   };
@@ -1564,7 +1773,7 @@ export default function AgendaTenant() {
         </div>
       )}
 
-      {/* MODAL DE AGENDAMENTO MANUAL */}
+      {/* MODAL DE AGENDAMENTO MANUAL COM VERIFICAÇÃO DINÂMICA DE HORÁRIOS LIVRES */}
       {showManualAppModal && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
           <div className="border w-full max-w-md rounded-2xl p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto" style={{ backgroundColor: cardBgColor, color: textColor, borderColor: borderColor }}>
@@ -1685,30 +1894,58 @@ export default function AgendaTenant() {
                 </select>
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="opacity-70 block mb-1">Data:</label>
-                  <input
-                    type="date"
-                    required
-                    value={manualDate}
-                    onChange={(e) => setManualDate(e.target.value)}
-                    className="w-full border p-2.5 rounded-xl focus:outline-none cursor-pointer"
-                    style={{ backgroundColor: secondaryColor, color: textColor, borderColor: borderColor }}
-                  />
+              <div>
+                <label className="opacity-70 block mb-1">Data do Agendamento:</label>
+                <input
+                  type="date"
+                  required
+                  value={manualDate}
+                  onChange={(e) => setManualDate(e.target.value)}
+                  className="w-full border p-2.5 rounded-xl focus:outline-none cursor-pointer"
+                  style={{ backgroundColor: secondaryColor, color: textColor, borderColor: borderColor }}
+                />
+              </div>
+
+              {/* SELEÇÃO INTELIGENTE DE HORÁRIOS DISPONÍVEIS */}
+              <div className="space-y-1.5 pt-1">
+                <div className="flex justify-between items-center">
+                  <label className="opacity-70 block font-bold text-[11px]">
+                    🕒 Horários Disponíveis para esta Data:
+                  </label>
+                  {isLoadingSlots && <span className="text-[10px] text-amber-500 font-bold animate-pulse">Buscando vagas...</span>}
                 </div>
 
-                <div>
-                  <label className="opacity-70 block mb-1">Horário de Início:</label>
-                  <input
-                    type="time"
-                    required
-                    value={manualStartTime}
-                    onChange={(e) => setManualStartTime(e.target.value)}
-                    className="w-full border p-2.5 rounded-xl focus:outline-none"
-                    style={{ backgroundColor: secondaryColor, color: textColor, borderColor: borderColor }}
-                  />
-                </div>
+                {isLoadingSlots ? (
+                  <p className="text-[11px] opacity-60 italic py-2">Calculando disponibilidade de horários...</p>
+                ) : manualAvailableSlots.length === 0 ? (
+                  <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-xl text-center text-red-400 font-bold text-xs space-y-1">
+                    <p>⚠️ Sem horários disponíveis nesta data!</p>
+                    <p className="text-[10px] font-normal opacity-80">Todos os horários estão ocupados, em intervalo ou a profissional folga neste dia.</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-4 gap-1.5 max-h-36 overflow-y-auto p-1 border rounded-xl" style={{ backgroundColor: secondaryColor, borderColor: borderColor }}>
+                    {manualAvailableSlots.map(timeStr => {
+                      const isSelected = manualStartTime === timeStr;
+                      return (
+                        <button
+                          key={timeStr}
+                          type="button"
+                          onClick={() => setManualStartTime(timeStr)}
+                          className={`py-1.5 px-2 rounded-lg text-xs font-bold border transition ${
+                            isSelected 
+                              ? 'bg-green-600 text-white border-green-500 shadow-md' 
+                              : 'opacity-80 hover:opacity-100'
+                          }`}
+                          style={{
+                            backgroundColor: !isSelected ? cardBgColor : undefined,
+                            borderColor: !isSelected ? borderColor : undefined
+                          }}>
+                          {timeStr}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               <div className="flex space-x-2 pt-2">
@@ -1721,7 +1958,7 @@ export default function AgendaTenant() {
                 </button>
                 <button
                   type="submit"
-                  disabled={isSavingManualApp || manualFilteredServices.length === 0}
+                  disabled={isSavingManualApp || manualFilteredServices.length === 0 || manualAvailableSlots.length === 0}
                   className="w-1/2 bg-green-600 hover:bg-green-700 text-white py-3 rounded-xl font-bold transition disabled:opacity-50">
                   {isSavingManualApp ? 'Agendando...' : 'Confirmar & Notificar 🚀'}
                 </button>
@@ -1736,7 +1973,7 @@ export default function AgendaTenant() {
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
           <div className="border w-full max-w-md rounded-2xl p-5 space-y-4 shadow-2xl" style={{ backgroundColor: cardBgColor, color: textColor, borderColor: borderColor }}>
             <div className="flex justify-between items-center border-b pb-2" style={{ borderColor: borderColor }}>
-              <h3 className="font-bold text-sm text-purple-600">✏️ Reagendar Atendimento #{editingApp.id}</h3>
+              <h3 className="font-bold text-sm text-purple-600">✏️️ Reagendar Atendimento #{editingApp.id}</h3>
               <button onClick={() => setEditingApp(null)} className="opacity-60 font-bold text-xs">✕ Fechar</button>
             </div>
 

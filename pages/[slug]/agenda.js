@@ -305,7 +305,7 @@ export default function AgendaTenant() {
       }
     } catch (err) {
       console.error("Erro ao carregar dados da agenda:", err);
-    } fontally {
+    } finally {
       setLoading(false);
     }
   };
@@ -537,7 +537,7 @@ export default function AgendaTenant() {
       }
     } catch (err) {
       console.error("Erro ao calcular slots disponíveis:", err);
-    } fontally {
+    } finally {
       setIsLoadingSlots(false);
     }
   };
@@ -760,7 +760,7 @@ export default function AgendaTenant() {
     } catch (err) {
       console.error("Erro na requisição de agendamento:", err);
       alert("Falha de conexão ao criar agendamento.");
-    } fontally {
+    } finally {
       setIsSavingManualApp(false);
     }
   };
@@ -839,7 +839,7 @@ export default function AgendaTenant() {
     } catch (err) {
       console.error("Erro ao salvar bloqueio:", err);
       alert("Erro de conexão ao bloquear horário.");
-    } fontally {
+    } finally {
       setIsSavingBlock(false);
     }
   };
@@ -948,7 +948,7 @@ export default function AgendaTenant() {
     } catch (err) {
       console.error("Erro ao reagendar:", err);
       alert("Erro de conexão ao reagendar.");
-    } fontally {
+    } finally {
       setIsSavingReschedule(false);
     }
   };
@@ -1973,7 +1973,7 @@ export default function AgendaTenant() {
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
           <div className="border w-full max-w-md rounded-2xl p-5 space-y-4 shadow-2xl" style={{ backgroundColor: cardBgColor, color: textColor, borderColor: borderColor }}>
             <div className="flex justify-between items-center border-b pb-2" style={{ borderColor: borderColor }}>
-              <h3 className="font-bold text-sm text-purple-600">✏️️ Reagendar Atendimento #{editingApp.id}</h3>
+              <h3 className="font-bold text-sm text-purple-600">✏️ Reagendar Atendimento #{editingApp.id}</h3>
               <button onClick={() => setEditingApp(null)} className="opacity-60 font-bold text-xs">✕ Fechar</button>
             </div>
 

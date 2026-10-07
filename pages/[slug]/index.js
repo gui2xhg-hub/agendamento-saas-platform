@@ -402,117 +402,142 @@ export default function AgendamentoCliente() {
     setSelectedTime('');
   };
 
-  // FUNÇÃO DE VERIFICAÇÃO DE HORÁRIOS COM BLOQUEIO DE PAUSA/ALMOÇO
-const getSlotAvailability = (targetProfId = selectedProf, targetServices = selectedServices, targetDate = selectedDate, ignoreAppId = null) => {
-  if (targetServices.length === 0 || !targetDate) {
-    return { slots: [], status: 'select_service', message: 'Selecione o serviço desejado.' };
-  }
-
-  if (!targetProfId) {
-    return { slots: [], status: 'select_prof', message: '💈 Selecione um profissional.' };
-  }
-
-  const totalDur = targetServices.reduce((acc, s) => acc + (s.duration_minutes || 30), 0);
-  const dateObj = new Date(targetDate + 'T00:00:00');
-  const dayOfWeek = dateObj.getDay();
-
-  const profObj = professionals.find(p => String(p.id) === String(targetProfId));
-  if (!profObj) {
-    return { slots: [], status: 'no_prof', message: 'Profissional não encontrado.' };
-  }
-
-  // Tratamento para pDays em Array numérico
-  let pDays = profObj.work_days || [1, 2, 3, 4, 5, 6];
-  if (typeof pDays === 'string') {
-    try { pDays = JSON.parse(pDays); } catch (e) { pDays = [1, 2, 3, 4, 5, 6]; }
-  }
-  const numericPDays = (Array.isArray(pDays) ? pDays : []).map(Number);
-
-  if (!numericPDays.includes(dayOfWeek)) {
-    return { slots: [], status: 'prof_off', message: `💈 ${profObj.name} não atende neste dia da semana.` };
-  }
-
-  let profWorkHours = profObj.work_hours || {};
-  if (typeof profWorkHours === 'string') {
-    try { profWorkHours = JSON.parse(profWorkHours); } catch (e) { profWorkHours = {}; }
-  }
-
-  const dayHours = profWorkHours[dayOfWeek] || { open: '08:00', close: '18:00' };
-
-  const openHour = parseInt((dayHours.open || '08:00').split(':')[0]);
-  const openMin = parseInt((dayHours.open || '08:00').split(':')[1] || '0');
-  const closeHour = parseInt((dayHours.close || '18:00').split(':')[0]);
-  const closeMin = parseInt((dayHours.close || '18:00').split(':')[1] || '0');
-
-  let breakStartMin = -1;
-  let breakEndMin = -1;
-  if (profObj.break_start && profObj.break_end) {
-    const [bStartH, bStartM] = profObj.break_start.split(':').map(Number);
-    const [bEndH, bEndM] = profObj.break_end.split(':').map(Number);
-    breakStartMin = bStartH * 60 + bStartM;
-    breakEndMin = bEndH * 60 + bEndM;
-  }
-
-  const dayBlocks = blockedTimes.filter(b => {
-    const isProfTarget = b.professional_id === null || b.professional_id === undefined || String(b.professional_id) === String(targetProfId);
-    if (!isProfTarget) return false;
-
-    if (b.block_date === targetDate) return true;
-    const isRec = b.is_recurring || (b.reason && b.reason.includes('[RECORRENTE]'));
-    if (isRec && Number(b.recurring_day) === dayOfWeek) return true;
-    return false;
-  });
-
-  let currentMin = openHour * 60 + openMin;
-  const endMin = closeHour * 60 + closeMin;
-  const slots = [];
-
-  const now = new Date();
-  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-  const isToday = targetDate === todayStr;
-  const nowInMinutes = now.getHours() * 60 + now.getMinutes();
-
-  while (currentMin + totalDur <= endMin) {
-    if (isToday && currentMin <= nowInMinutes) {
-      currentMin += 30;
-      continue;
+  // FUNÇÃO DE VERIFICAÇÃO DE HORÁRIOS COM SALTO INTELIGENTE E INTERVALO DE 15 MINUTOS
+  const getSlotAvailability = (targetProfId = selectedProf, targetServices = selectedServices, targetDate = selectedDate, ignoreAppId = null) => {
+    if (targetServices.length === 0 || !targetDate) {
+      return { slots: [], status: 'select_service', message: 'Selecione o serviço desejado.' };
     }
 
-    const h = Math.floor(currentMin / 60);
-    const m = currentMin % 60;
-    const timeString = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+    if (!targetProfId) {
+      return { slots: [], status: 'select_prof', message: '💈 Selecione um profissional.' };
+    }
 
-    const slotStartMin = currentMin;
-    const slotEndMin = currentMin + totalDur;
+    const totalDur = targetServices.reduce((acc, s) => acc + (s.duration_minutes || 30), 0);
+    const dateObj = new Date(targetDate + 'T00:00:00');
+    const dayOfWeek = dateObj.getDay();
+
+    const profObj = professionals.find(p => String(p.id) === String(targetProfId));
+    if (!profObj) {
+      return { slots: [], status: 'no_prof', message: 'Profissional não encontrado.' };
+    }
+
+    // Tratamento para pDays em Array numérico
+    let pDays = profObj.work_days || [1, 2, 3, 4, 5, 6];
+    if (typeof pDays === 'string') {
+      try { pDays = JSON.parse(pDays); } catch (e) { pDays = [1, 2, 3, 4, 5, 6]; }
+    }
+    const numericPDays = (Array.isArray(pDays) ? pDays : []).map(Number);
+
+    if (!numericPDays.includes(dayOfWeek)) {
+      return { slots: [], status: 'prof_off', message: `💈 ${profObj.name} não atende neste dia da semana.` };
+    }
+
+    let profWorkHours = profObj.work_hours || {};
+    if (typeof profWorkHours === 'string') {
+      try { profWorkHours = JSON.parse(profWorkHours); } catch (e) { profWorkHours = {}; }
+    }
+
+    const dayHours = profWorkHours[dayOfWeek] || { open: '08:00', close: '18:00' };
+
+    const openHour = parseInt((dayHours.open || '08:00').split(':')[0]);
+    const openMin = parseInt((dayHours.open || '08:00').split(':')[1] || '0');
+    const closeHour = parseInt((dayHours.close || '18:00').split(':')[0]);
+    const closeMin = parseInt((dayHours.close || '18:00').split(':')[1] || '0');
+
+    let breakStartMin = -1;
+    let breakEndMin = -1;
+    if (profObj.break_start && profObj.break_end) {
+      const [bStartH, bStartM] = profObj.break_start.split(':').map(Number);
+      const [bEndH, bEndM] = profObj.break_end.split(':').map(Number);
+      breakStartMin = bStartH * 60 + bStartM;
+      breakEndMin = bEndH * 60 + bEndM;
+    }
+
+    const dayBlocks = blockedTimes.filter(b => {
+      const isProfTarget = b.professional_id === null || b.professional_id === undefined || String(b.professional_id) === String(targetProfId);
+      if (!isProfTarget) return false;
+
+      if (b.block_date === targetDate) return true;
+      const isRec = b.is_recurring || (b.reason && b.reason.includes('[RECORRENTE]'));
+      if (isRec && Number(b.recurring_day) === dayOfWeek) return true;
+      return false;
+    });
+
+    let currentMin = openHour * 60 + openMin;
+    const endMin = closeHour * 60 + closeMin;
+    const slots = new Set();
+
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const isToday = targetDate === todayStr;
+    const nowInMinutes = now.getHours() * 60 + now.getMinutes();
 
     const profApps = existingAppointments.filter(app => String(app.professional_id) === String(targetProfId) && app.id !== ignoreAppId);
-    const hasAppConflict = profApps.some(app => {
-      const [aStartH, aStartM] = app.start_time.split(':').map(Number);
-      const aStartMin = aStartH * 60 + aStartM;
-      const aEndMin = aStartMin + (app.total_duration_minutes || 30);
-      return Math.max(slotStartMin, aStartMin) < Math.min(slotEndMin, aEndMin);
-    });
 
-    const hasBlockConflict = dayBlocks.some(b => {
-      const [bStartH, bStartM] = b.start_time.split(':').map(Number);
-      const [bEndH, bEndM] = b.end_time.split(':').map(Number);
-      const bStartMin = bStartH * 60 + bStartM;
-      const bEndMin = bEndH * 60 + bEndM;
-      return Math.max(slotStartMin, bStartMin) < Math.min(slotEndMin, bEndMin);
-    });
+    while (currentMin + totalDur <= endMin) {
+      if (isToday && currentMin <= nowInMinutes) {
+        currentMin += 15;
+        continue;
+      }
 
-    const hasBreakConflict = (breakStartMin !== -1 && breakEndMin !== -1) && 
-      (Math.max(slotStartMin, breakStartMin) < Math.min(slotEndMin, breakEndMin));
+      const slotStartMin = currentMin;
+      const slotEndMin = currentMin + totalDur;
 
-    if (!hasAppConflict && !hasBlockConflict && !hasBreakConflict) {
-      slots.push(timeString);
+      let conflictingAppEndMin = null;
+      const hasAppConflict = profApps.some(app => {
+        const [aStartH, aStartM] = app.start_time.split(':').map(Number);
+        const aStartMin = aStartH * 60 + aStartM;
+        const aEndMin = aStartMin + (app.total_duration_minutes || 30);
+        const isConflicting = Math.max(slotStartMin, aStartMin) < Math.min(slotEndMin, aEndMin);
+        if (isConflicting && aEndMin > slotStartMin) {
+          conflictingAppEndMin = Math.max(conflictingAppEndMin || 0, aEndMin);
+        }
+        return isConflicting;
+      });
+
+      let conflictingBlockEndMin = null;
+      const hasBlockConflict = dayBlocks.some(b => {
+        const [bStartH, bStartM] = b.start_time.split(':').map(Number);
+        const [bEndH, bEndM] = b.end_time.split(':').map(Number);
+        const bStartMin = bStartH * 60 + bStartM;
+        const bEndMin = bEndH * 60 + bEndM;
+        const isConflicting = Math.max(slotStartMin, bStartMin) < Math.min(slotEndMin, bEndMin);
+        if (isConflicting && bEndMin > slotStartMin) {
+          conflictingBlockEndMin = Math.max(conflictingBlockEndMin || 0, bEndMin);
+        }
+        return isConflicting;
+      });
+
+      const hasBreakConflict = (breakStartMin !== -1 && breakEndMin !== -1) && 
+        (Math.max(slotStartMin, breakStartMin) < Math.min(slotEndMin, breakEndMin));
+
+      if (!hasAppConflict && !hasBlockConflict && !hasBreakConflict) {
+        const h = Math.floor(currentMin / 60);
+        const m = currentMin % 60;
+        const timeString = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+        slots.add(timeString);
+        
+        currentMin += 15;
+      } else {
+        let nextJumpMin = currentMin + 15;
+
+        if (hasAppConflict && conflictingAppEndMin) {
+          nextJumpMin = Math.max(nextJumpMin, conflictingAppEndMin);
+        }
+        if (hasBlockConflict && conflictingBlockEndMin) {
+          nextJumpMin = Math.max(nextJumpMin, conflictingBlockEndMin);
+        }
+        if (hasBreakConflict) {
+          nextJumpMin = Math.max(nextJumpMin, breakEndMin);
+        }
+
+        currentMin = nextJumpMin;
+      }
     }
 
-    currentMin += 30;
-  }
+    return { slots: Array.from(slots), status: 'ok' };
+  };
 
-  return { slots, status: 'ok' };
-};
   const slotData = getSlotAvailability(selectedProf, selectedServices, selectedDate);
   const availableSlots = slotData.slots;
 

@@ -17,10 +17,10 @@ const formatDuration = (minutes) => {
   const mins = Number(minutes) || 0;
   if (mins <= 0) return '30 min';
   if (mins < 60) return `${mins} min`;
-  
+
   const hrs = Math.floor(mins / 60);
   const remMins = mins % 60;
-  
+
   if (remMins === 0) return `${hrs}h`;
   return `${hrs}h ${remMins}min`;
 };
@@ -265,7 +265,7 @@ export default function AdminTenant() {
   const fetchData = async (tenantId = tenant?.id) => {
     if (!tenantId) return;
     const { data: tData } = await supabase.from('tenants').select('*').eq('id', tenantId).single();
-    
+
     // BUSCA OS SERVIÇOS ORDENADOS POR 'position' ASCENDENTE E DEPOIS 'id'
     const { data: sData } = await supabase
       .from('services')
@@ -276,7 +276,7 @@ export default function AdminTenant() {
 
     const { data: pData } = await supabase.from('professionals').select('*').eq('tenant_id', tenantId).order('id', { ascending: true });
     const { data: aData } = await supabase.from('appointments').select('*').eq('tenant_id', tenantId).order('appointment_date', { ascending: false });
-    
+
     // Busca Observações e Selos de Fidelidade dos Clientes
     const { data: cData } = await supabase.from('tenant_customers').select('customer_phone, notes, loyalty_stamps').eq('tenant_id', tenantId);
 
@@ -493,7 +493,7 @@ export default function AdminTenant() {
     e.preventDefault();
     if (!newService.name || !newService.price) return alert("Preencha nome e preço do serviço!");
     const formattedPrice = parseFloat(String(newService.price).replace(',', '.'));
-    
+
     let cleanImage = (newService.image_url || '').trim();
     if (cleanImage.startsWith('blob:')) cleanImage = '';
 
@@ -527,7 +527,7 @@ export default function AdminTenant() {
   const handleUpdateService = async (e) => {
     e.preventDefault();
     const formattedPrice = parseFloat(String(editingService.price).replace(',', '.'));
-    
+
     let cleanImage = (editingService.image_url || '').trim();
     if (cleanImage.startsWith('blob:')) cleanImage = '';
 
@@ -555,7 +555,7 @@ export default function AdminTenant() {
   const handleAddProf = async (e) => {
     e.preventDefault();
     if (!newProf.name || !newProf.name.trim()) return alert("Digite o nome do profissional!");
-    
+
     let cleanAvatar = (newProf.avatar_url || '').trim();
     if (cleanAvatar.startsWith('blob:')) {
       cleanAvatar = '';
@@ -874,7 +874,7 @@ export default function AdminTenant() {
   const getShareLinkAndMsg = () => {
     const baseUrl = `https://agendamento.sinergemkt.com/${tenant?.slug || ''}`;
     const selectedProfObj = professionals.find(p => String(p.id) === String(selectedProfForLink));
-    
+
     const finalLink = selectedProfObj ? `${baseUrl}?prof=${selectedProfObj.id}` : baseUrl;
     const profName = selectedProfObj ? selectedProfObj.name : 'Nossa Equipe';
 
@@ -996,10 +996,10 @@ export default function AdminTenant() {
             <h3 className="font-bold text-sm text-orange-400">➕ Cadastrar Novo Serviço</h3>
             <form onSubmit={handleAddService} className="space-y-3">
               <input type="text" placeholder="Nome Ex: Corte Degradê ou Unha em Gel" value={newService.name} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewService({ ...newService, name: e.target.value })} />
-              
+
               <div className="flex space-x-2 items-start">
                 <input type="text" placeholder="Preço R$" value={newService.price} className="w-1/3 bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewService({ ...newService, price: e.target.value })} />
-                
+
                 <DurationInput 
                   value={newService.duration_minutes} 
                   onChange={(val) => setNewService({ ...newService, duration_minutes: val })} 
@@ -1029,7 +1029,7 @@ export default function AdminTenant() {
                     Profissionais que realizam este serviço:
                   </label>
                   <p className="text-[10px] text-gray-500 mb-2">*(Se nenhum for marcado, toda a equipe fará)*</p>
-                  
+
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-36 overflow-y-auto">
                     {professionals.map(p => {
                       const isChecked = (newService.professional_ids || []).map(String).includes(String(p.id));
@@ -1143,7 +1143,7 @@ export default function AdminTenant() {
             <h3 className="font-bold text-sm text-orange-400">➕ Novo Profissional da Equipe</h3>
             <form onSubmit={handleAddProf} className="space-y-3">
               <input type="text" placeholder="Nome Completo Ex: Daniel Eladio" value={newProf.name} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProf({ ...newProf, name: e.target.value })} />
-              
+
               <div>
                 <label className="text-[10px] text-purple-400 font-bold block mb-1">💅 Especialidade / Descrição do Trabalho:</label>
                 <input type="text" placeholder="Ex: Barbeiro, Corte e Barba..." value={newProf.specialty} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProf({ ...newProf, specialty: e.target.value })} />
@@ -1182,7 +1182,7 @@ export default function AdminTenant() {
               </div>
 
               <input type="text" placeholder="URL da Foto de Perfil (Avatar)" value={newProf.avatar_url} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProf({ ...newProf, avatar_url: e.target.value })} />
-              
+
               <div>
                 <label className="text-[10px] text-gray-400 block mb-1">Porcentagem de Comissão (%):</label>
                 <input type="number" value={newProf.commission_percentage} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setNewProf({ ...newProf, commission_percentage: e.target.value })} />
@@ -2143,7 +2143,7 @@ export default function AdminTenant() {
                   <label className="text-[11px] text-green-400 font-bold block">
                     Senha Financeira Exclusiva:
                   </label>
-                  
+
                   {originalFinPass ? (
                     <>
                       <div>
@@ -2263,12 +2263,12 @@ export default function AdminTenant() {
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
           <form onSubmit={handleUpdateService} className="bg-gray-900 w-full max-w-sm rounded-2xl p-5 border border-blue-500/40 space-y-3 max-h-[90vh] overflow-y-auto">
             <h3 className="font-bold text-sm text-blue-400">✏️ Editar Serviço</h3>
-            
+
             <input type="text" value={editingService.name} onChange={(e) => setEditingService({ ...editingService, name: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
-            
+
             <div className="flex space-x-2 items-start">
               <input type="text" value={editingService.price} onChange={(e) => setEditingService({ ...editingService, price: e.target.value })} className="w-1/3 bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" />
-              
+
               <DurationInput 
                 value={editingService.duration_minutes} 
                 onChange={(val) => setEditingService({ ...editingService, duration_minutes: val })} 
@@ -2343,7 +2343,7 @@ export default function AdminTenant() {
             <input type="text" value={editingProf.phone || ''} onChange={(e) => setEditingProf({ ...editingProf, phone: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" placeholder="WhatsApp Individual" />
             <input type="text" value={editingProf.instagram_url || ''} onChange={(e) => setEditingProf({ ...editingProf, instagram_url: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" placeholder="Instagram (Ex: @ana_designer)" />
             <input type="password" value={editingProf.pin || ''} onChange={(e) => setEditingProf({ ...editingProf, pin: e.target.value })} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" placeholder="PIN de 4 Dígitos" />
-            
+
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="text-[10px] text-gray-400 block mb-1">Início Almoço:</label>

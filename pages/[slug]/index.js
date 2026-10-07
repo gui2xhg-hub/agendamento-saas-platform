@@ -34,6 +34,16 @@ const maskBirthDate = (value) => {
   return `${clean.slice(0, 2)}/${clean.slice(2, 4)}`;
 };
 
+const DAY_NAMES = [
+  'Domingo',
+  'Segunda-feira',
+  'Terça-feira',
+  'Quarta-feira',
+  'Quinta-feira',
+  'Sexta-feira',
+  'Sábado'
+];
+
 export default function AgendamentoCliente() {
   const router = useRouter();
   const { slug, prof, staff } = router.query;
@@ -130,7 +140,8 @@ export default function AgendamentoCliente() {
         work_days: tData.work_days || [1, 2, 3, 4, 5, 6],
         loyalty_enabled: tData.loyalty_enabled || false,
         loyalty_target_visits: tData.loyalty_target_visits || 10,
-        loyalty_reward_text: tData.loyalty_reward_text || '1 Atendimento Grátis'
+        loyalty_reward_text: tData.loyalty_reward_text || '1 Atendimento Grátis',
+        daily_notices: tData.daily_notices || {}
       });
 
       const { data: pData } = await supabase.from('professionals').select('*').eq('tenant_id', tData.id).eq('active', true);
@@ -355,6 +366,14 @@ export default function AgendamentoCliente() {
   const formattedInstagramUrl = activeInstagram
     ? (activeInstagram.startsWith('http') ? activeInstagram : `https://instagram.com/${activeInstagram.replace('@', '').trim()}`)
     : '';
+
+  // IDENTIFICAÇÃO DO DIA DA SEMANA E AVISO DIÁRIO CORRESPONDENTE
+  const selectedDayOfWeek = new Date(selectedDate + 'T00:00:00').getDay();
+  let parsedDailyNotices = tenant?.daily_notices || {};
+  if (typeof parsedDailyNotices === 'string') {
+    try { parsedDailyNotices = JSON.parse(parsedDailyNotices); } catch (e) { parsedDailyNotices = {}; }
+  }
+  const currentDayNotice = parsedDailyNotices[selectedDayOfWeek] || parsedDailyNotices[String(selectedDayOfWeek)] || '';
 
   const displayedServices = services.filter(srv => {
     if (!selectedProf) return false;
@@ -706,7 +725,7 @@ export default function AgendamentoCliente() {
 
         <div className="px-4 sm:px-0 space-y-6">
 
-          {/* BANNER DE AVISO / MENSAGEM CUSTOMIZADA DO ESTABELECIMENTO */}
+          {/* BANNER DE AVISO GERAL / MENSAGEM CUSTOMIZADA DO ESTABELECIMENTO */}
           {tenant.custom_message && tenant.custom_message.trim() !== '' && (
             <div 
               style={{ backgroundColor: cardColor, color: textColor, borderColor: priceColor }} 
@@ -891,7 +910,7 @@ export default function AgendamentoCliente() {
           {selectedProf && selectedServices.length > 0 && (
             <div className="space-y-4 pt-2 border-t border-black/10">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-1">
+                <div className="space-y-2">
                   <label className="text-xs font-bold block uppercase tracking-wider opacity-80">
                     {professionals.length > 1 ? '3. Escolha a Data' : '2. Escolha a Data'}
                   </label>
@@ -906,6 +925,21 @@ export default function AgendamentoCliente() {
                     style={{ backgroundColor: cardColor, color: textColor }}
                     className="w-full border border-black/10 p-3 rounded-xl text-xs focus:outline-none cursor-pointer shadow-sm"
                   />
+
+                  {/* BANNER DE AVISO ESPECÍFICO DO DIA SELECIONADO (SE HOUVER) */}
+                  {currentDayNotice && currentDayNotice.trim() !== '' && (
+                    <div 
+                      style={{ backgroundColor: cardColor, color: textColor, borderColor: priceColor }} 
+                      className="p-3.5 rounded-xl border-l-4 shadow-sm space-y-1 text-xs animate-fadeIn">
+                      <div className="flex items-center space-x-1.5 font-bold">
+                        <span>⚠️</span>
+                        <span style={{ color: priceColor }}>Aviso para {DAY_NAMES[selectedDayOfWeek]}</span>
+                      </div>
+                      <p className="opacity-90 leading-relaxed text-[11px] sm:text-xs">
+                        {currentDayNotice}
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-1">

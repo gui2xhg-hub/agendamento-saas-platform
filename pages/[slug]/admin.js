@@ -12,6 +12,16 @@ const DEFAULT_WORK_HOURS = {
   0: { open: '08:00', close: '18:00' }
 };
 
+const DEFAULT_DAILY_NOTICES = {
+  '0': '', // Domingo
+  '1': '', // Segunda
+  '2': '', // Terça
+  '3': '', // Quarta
+  '4': '', // Quinta
+  '5': '', // Sexta
+  '6': ''  // Sábado
+};
+
 // FUNÇÃO AUXILIAR PARA FORMATAR MINUTOS EM HORAS E MINUTOS
 const formatDuration = (minutes) => {
   const mins = Number(minutes) || 0;
@@ -231,7 +241,10 @@ export default function AdminTenant() {
         bot_whatsapp_token: tData.bot_whatsapp_token || '',
         loyalty_enabled: tData.loyalty_enabled || false,
         loyalty_target_visits: tData.loyalty_target_visits ?? 10,
-        loyalty_reward_text: tData.loyalty_reward_text || '1 Atendimento Cortesia'
+        loyalty_reward_text: tData.loyalty_reward_text || '1 Atendimento Cortesia',
+        daily_notices: tData.daily_notices && typeof tData.daily_notices === 'object'
+          ? { ...DEFAULT_DAILY_NOTICES, ...tData.daily_notices }
+          : DEFAULT_DAILY_NOTICES
       });
 
       setOriginalFinPass(currentFinPass);
@@ -266,7 +279,6 @@ export default function AdminTenant() {
     if (!tenantId) return;
     const { data: tData } = await supabase.from('tenants').select('*').eq('id', tenantId).single();
 
-    // BUSCA OS SERVIÇOS ORDENADOS POR 'position' ASCENDENTE E DEPOIS 'id'
     const { data: sData } = await supabase
       .from('services')
       .select('*')
@@ -277,7 +289,6 @@ export default function AdminTenant() {
     const { data: pData } = await supabase.from('professionals').select('*').eq('tenant_id', tenantId).order('id', { ascending: true });
     const { data: aData } = await supabase.from('appointments').select('*').eq('tenant_id', tenantId).order('appointment_date', { ascending: false });
 
-    // Busca Observações e Selos de Fidelidade dos Clientes
     const { data: cData } = await supabase.from('tenant_customers').select('customer_phone, notes, loyalty_stamps').eq('tenant_id', tenantId);
 
     if (tData) {
@@ -293,7 +304,10 @@ export default function AdminTenant() {
         bot_whatsapp_token: tData.bot_whatsapp_token || '',
         loyalty_enabled: tData.loyalty_enabled || false,
         loyalty_target_visits: tData.loyalty_target_visits ?? 10,
-        loyalty_reward_text: tData.loyalty_reward_text || '1 Atendimento Cortesia'
+        loyalty_reward_text: tData.loyalty_reward_text || '1 Atendimento Cortesia',
+        daily_notices: tData.daily_notices && typeof tData.daily_notices === 'object'
+          ? { ...DEFAULT_DAILY_NOTICES, ...tData.daily_notices }
+          : DEFAULT_DAILY_NOTICES
       });
 
       setOriginalFinPass(currentFinPass);
@@ -318,7 +332,6 @@ export default function AdminTenant() {
     }
   };
 
-  // FUNÇÃO OTIMIZADA PARA MOVER SERVIÇO PARA CIMA OU PARA BAIXO
   const handleMoveService = async (index, direction) => {
     const targetIndex = direction === 'up' ? index - 1 : index + 1;
     if (targetIndex < 0 || targetIndex >= services.length) return;
@@ -328,10 +341,8 @@ export default function AdminTenant() {
     newServices[index] = newServices[targetIndex];
     newServices[targetIndex] = temp;
 
-    // Atualiza o estado da tela de forma imediata
     setServices(newServices);
 
-    // Atualiza a posição de todos os serviços no Supabase em paralelo
     await Promise.all(
       newServices.map((service, i) =>
         supabase
@@ -342,7 +353,6 @@ export default function AdminTenant() {
     );
   };
 
-  // CATEGORIAS ÚNICAS JÁ EXISTENTES PARA AUTO-COMPLETE
   const existingCategories = Array.from(
     new Set(
       services
@@ -376,7 +386,6 @@ export default function AdminTenant() {
     }
   };
 
-  // GESTÃO DOS SELOS DE FIDELIDADE (RESGATE E AJUSTE MANUAL)
   const handleResetCustomerStamps = async (phone, name) => {
     const cleanPhone = phone.replace(/\D/g, '');
     if (!cleanPhone) return;
@@ -424,7 +433,6 @@ export default function AdminTenant() {
   const handleSaveTenantSettings = async (e) => {
     if (e) e.preventDefault();
 
-    // VALIDAÇÃO DA SENHA FINANCEIRA
     let finalFinPassword = originalFinPass;
 
     if (originalFinPass && originalFinPass.trim() !== '') {
@@ -461,7 +469,8 @@ export default function AdminTenant() {
       bot_whatsapp_token: tenant.bot_whatsapp_token || '',
       loyalty_enabled: tenant.loyalty_enabled || false,
       loyalty_target_visits: parseInt(tenant.loyalty_target_visits || 10),
-      loyalty_reward_text: tenant.loyalty_reward_text || ''
+      loyalty_reward_text: tenant.loyalty_reward_text || '',
+      daily_notices: tenant.daily_notices || DEFAULT_DAILY_NOTICES
     }).eq('id', tenant.id);
 
     if (error) {
@@ -649,7 +658,6 @@ export default function AdminTenant() {
     }
   };
 
-  // GESTÃO E ALTERAÇÃO DE STATUS DE AGENDAMENTOS
   const handleUpdateAppointmentStatus = async (appointmentId, newStatus) => {
     const { error } = await supabase
       .from('appointments')
@@ -663,7 +671,6 @@ export default function AdminTenant() {
     }
   };
 
-  // DESBLOQUEIO DE PREÇOS DA ABA AGENDA
   const handleUnlockAgendaPrices = (e) => {
     e.preventDefault();
     const pin = agendaPinInput.trim();
@@ -722,7 +729,6 @@ export default function AdminTenant() {
     }
   });
 
-  // MONTAGEM DO DIRETÓRIO DE CLIENTES AGRUPADO
   const getProcessedCustomers = () => {
     const custMap = {};
 
@@ -791,12 +797,10 @@ export default function AdminTenant() {
 
   const processedCustomers = getProcessedCustomers();
 
-  // OBTÉM AS TOP CLIENTES (MAIOR VALOR GASTO)
   const topVipCustomers = [...processedCustomers]
     .sort((a, b) => b.total_spent - a.total_spent)
     .slice(0, 3);
 
-  // EXPORTAR CLIENTES EM CSV (EXCEL COM BOM UTF-8)
   const exportCustomersCSV = () => {
     if (processedCustomers.length === 0) return alert("Nenhum cliente para exportar.");
     let csvContent = "\uFEFFData:text/csv;charset=utf-8,Nome,Telefone,Visitas,Selos Fidelidade,Total Gasto (R$),Ultimo Atendimento,Observacoes\n";
@@ -813,7 +817,6 @@ export default function AdminTenant() {
     document.body.removeChild(link);
   };
 
-  // EXPORTAR FINANCEIRO EM CSV
   const exportFinancialCSV = () => {
     if (filteredApps.length === 0) return alert("Nenhum registro para exportar.");
     let csvContent = "\uFEFFData:text/csv;charset=utf-8,Data,Cliente,Telefone,Profissional,Servico,Valor (R$),Status\n";
@@ -835,7 +838,6 @@ export default function AdminTenant() {
     document.body.removeChild(link);
   };
 
-  // LIBERAÇÃO RESTRITA DO FINANCEIRO GERAL
   const handleUnlockGlobalFin = (e) => {
     e.preventDefault();
     const isMaster = adminFinPass === 'master123';
@@ -888,7 +890,6 @@ export default function AdminTenant() {
 
   const { finalLink, customMsg } = getShareLinkAndMsg();
 
-  // FILTRAGEM DOS AGENDAMENTOS NA ABA AGENDA
   const getManageAppointmentsList = () => {
     let list = [...appointments];
 
@@ -949,7 +950,6 @@ export default function AdminTenant() {
         }
       `}</style>
 
-      {/* DATALIST DE AUTO-COMPLETE DE CATEGORIAS */}
       <datalist id="existing-categories-list">
         {existingCategories.map((cat, i) => (
           <option key={i} value={cat} />
@@ -1077,7 +1077,6 @@ export default function AdminTenant() {
                 <div key={s.id} className="bg-gray-900 p-3 rounded-xl border border-gray-800 space-y-2">
                   <div className="flex justify-between items-center">
                     <div className="flex items-center space-x-2">
-                      {/* BOTOES DE ORDENAÇÃO DE SERVIÇOS */}
                       <div className="flex flex-col space-y-0.5">
                         <button
                           type="button"
@@ -1326,7 +1325,6 @@ export default function AdminTenant() {
               </div>
 
               <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-                {/* BOTÃO DE OBTENÇÃO OU BLOQUEIO DE VALORES MONETÁRIOS */}
                 {isAgendaPricesUnlocked ? (
                   <button
                     onClick={() => setIsAgendaPricesUnlocked(false)}
@@ -1409,7 +1407,6 @@ export default function AdminTenant() {
                           </span>
                         </div>
 
-                        {/* EXIBIÇÃO OU OCULTAÇÃO PROTEGIDA DO PREÇO */}
                         <span className="font-bold text-green-400 text-sm">
                           {isAgendaPricesUnlocked 
                             ? `R$ ${Number(app.total_price || app.price || 0).toFixed(2)}` 
@@ -1571,7 +1568,6 @@ export default function AdminTenant() {
                         </div>
                       </div>
 
-                      {/* CARTÃO FIDELIDADE INDIVIDUAL DO CLIENTE */}
                       {isLoyaltyActive && (
                         <div className={`p-3 rounded-xl border space-y-2 transition ${hasWonReward ? 'bg-amber-950/30 border-amber-500/60' : 'bg-gray-900 border-gray-800'}`}>
                           <div className="flex justify-between items-center">
@@ -1589,7 +1585,6 @@ export default function AdminTenant() {
                             )}
                           </div>
 
-                          {/* VISUAL DOS SELOS COM EMOJIS */}
                           <div className="flex flex-wrap gap-1 items-center bg-gray-950 p-2 rounded-lg border border-gray-800/60 font-mono text-sm">
                             {Array.from({ length: loyaltyTarget }).map((_, i) => (
                               <span key={i} title={`Selo ${i + 1}`}>
@@ -2054,10 +2049,10 @@ export default function AdminTenant() {
         </div>
       )}
 
-      {/* ABA 8: CONFIGURAÇÕES DA LOJA & FIDELIDADE */}
+      {/* ABA 8: CONFIGURAÇÕES DA LOJA, FIDELIDADE E AVISOS DIÁRIOS */}
       {activeTab === 'settings' && (
         <div className="space-y-6">
-          <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3">
+          <section className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-4">
             <h3 className="font-bold text-sm text-orange-400">⚙️ Configurações da Loja</h3>
             <form onSubmit={handleSaveTenantSettings} className="space-y-4">
               <div>
@@ -2084,6 +2079,47 @@ export default function AdminTenant() {
               <div>
                 <label className="text-[11px] text-gray-400 block mb-1">WhatsApp Geral de Recebimento:</label>
                 <input type="text" value={tenant.whatsapp || ''} className="w-full bg-gray-800 border border-gray-700 p-2.5 rounded-lg text-xs text-white focus:outline-none" onChange={(e) => setTenant({ ...tenant, whatsapp: e.target.value })} />
+              </div>
+
+              {/* SEÇÃO DE AVISOS DIÁRIOS PERSONALIZADOS POR DIA DA SEMANA */}
+              <div className="bg-gray-950 p-4 rounded-xl border border-yellow-500/30 space-y-3">
+                <div>
+                  <h4 className="font-bold text-xs text-yellow-400 flex items-center space-x-1">
+                    <span>📢 Avisos Diários Personalizados (por dia da semana)</span>
+                  </h4>
+                  <p className="text-[10px] text-gray-400 mt-0.5">
+                    Defina avisos ou informações específicas para serem exibidas aos clientes de acordo com o dia da semana escolhido.
+                  </p>
+                </div>
+
+                <div className="space-y-2.5 pt-2 border-t border-gray-800">
+                  {[
+                    { id: '0', label: 'Domingo' },
+                    { id: '1', label: 'Segunda-feira' },
+                    { id: '2', label: 'Terça-feira' },
+                    { id: '3', label: 'Quarta-feira' },
+                    { id: '4', label: 'Quinta-feira' },
+                    { id: '5', label: 'Sexta-feira' },
+                    { id: '6', label: 'Sábado' }
+                  ].map((day) => (
+                    <div key={day.id} className="flex flex-col space-y-1">
+                      <label className="text-[10px] text-gray-300 font-bold">{day.label}:</label>
+                      <input
+                        type="text"
+                        placeholder={`Ex: Mensagem ou aviso especial para ${day.label}...`}
+                        value={tenant.daily_notices?.[day.id] || ''}
+                        onChange={(e) => {
+                          const updatedNotices = {
+                            ...(tenant.daily_notices || DEFAULT_DAILY_NOTICES),
+                            [day.id]: e.target.value
+                          };
+                          setTenant({ ...tenant, daily_notices: updatedNotices });
+                        }}
+                        className="bg-gray-900 border border-gray-800 p-2.5 rounded-lg text-xs text-white focus:outline-none focus:border-yellow-500"
+                      />
+                    </div>
+                  ))}
+                </div>
               </div>
 
               {/* SEÇÃO DO CARTÃO FIDELIDADE DIGITAL */}

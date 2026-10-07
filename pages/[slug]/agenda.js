@@ -418,7 +418,7 @@ export default function AgendaTenant() {
     }
   };
 
-  // CÁLCULO DE HORÁRIOS LIVRES PARA A MODAL MANUAL DE AGENDAMENTO
+  // CÁLCULO INTELIGENTE DE HORÁRIOS LIVRES COM SALTO INTELIGENTE E INTERVALO DE 15 MINUTOS
   const calculateManualAvailableSlots = async () => {
     if (!tenant?.id || !manualProfId || !manualDate) return;
 
@@ -492,46 +492,68 @@ export default function AgendaTenant() {
       const isToday = manualDate === getTodayLocal();
       const nowInMinutes = now.getHours() * 60 + now.getMinutes();
 
-      const availableSlots = [];
+      const slots = new Set();
       let currentMin = openMin;
 
       while (currentMin + serviceDuration <= closeMin) {
-        const slotStart = currentMin;
-        const slotEnd = currentMin + serviceDuration;
-
-        // Validar se o horário já passou hoje
-        const isPast = isToday && slotStart < nowInMinutes;
-
-        if (!isPast) {
-          // Checar colisão com agendamentos existentes
-          const hasAppOverlap = (dbApps || []).some(app => {
-            const appStart = timeToMinutes(app.start_time);
-            const appEnd = app.end_time ? timeToMinutes(app.end_time) : appStart + (app.total_duration_minutes || 30);
-            return slotStart < appEnd && slotEnd > appStart;
-          });
-
-          // Checar colisão com bloqueios de agenda
-          const hasBlockOverlap = filteredDbBlocks.some(block => {
-            const bStart = timeToMinutes(block.start_time);
-            const bEnd = timeToMinutes(block.end_time);
-            return slotStart < bEnd && slotEnd > bStart;
-          });
-
-          // Checar colisão com horário de almoço/pausa
-          const hasBreakOverlap = (breakStartMin !== -1 && breakEndMin !== -1) &&
-            (slotStart < breakEndMin && slotEnd > breakStartMin);
-
-          if (!hasAppOverlap && !hasBlockOverlap && !hasBreakOverlap) {
-            const h = Math.floor(slotStart / 60);
-            const m = slotStart % 60;
-            const timeStr = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-            availableSlots.push(timeStr);
-          }
+        if (isToday && currentMin <= nowInMinutes) {
+          currentMin += 15;
+          continue;
         }
 
-        currentMin += 30; // Incremento padrão de grade de 30 minutos
+        const slotStartMin = currentMin;
+        const slotEndMin = currentMin + serviceDuration;
+
+        let conflictingAppEndMin = null;
+        const hasAppConflict = (dbApps || []).some(app => {
+          const appStartMin = timeToMinutes(app.start_time);
+          const appEndMin = app.end_time ? timeToMinutes(app.end_time) : appStartMin + (app.total_duration_minutes || 30);
+          const isConflicting = Math.max(slotStartMin, appStartMin) < Math.min(slotEndMin, appEndMin);
+          if (isConflicting && appEndMin > slotStartMin) {
+            conflictingAppEndMin = Math.max(conflictingAppEndMin || 0, appEndMin);
+          }
+          return isConflicting;
+        });
+
+        let conflictingBlockEndMin = null;
+        const hasBlockConflict = filteredDbBlocks.some(b => {
+          const bStartMin = timeToMinutes(b.start_time);
+          const bEndMin = timeToMinutes(b.end_time);
+          const isConflicting = Math.max(slotStartMin, bStartMin) < Math.min(slotEndMin, bEndMin);
+          if (isConflicting && bEndMin > slotStartMin) {
+            conflictingBlockEndMin = Math.max(conflictingBlockEndMin || 0, bEndMin);
+          }
+          return isConflicting;
+        });
+
+        const hasBreakConflict = (breakStartMin !== -1 && breakEndMin !== -1) && 
+          (Math.max(slotStartMin, breakStartMin) < Math.min(slotEndMin, breakEndMin));
+
+        if (!hasAppConflict && !hasBlockConflict && !hasBreakConflict) {
+          const h = Math.floor(currentMin / 60);
+          const m = currentMin % 60;
+          const timeString = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+          slots.add(timeString);
+
+          currentMin += 15;
+        } else {
+          let nextJumpMin = currentMin + 15;
+
+          if (hasAppConflict && conflictingAppEndMin) {
+            nextJumpMin = Math.max(nextJumpMin, conflictingAppEndMin);
+          }
+          if (hasBlockConflict && conflictingBlockEndMin) {
+            nextJumpMin = Math.max(nextJumpMin, conflictingBlockEndMin);
+          }
+          if (hasBreakConflict) {
+            nextJumpMin = Math.max(nextJumpMin, breakEndMin);
+          }
+
+          currentMin = nextJumpMin;
+        }
       }
 
+      const availableSlots = Array.from(slots);
       setManualAvailableSlots(availableSlots);
       if (availableSlots.length > 0 && !availableSlots.includes(manualStartTime)) {
         setManualStartTime(availableSlots[0]);

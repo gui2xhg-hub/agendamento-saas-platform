@@ -1092,6 +1092,7 @@ export default function AgendaTenant() {
     setShowBlockModal(true);
   };
 
+  // GERADOR DINÂMICO DE LINHA DO TEMPO - SUPORTA AGENDAMENTOS EM HORÁRIOS QUEBRADOS (EX: 09:45, 10:15)
   const generateTimeline = () => {
     if (!selectedProf) return [];
 
@@ -1113,19 +1114,14 @@ export default function AgendaTenant() {
     }
 
     const dayHours = profWorkHours[selectedDayOfWeek] || { open: '08:00', close: '18:00' };
-    const [openH, openM] = (dayHours.open || '08:00').split(':').map(Number);
-    const [closeH, closeM] = (dayHours.close || '18:00').split(':').map(Number);
-
-    let currentMin = openH * 60 + (openM || 0);
-    const endMin = closeH * 60 + (closeM || 0);
+    const openMin = timeToMinutes(dayHours.open || '08:00');
+    const endMin = timeToMinutes(dayHours.close || '18:00');
 
     let breakStartMin = -1;
     let breakEndMin = -1;
     if (currentProf?.break_start && currentProf?.break_end) {
-      const [bStartH, bStartM] = currentProf.break_start.split(':').map(Number);
-      const [bEndH, bEndM] = currentProf.break_end.split(':').map(Number);
-      breakStartMin = bStartH * 60 + bStartM;
-      breakEndMin = bEndH * 60 + bEndM;
+      breakStartMin = timeToMinutes(currentProf.break_start);
+      breakEndMin = timeToMinutes(currentProf.break_end);
     }
 
     const now = new Date();
@@ -1133,27 +1129,51 @@ export default function AgendaTenant() {
     const isToday = selectedDate === todayStr;
     const nowInMinutes = now.getHours() * 60 + now.getMinutes();
 
-    const timeline = [];
-
     const profApps = appointments.filter(a => String(a.professional_id) === String(selectedProf));
     const profBlocks = blockedTimes.filter(b => b.professional_id === null || b.professional_id === undefined || String(b.professional_id) === String(selectedProf));
 
-    while (currentMin < endMin) {
+    // COLETAR TODOS OS MINUTOS CHAVE DO DIA (GRADE REGULAR + INÍCIOS DE AGENDAMENTOS E BLOQUEIOS)
+    const timeSet = new Set();
+
+    // 1. Grade regular de 30 minutos
+    for (let m = openMin; m < endMin; m += 30) {
+      timeSet.add(m);
+    }
+
+    // 2. Incluir horários de início exatos de agendamentos (resolve horários quebrados como 09:45, 10:15)
+    profApps.forEach(a => {
+      if (a.start_time) {
+        const m = timeToMinutes(a.start_time);
+        if (m >= openMin && m < endMin) timeSet.add(m);
+      }
+    });
+
+    // 3. Incluir horários de início de bloqueios
+    profBlocks.forEach(b => {
+      if (b.start_time) {
+        const m = timeToMinutes(b.start_time);
+        if (m >= openMin && m < endMin) timeSet.add(m);
+      }
+    });
+
+    // 4. Incluir início do almoço/intervalo
+    if (breakStartMin >= openMin && breakStartMin < endMin) {
+      timeSet.add(breakStartMin);
+    }
+
+    // Ordenar cronologicamente os pontos no tempo
+    const sortedMinutes = Array.from(timeSet).sort((a, b) => a - b);
+
+    const timeline = [];
+
+    sortedMinutes.forEach(currentMin => {
       const h = Math.floor(currentMin / 60);
       const m = currentMin % 60;
       const timeStr = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
       const isPast = isToday && currentMin < nowInMinutes;
 
-      const appsStarting = profApps.filter(a => {
-        const [aStartH, aStartM] = a.start_time.split(':').map(Number);
-        return (aStartH * 60 + aStartM) === currentMin;
-      });
-
-      const blocksStarting = profBlocks.filter(b => {
-        const [bStartH, bStartM] = b.start_time.split(':').map(Number);
-        return (bStartH * 60 + bStartM) === currentMin;
-      });
-
+      const appsStarting = profApps.filter(a => timeToMinutes(a.start_time) === currentMin);
+      const blocksStarting = profBlocks.filter(b => timeToMinutes(b.start_time) === currentMin);
       const isBreakStart = (breakStartMin !== -1 && currentMin === breakStartMin);
 
       if (appsStarting.length > 0) {
@@ -1176,18 +1196,16 @@ export default function AgendaTenant() {
           isPast
         });
       } else {
+        // Verificar se o minuto está dentro de algum agendamento, bloqueio ou almoço em andamento
         const isInsideApp = profApps.some(a => {
-          const [aStartH, aStartM] = a.start_time.split(':').map(Number);
-          const aStart = aStartH * 60 + aStartM;
-          const aEnd = aStart + (a.total_duration_minutes || 30);
+          const aStart = timeToMinutes(a.start_time);
+          const aEnd = a.end_time ? timeToMinutes(a.end_time) : aStart + (a.total_duration_minutes || 30);
           return currentMin > aStart && currentMin < aEnd;
         });
 
         const isInsideBlock = profBlocks.some(b => {
-          const [bStartH, bStartM] = b.start_time.split(':').map(Number);
-          const [bEndH, bEndM] = b.end_time.split(':').map(Number);
-          const bStart = bStartH * 60 + bStartM;
-          const bEnd = bEndH * 60 + bEndM;
+          const bStart = timeToMinutes(b.start_time);
+          const bEnd = timeToMinutes(b.end_time);
           return currentMin > bStart && currentMin < bEnd;
         });
 
@@ -1198,9 +1216,7 @@ export default function AgendaTenant() {
           timeline.push({ time: timeStr, type: 'free', isPast });
         }
       }
-
-      currentMin += 30;
-    }
+    });
 
     return timeline;
   };
@@ -2118,7 +2134,7 @@ export default function AgendaTenant() {
                 <input
                   type="checkbox"
                   checked={isFullDayBlock}
-                  onChange={(e) => setIsFullDayBlock(e.target.checked)}
+                  onChange={(e) => setIsFullDayBlock(e.target.value)}
                   className="w-4 h-4 accent-purple-600 cursor-pointer"
                 />
               </div>
@@ -2132,7 +2148,7 @@ export default function AgendaTenant() {
                   <input
                     type="checkbox"
                     checked={isRecurringBlock}
-                    onChange={(e) => setIsRecurringBlock(e.target.checked)}
+                    onChange={(e) => setIsRecurringBlock(e.target.value)}
                     className="w-4 h-4 accent-purple-600 cursor-pointer"
                   />
                 </div>

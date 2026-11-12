@@ -2,6 +2,27 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
 import { supabase } from '../../lib/supabase';
+import { apiLogin, checkSession, migrateLegacyLogin, saveToken, getSavedToken, clearToken } from '../../lib/clientAuth';
+import { linkPushToTenant } from '../../lib/push';
+
+// MONTA O NÚMERO DO WHATSAPP COM 55 SÓ QUANDO AINDA NÃO TEM
+const toWaNumber = (phone) => {
+  const clean = String(phone || '').replace(/\D/g, '');
+  if (!clean) return '';
+  return clean.length <= 11 ? `55${clean}` : clean;
+};
+
+// ERRO DEVOLVIDO PELO BANCO QUANDO O HORÁRIO JÁ ESTÁ OCUPADO (trava anti-duplicidade)
+const isSlotTakenError = (error) => !!(error && String(error.message || '').includes('HORARIO_OCUPADO'));
+
+// DIAS DE TRABALHO SEMPRE COMO NÚMEROS (evita "folga" falsa quando vêm como texto)
+const toNumberDays = (days) => {
+  let d = days || [1, 2, 3, 4, 5, 6];
+  if (typeof d === 'string') {
+    try { d = JSON.parse(d); } catch (e) { d = [1, 2, 3, 4, 5, 6]; }
+  }
+  return (Array.isArray(d) ? d : []).map(Number);
+};
 
 // PRESETS DE CORES EXCLUSIVOS E PREDEFINIDOS PARA A AGENDA (INCLUI TEMA CLARO)
 const THEME_PRESETS = {
@@ -108,6 +129,12 @@ export default function AgendaTenant() {
   const [customerList, setCustomerList] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  // LOGIN DA AGENDA (lembrado no aparelho; aceita senha do admin, senha financeira ou PIN do profissional)
+  const [isAuthed, setIsAuthed] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [agendaPass, setAgendaPass] = useState('');
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+
   // SELETOR DE TEMA PRÓPRIO DA AGENDA
   const [agendaTheme, setAgendaTheme] = useState('dark');
 
@@ -188,12 +215,12 @@ export default function AgendaTenant() {
   }, [router.isReady, slug]);
 
   useEffect(() => {
-    if (tenant?.id && selectedDate) {
+    if (isAuthed && tenant?.id && selectedDate) {
       fetchAppointmentsAndBlocks();
       fetchTomorrowAppointments();
       fetchCustomersDirectory();
     }
-  }, [tenant?.id, selectedDate, selectedProf]);
+  }, [isAuthed, tenant?.id, selectedDate, selectedProf]);
 
   // RECALCULAR HORÁRIOS LIVRES NA MODAL DE AGENDAMENTO MANUAL QUANDO HOUVER ALTERAÇÕES
   useEffect(() => {
@@ -204,7 +231,7 @@ export default function AgendaTenant() {
 
   // ATUALIZAÇÃO EM TEMPO REAL (SUPABASE REALTIME) NA AGENDA
   useEffect(() => {
-    if (!tenant?.id) return;
+    if (!tenant?.id || !isAuthed) return;
 
     const appointmentsChannel = supabase
       .channel(`realtime-agenda-${tenant.id}`)
@@ -229,7 +256,45 @@ export default function AgendaTenant() {
     return () => {
       supabase.removeChannel(appointmentsChannel);
     };
-  }, [tenant?.id, selectedDate, selectedProf, showManualAppModal, manualProfId, manualDate]);
+  }, [isAuthed, tenant?.id, selectedDate, selectedProf, showManualAppModal, manualProfId, manualDate]);
+
+  // VERIFICA SE ESTE APARELHO JÁ ESTÁ LOGADO NA AGENDA
+  useEffect(() => {
+    if (!tenant?.id || !slug) return;
+    (async () => {
+      let level = await checkSession(slug);
+      if (!level) level = await migrateLegacyLogin(slug);
+      if (level) {
+        setIsAuthed(true);
+        linkPushToTenant(tenant.id);
+      }
+      setAuthChecked(true);
+    })();
+  }, [tenant?.id, slug]);
+
+  const handleAgendaLogin = async (e) => {
+    e.preventDefault();
+    if (!agendaPass.trim()) return alert('Digite a senha ou seu PIN.');
+    setIsLoggingIn(true);
+    const res = await apiLogin(slug, 'agenda', agendaPass);
+    setIsLoggingIn(false);
+    if (res.ok && res.token) {
+      saveToken(slug, res.token);
+      setAgendaPass('');
+      setIsAuthed(true);
+      linkPushToTenant(tenant.id);
+      // recarrega profissionais com dados da equipe (comissão)
+      fetchTenantAndData();
+    } else {
+      alert(res.error === 'Senha incorreta' ? '❌ Senha ou PIN incorreto!' : ('❌ ' + (res.error || 'Não foi possível entrar.')));
+    }
+  };
+
+  const handleAgendaLogout = () => {
+    if (!confirm('Sair da agenda neste aparelho?')) return;
+    clearToken(slug);
+    setIsAuthed(false);
+  };
 
   const handleThemeChange = (newThemeKey) => {
     setAgendaTheme(newThemeKey);
@@ -256,9 +321,13 @@ export default function AgendaTenant() {
     try {
       setLoading(true);
       const cleanSlug = String(slug).toLowerCase().trim();
-      const { data: tData, error: tErr } = await supabase.from('tenants').select('*').eq('slug', cleanSlug).maybeSingle();
-
-      if (tErr) throw tErr;
+      // DADOS DA LOJA E DA EQUIPE VÊM DO SERVIDOR, SEM SENHAS E SEM PINs
+      const resp = await fetch(`/api/public-tenant?slug=${encodeURIComponent(cleanSlug)}`, {
+        headers: { 'x-sinerge-token': getSavedToken(cleanSlug) }
+      });
+      const json = await resp.json();
+      const tData = json.tenant || null;
+      const pData = json.professionals || [];
 
       if (tData) {
         setTenant({
@@ -268,7 +337,6 @@ export default function AgendaTenant() {
           loyalty_reward_text: tData.loyalty_reward_text || '1 Atendimento Grátis'
         });
 
-        const { data: pData } = await supabase.from('professionals').select('*').eq('tenant_id', tData.id).eq('active', true);
         const { data: sData } = await supabase.from('services').select('*').eq('tenant_id', tData.id).eq('active', true);
         
         let initialProfId = '';
@@ -300,9 +368,6 @@ export default function AgendaTenant() {
           }
         }
         
-        await fetchAppointmentsAndBlocks(tData.id);
-        await fetchTomorrowAppointments(tData.id);
-        await fetchCustomersDirectory(tData.id);
       }
     } catch (err) {
       console.error("Erro ao carregar dados da agenda:", err);
@@ -432,10 +497,7 @@ export default function AgendaTenant() {
       const dayOfWeek = dateObj.getDay();
 
       // Verificar dia de trabalho do profissional
-      let profWorkDays = currentProfObj?.work_days || [1, 2, 3, 4, 5, 6];
-      if (typeof profWorkDays === 'string') {
-        try { profWorkDays = JSON.parse(profWorkDays); } catch (e) { profWorkDays = [1, 2, 3, 4, 5, 6]; }
-      }
+      const profWorkDays = toNumberDays(currentProfObj?.work_days);
 
       if (!profWorkDays.includes(dayOfWeek)) {
         setManualAvailableSlots([]);
@@ -586,12 +648,13 @@ export default function AgendaTenant() {
     }
   };
 
-  const handleUnlockProfFin = (e) => {
+  const handleUnlockProfFin = async (e) => {
     e.preventDefault();
     const profObj = professionals.find(p => String(p.id) === String(finProfId));
     if (!profObj) return alert("Selecione um profissional!");
 
-    if (!profObj.pin || String(profObj.pin).trim() === '' || String(profObj.pin).trim() === String(finPin).trim()) {
+    const check = await apiLogin(slug, 'prof_fin', finPin, { profId: profObj.id });
+    if (check.ok) {
       setIsFinUnlocked(true);
       fetchProfFinancials(profObj.id);
     } else {
@@ -662,7 +725,7 @@ export default function AgendaTenant() {
       `Olá *${app.customer_name}*, passando para lembrar do seu agendamento *Amanhã (${formattedDate})* às *${app.start_time}* com ${profName}.\n\n` +
       `Podemos confirmar sua presença? Responda este WhatsApp para confirmar! 😊`;
 
-    window.location.href = `https://wa.me/55${cleanPhone}?text=${encodeURIComponent(msg)}`;
+    window.location.href = `https://wa.me/${toWaNumber(cleanPhone)}?text=${encodeURIComponent(msg)}`;
   };
 
   // CRIAR AGENDAMENTO MANUAL COM VERIFICAÇÃO RIGOROSA ANTI-OVERBOOKING
@@ -758,7 +821,12 @@ export default function AgendaTenant() {
         .single();
 
       if (error) {
-        alert("Erro ao criar agendamento: " + error.message);
+        if (isSlotTakenError(error)) {
+          alert("⚠️ CONFLITO DE HORÁRIO! Este horário acabou de ser ocupado. Escolha outro horário livre.");
+          calculateManualAvailableSlots();
+        } else {
+          alert("Erro ao criar agendamento: " + error.message);
+        }
       } else {
         const formattedDate = manualDate.split('-').reverse().join('/');
         
@@ -777,7 +845,7 @@ export default function AgendaTenant() {
             `✂️ *Procedimento:* ${serviceObj?.name || 'Atendimento'}\n\n` +
             `Te aguardamos! Se precisar alterar, nos avise por aqui.`;
 
-          window.location.href = `https://wa.me/55${cleanPhone}?text=${encodeURIComponent(msg)}`;
+          window.location.href = `https://wa.me/${toWaNumber(cleanPhone)}?text=${encodeURIComponent(msg)}`;
         }
       }
     } catch (err) {
@@ -927,6 +995,24 @@ export default function AgendaTenant() {
         return alert("⚠️ CONFLITO DE HORÁRIO! O horário selecionado para reagendamento já está ocupado por outro cliente.");
       }
 
+      // 🔒 CONFERE BLOQUEIOS DO PROFISSIONAL NO NOVO HORÁRIO
+      const { data: resBlocks } = await supabase
+        .from('blocked_times')
+        .select('start_time, end_time, is_recurring, recurring_day, block_date, professional_id, reason')
+        .eq('tenant_id', tenant.id);
+      const resDayOfWeek = new Date(rescheduleDate + 'T00:00:00').getDay();
+      const isResBlocked = (resBlocks || []).some(b => {
+        if (b.professional_id !== null && b.professional_id !== undefined && String(b.professional_id) !== String(parsedProfId)) return false;
+        const isDateMatch = b.block_date === rescheduleDate;
+        const isRecMatch = (b.is_recurring || (b.reason && b.reason.includes('[RECORRENTE]'))) && Number(b.recurring_day) === resDayOfWeek;
+        if (!isDateMatch && !isRecMatch) return false;
+        return startMin < timeToMinutes(b.end_time) && endMin > timeToMinutes(b.start_time);
+      });
+      if (isResBlocked && !confirm("⚠️ Este horário está BLOQUEADO na agenda (intervalo/folga). Deseja reagendar mesmo assim?")) {
+        setIsSavingReschedule(false);
+        return;
+      }
+
       const { error } = await supabase
         .from('appointments')
         .update({
@@ -939,7 +1025,9 @@ export default function AgendaTenant() {
         .eq('id', editingApp.id);
 
       if (error) {
-        alert("Erro ao reagendar: " + error.message);
+        alert(isSlotTakenError(error)
+          ? "⚠️ CONFLITO DE HORÁRIO! Este horário acabou de ser ocupado por outro cliente."
+          : "Erro ao reagendar: " + error.message);
       } else {
         const formattedDate = rescheduleDate.split('-').reverse().join('/');
 
@@ -948,6 +1036,7 @@ export default function AgendaTenant() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
+              tenant_id: tenant.id,
               title: '🔄 Horário Reagendado!',
               message: `Olá ${editingApp.customer_name}, seu atendimento foi alterado para ${formattedDate} às ${rescheduleTime}.`,
               url: `https://agendamento.sinergemkt.com/${tenant.slug}`
@@ -965,7 +1054,7 @@ export default function AgendaTenant() {
 
         if (cleanPhone) {
           const msg = `Olá ${editingApp.customer_name}! 🔄 Seu agendamento no *${tenant.name}* foi reagendado para o dia *${formattedDate}* às *${rescheduleTime}*.`;
-          window.location.href = `https://wa.me/55${cleanPhone}?text=${encodeURIComponent(msg)}`;
+          window.location.href = `https://wa.me/${toWaNumber(cleanPhone)}?text=${encodeURIComponent(msg)}`;
         }
       }
     } catch (err) {
@@ -984,7 +1073,8 @@ export default function AgendaTenant() {
         alert("Erro ao atualizar status: " + error.message);
       } else {
         // CREDITAR SELOS NO CARTÃO FIDELIDADE AO CONCLUIR ATENDIMENTO
-        if (newStatus === 'concluido' && tenant?.loyalty_enabled && app.customer_phone) {
+        // Só credita selo quando o atendimento AINDA NÃO estava concluído (evita selo em dobro)
+        if (newStatus === 'concluido' && app.status !== 'concluido' && tenant?.loyalty_enabled && app.customer_phone) {
           const cleanPhone = app.customer_phone.replace(/\D/g, '');
           if (cleanPhone.length >= 10) {
             try {
@@ -1038,6 +1128,7 @@ export default function AgendaTenant() {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
+                tenant_id: tenant.id,
                 title: pushTitle,
                 message: pushMessage,
                 url: `https://agendamento.sinergemkt.com/${tenant.slug}/agenda`
@@ -1099,10 +1190,7 @@ export default function AgendaTenant() {
     const selectedDayOfWeek = new Date(selectedDate + 'T00:00:00').getDay();
     const currentProf = professionals.find(p => String(p.id) === String(selectedProf));
 
-    let profWorkDays = currentProf?.work_days || [1, 2, 3, 4, 5, 6];
-    if (typeof profWorkDays === 'string') {
-      try { profWorkDays = JSON.parse(profWorkDays); } catch (e) { profWorkDays = [1, 2, 3, 4, 5, 6]; }
-    }
+    const profWorkDays = toNumberDays(currentProf?.work_days);
 
     if (!profWorkDays.includes(selectedDayOfWeek)) {
       return [{ type: 'prof_off', reason: `${currentProf?.name || 'Profissional'} não atende neste dia da semana (Folga Recorrente).` }];
@@ -1224,6 +1312,41 @@ export default function AgendaTenant() {
   if (loading) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><p className="text-xs text-gray-400">Carregando Agenda...</p></div>;
   if (!tenant) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><h1 className="text-xl font-bold text-orange-500">Estabelecimento não encontrado</h1></div>;
 
+  // TELA DE ENTRADA DA AGENDA (só aparece uma vez por aparelho; depois fica lembrado)
+  if (!authChecked) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center font-sans"><p className="text-xs text-gray-400">Carregando Agenda...</p></div>;
+  if (!isAuthed) {
+    return (
+      <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center p-4 font-sans">
+        <Head>
+          <title>{`${tenant.name} - Agenda`}</title>
+          {slug && <link rel="manifest" href={`/api/manifest?slug=${slug}&app=agenda`} />}
+          <meta name="apple-mobile-web-app-title" content="Agenda" />
+          <link rel="apple-touch-icon" href="/icon-192.png" />
+        </Head>
+        <form onSubmit={handleAgendaLogin} className="bg-gray-900 p-6 rounded-2xl border border-gray-800 w-full max-w-sm space-y-4 shadow-2xl">
+          <div className="text-center space-y-1">
+            <div className="text-3xl">📅</div>
+            <h2 className="text-lg font-bold text-orange-500">{tenant.name}</h2>
+            <p className="text-xs text-gray-400">Agenda da equipe. Entre com a senha do estabelecimento ou com o seu PIN de profissional.</p>
+          </div>
+          <input
+            type="password"
+            inputMode="text"
+            autoComplete="current-password"
+            placeholder="Senha ou PIN"
+            value={agendaPass}
+            onChange={(e) => setAgendaPass(e.target.value)}
+            className="w-full bg-gray-800 border border-gray-700 p-3 rounded-xl text-sm text-white focus:outline-none focus:border-orange-500"
+          />
+          <button type="submit" disabled={isLoggingIn} className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-3 rounded-xl text-xs transition disabled:opacity-60">
+            {isLoggingIn ? 'Entrando...' : 'Entrar na Agenda'}
+          </button>
+          <p className="text-[10px] text-gray-500 text-center">Você só precisa entrar uma vez neste aparelho.</p>
+        </form>
+      </div>
+    );
+  }
+
   const activeTheme = THEME_PRESETS[agendaTheme] || THEME_PRESETS.dark;
   const primaryColor = activeTheme.primary;
   const secondaryColor = activeTheme.secondary;
@@ -1263,7 +1386,9 @@ export default function AgendaTenant() {
       {/* MANIFEST E CONFIGURAÇÕES PWA DINÂMICAS */}
       <Head>
         <title>{tenant?.name ? `${tenant.name} - Agendamento` : 'Agendamento Online'}</title>
-        {slug && <link rel="manifest" href={`/api/manifest?slug=${slug}`} />}
+        {slug && <link rel="manifest" href={`/api/manifest?slug=${slug}&app=agenda`} />}
+        <meta name="theme-color" content={primaryColor} />
+        <link rel="apple-touch-icon" href="/icon-192.png" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="apple-mobile-web-app-title" content={tenant?.name || 'Agendamento'} />
@@ -1352,6 +1477,14 @@ export default function AgendaTenant() {
             }}
             className="bg-purple-600 hover:bg-purple-700 text-white px-3.5 py-2.5 rounded-xl text-xs font-bold transition shadow-md flex items-center space-x-1 whitespace-nowrap">
             <span>🔒 Fechar Horário</span>
+          </button>
+
+          <button
+            onClick={handleAgendaLogout}
+            title="Sair da agenda neste aparelho"
+            className="border px-3 py-2.5 rounded-xl text-xs font-bold transition whitespace-nowrap text-red-400"
+            style={{ backgroundColor: cardBgColor, borderColor: borderColor }}>
+            <span>🚪 Sair</span>
           </button>
 
           <button 
@@ -1597,7 +1730,7 @@ export default function AgendaTenant() {
                         <span>{app.customer_name}</span>
                         {cleanPhone && (
                           <a
-                            href={`https://wa.me/55${cleanPhone}`}
+                            href={`https://wa.me/${toWaNumber(cleanPhone)}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-[10px] bg-green-500/20 hover:bg-green-500/40 text-green-600 border border-green-500/30 px-2 py-0.5 rounded-full ml-1 font-semibold">

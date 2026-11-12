@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../../lib/supabase';
+import { apiLogin, checkSession, migrateLegacyLogin, saveToken, clearToken } from '../../lib/clientAuth';
+import { linkPushToTenant } from '../../lib/push';
 
 const DEFAULT_WORK_HOURS = {
   1: { open: '08:00', close: '18:00' },
@@ -226,7 +228,14 @@ export default function AdminTenant() {
   const fetchTenant = async () => {
     setLoading(true);
     const cleanSlug = String(slug).toLowerCase().trim();
-    const { data: tData } = await supabase.from('tenants').select('*').eq('slug', cleanSlug).maybeSingle();
+    let tData = null;
+    try {
+      const resp = await fetch(`/api/public-tenant?slug=${encodeURIComponent(cleanSlug)}`);
+      const json = await resp.json();
+      tData = json.tenant || null;
+    } catch (err) {
+      console.error('Erro ao carregar estabelecimento:', err);
+    }
 
     if (tData) {
       const currentFinPass = tData.financial_password || '';
@@ -250,28 +259,30 @@ export default function AdminTenant() {
       setOriginalFinPass(currentFinPass);
       setNewFinPassInput(currentFinPass);
 
-      const savedPass = localStorage.getItem('sinerge_tenant_pass');
-      if (savedPass && (savedPass === tData.admin_password || savedPass === 'master123' || (currentFinPass && savedPass === currentFinPass))) {
+      // Login lembrado neste aparelho (o login antigo é convertido automaticamente, sem pedir senha de novo)
+      let level = await checkSession(cleanSlug);
+      if (level !== 'admin') level = await migrateLegacyLogin(cleanSlug);
+      if (level === 'admin') {
         setIsAuthenticated(true);
-        fetchData(tData.id);
+        linkPushToTenant(tData.id);
+        await fetchData(tData.id);
       }
     }
     setLoading(false);
   };
 
-  const handleLogin = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
-    const isMaster = password === 'master123';
-    const isAdminPass = tenant && password === tenant.admin_password;
-    const isFinPass = tenant && tenant.financial_password && password === tenant.financial_password;
+    // A senha é conferida no servidor (a senha mestra não fica mais no código do site)
+    const res = await apiLogin(tenant.slug, 'admin', password);
 
-    if (isMaster || isAdminPass || isFinPass) {
+    if (res.ok && res.token) {
+      saveToken(tenant.slug, res.token);
       setIsAuthenticated(true);
-      localStorage.setItem('sinerge_tenant_pass', password);
-      localStorage.setItem('sinerge_tenant_slug', tenant.slug);
+      linkPushToTenant(tenant.id);
       fetchData(tenant.id);
     } else {
-      alert('Senha incorreta!');
+      alert(res.error && res.error !== 'Senha incorreta' ? res.error : 'Senha incorreta!');
     }
   };
 
@@ -437,8 +448,11 @@ export default function AdminTenant() {
 
     if (originalFinPass && originalFinPass.trim() !== '') {
       if (newFinPassInput.trim() !== originalFinPass) {
-        if (oldFinPassInput.trim() !== originalFinPass && oldFinPassInput.trim() !== 'master123') {
-          return alert("❌ Para alterar a Senha Financeira, você precisa informar a Senha Financeira ATUAL (antiga) corretamente!");
+        if (oldFinPassInput.trim() !== originalFinPass) {
+          const chk = await apiLogin(tenant.slug, 'change_fin_pass', oldFinPassInput);
+          if (!chk.ok) {
+            return alert("❌ Para alterar a Senha Financeira, você precisa informar a Senha Financeira ATUAL (antiga) corretamente!");
+          }
         }
         finalFinPassword = newFinPassInput.trim();
       }
@@ -671,15 +685,12 @@ export default function AdminTenant() {
     }
   };
 
-  const handleUnlockAgendaPrices = (e) => {
+  const handleUnlockAgendaPrices = async (e) => {
     e.preventDefault();
     const pin = agendaPinInput.trim();
-    const isMaster = pin === 'master123';
-    const isAdminPass = tenant && pin === tenant.admin_password;
-    const isFinPass = tenant && tenant.financial_password && pin === tenant.financial_password;
-    const isProfPin = professionals.some(p => p.pin && String(p.pin).trim() === pin);
+    const chk = await apiLogin(tenant.slug, 'agenda_prices', pin);
 
-    if (isMaster || isAdminPass || isFinPass || isProfPin) {
+    if (chk.ok) {
       setIsAgendaPricesUnlocked(true);
       setShowAgendaPinModal(false);
       setAgendaPinInput('');
@@ -838,25 +849,16 @@ export default function AdminTenant() {
     document.body.removeChild(link);
   };
 
-  const handleUnlockGlobalFin = (e) => {
+  const handleUnlockGlobalFin = async (e) => {
     e.preventDefault();
-    const isMaster = adminFinPass === 'master123';
     const hasFinPass = tenant && tenant.financial_password && tenant.financial_password.trim() !== '';
+    const chk = await apiLogin(tenant.slug, 'financial', adminFinPass);
 
-    if (hasFinPass) {
-      if (adminFinPass === tenant.financial_password || isMaster) {
-        setIsGlobalFinUnlocked(true);
-        setAdminFinPass('');
-      } else {
-        alert('❌ Senha Financeira incorreta!');
-      }
+    if (chk.ok) {
+      setIsGlobalFinUnlocked(true);
+      setAdminFinPass('');
     } else {
-      if ((tenant && adminFinPass === tenant.admin_password) || isMaster) {
-        setIsGlobalFinUnlocked(true);
-        setAdminFinPass('');
-      } else {
-        alert('❌ Senha de Admin incorreta!');
-      }
+      alert(hasFinPass ? '❌ Senha Financeira incorreta!' : '❌ Senha de Admin incorreta!');
     }
   };
 
@@ -969,6 +971,7 @@ export default function AdminTenant() {
         <button 
           onClick={() => {
             localStorage.removeItem('sinerge_tenant_pass');
+            clearToken(tenant.slug);
             setIsAuthenticated(false);
             router.push('/');
           }} 
@@ -1417,7 +1420,7 @@ export default function AdminTenant() {
                       <div className="flex flex-wrap justify-between items-center border-t border-gray-800/80 pt-2 gap-2">
                         {clientPhone && (
                           <a
-                            href={`https://wa.me/55${clientPhone}?text=${encodeURIComponent(zapMsg)}`}
+                            href={`https://wa.me/${String(clientPhone || "").length > 11 ? clientPhone : "55" + clientPhone}?text=${encodeURIComponent(zapMsg)}`}
                             target="_blank"
                             rel="noreferrer"
                             className="bg-green-600/20 hover:bg-green-600/40 text-green-400 border border-green-500/30 px-2.5 py-1 rounded-lg text-[10px] font-bold flex items-center space-x-1">
@@ -1545,7 +1548,7 @@ export default function AdminTenant() {
                             <h4 className="font-bold text-white text-xs flex items-center space-x-2">
                               <span>{cust.name}</span>
                               <a
-                                href={`https://wa.me/55${cust.phone}`}
+                                href={`https://wa.me/${String(cust.phone || "").length > 11 ? cust.phone : "55" + cust.phone}`}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="text-[10px] bg-green-500/20 hover:bg-green-500/40 text-green-400 border border-green-500/30 px-2 py-0.5 rounded-full font-normal">

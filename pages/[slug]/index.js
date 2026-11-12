@@ -1,7 +1,20 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
 import { supabase } from '../../lib/supabase';
+
+// DATA DE HOJE NO FUSO DO APARELHO (antes usava UTC e, depois das 21h, virava "amanhã")
+const getTodayLocal = () => new Date().toLocaleDateString('sv-SE');
+
+// MONTA O NÚMERO DO WHATSAPP COM 55 SÓ QUANDO AINDA NÃO TEM
+const toWaNumber = (phone) => {
+  const clean = String(phone || '').replace(/\D/g, '');
+  if (!clean) return '';
+  return clean.length <= 11 ? `55${clean}` : clean;
+};
+
+// ERRO DEVOLVIDO PELO BANCO QUANDO O HORÁRIO JÁ FOI OCUPADO (trava anti-duplicidade)
+const isSlotTakenError = (error) => !!(error && String(error.message || '').includes('HORARIO_OCUPADO'));
 
 // FUNÇÃO AUXILIAR PARA FORMATAR MINUTOS EM HORAS E MINUTOS
 const formatDuration = (minutes) => {
@@ -58,7 +71,7 @@ export default function AgendamentoCliente() {
   // ESTADOS DO AGENDAMENTO
   const [selectedProf, setSelectedProf] = useState('');
   const [selectedServices, setSelectedServices] = useState([]); // Guarda 0 ou 1 serviço
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState(getTodayLocal());
   const [selectedTime, setSelectedTime] = useState('');
   const [existingAppointments, setExistingAppointments] = useState([]);
 
@@ -68,6 +81,8 @@ export default function AgendamentoCliente() {
   const [customerBirthDate, setCustomerBirthDate] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('No Local');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const submittingRef = useRef(false); // trava imediata contra toque duplo
+  const [bookingDone, setBookingDone] = useState(null); // tela de sucesso após agendar
   const [loyaltyCount, setLoyaltyCount] = useState(0);
 
   // MODAL MEUS AGENDAMENTOS
@@ -122,6 +137,25 @@ export default function AgendamentoCliente() {
     }
   }, [tenant?.id, selectedDate, selectedProf, userNewDate, editingUserApp]);
 
+  // ATUALIZA OS HORÁRIOS AO VOLTAR PARA A PÁGINA (ex.: voltou do WhatsApp) E A CADA 1 MINUTO
+  useEffect(() => {
+    if (!tenant?.id) return;
+    const refresh = () => {
+      if (document.visibilityState !== 'visible') return;
+      const targetDate = editingUserApp ? userNewDate : selectedDate;
+      const targetProf = editingUserApp ? editingUserApp.professional_id : selectedProf;
+      if (targetDate && targetProf) fetchExistingAppointmentsAndBlocks(targetDate, targetProf);
+    };
+    window.addEventListener('pageshow', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    const timer = setInterval(refresh, 60000);
+    return () => {
+      window.removeEventListener('pageshow', refresh);
+      document.removeEventListener('visibilitychange', refresh);
+      clearInterval(timer);
+    };
+  }, [tenant?.id, selectedDate, selectedProf, userNewDate, editingUserApp]);
+
   // BUSCA OS DADOS DE FIDELIDADE SEMPRE QUE O TELEFONE DO CLIENTE FOR ALTERADO
   useEffect(() => {
     if (tenant?.id && tenant?.loyalty_enabled && customerPhone) {
@@ -132,7 +166,18 @@ export default function AgendamentoCliente() {
   const fetchTenantData = async () => {
     setLoading(true);
     const cleanSlug = String(slug).toLowerCase().trim();
-    const { data: tData } = await supabase.from('tenants').select('*').eq('slug', cleanSlug).maybeSingle();
+
+    // DADOS DA LOJA VÊM DO SERVIDOR, SEM SENHAS/TOKENS (antes iam para o navegador de qualquer visitante)
+    let tData = null;
+    let pData = [];
+    try {
+      const resp = await fetch(`/api/public-tenant?slug=${encodeURIComponent(cleanSlug)}`);
+      const json = await resp.json();
+      tData = json.tenant || null;
+      pData = json.professionals || [];
+    } catch (err) {
+      console.error('Erro ao carregar estabelecimento:', err);
+    }
 
     if (tData) {
       setTenant({
@@ -144,8 +189,6 @@ export default function AgendamentoCliente() {
         daily_notices: tData.daily_notices || {}
       });
 
-      const { data: pData } = await supabase.from('professionals').select('*').eq('tenant_id', tData.id).eq('active', true);
-      
       // BUSCA OS SERVIÇOS ATIVOS ORDENADOS POR 'position' ASCENDENTE E DEPOIS 'id'
       const { data: sData } = await supabase
         .from('services')
@@ -155,7 +198,11 @@ export default function AgendamentoCliente() {
         .order('position', { ascending: true })
         .order('id', { ascending: true });
 
-      const { data: psData } = await supabase.from('professional_services').select('*');
+      // SÓ OS VÍNCULOS DOS PROFISSIONAIS DESTA LOJA (antes buscava de todas as lojas)
+      const profIds = (pData || []).map(p => p.id);
+      const { data: psData } = profIds.length > 0
+        ? await supabase.from('professional_services').select('*').in('professional_id', profIds)
+        : { data: [] };
 
       if (pData) setProfessionals(pData);
       if (sData) setServices(sData);
@@ -213,7 +260,8 @@ export default function AgendamentoCliente() {
   const handleSearchMyAppointments = async (e) => {
     if (e) e.preventDefault();
     const clean = searchPhone.replace(/\D/g, '');
-    if (!clean) return alert("Digite um número de telefone válido!");
+    // EXIGE O NÚMERO COMPLETO (antes digitar "9" listava agendamentos de outras pessoas)
+    if (clean.length < 10) return alert("Digite seu WhatsApp completo com DDD!");
 
     localStorage.setItem('client_saved_phone', clean);
     setIsSearchingApps(true);
@@ -224,7 +272,7 @@ export default function AgendamentoCliente() {
       .from('appointments')
       .select('*')
       .eq('tenant_id', tenant.id)
-      .ilike('customer_phone', `%${clean}%`)
+      .ilike('customer_phone', `%${clean}`)
       .order('appointment_date', { ascending: false });
 
     if (data) setMyAppointments(data);
@@ -238,7 +286,8 @@ export default function AgendamentoCliente() {
     const { error } = await supabase
       .from('appointments')
       .update({ status: 'cancelado' })
-      .eq('id', app.id);
+      .eq('id', app.id)
+      .eq('tenant_id', tenant.id);
 
     if (error) {
       alert("Erro ao cancelar: " + error.message);
@@ -250,6 +299,7 @@ export default function AgendamentoCliente() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            tenant_id: tenant.id,
             title: '❌ Agendamento Cancelado',
             message: `O cliente ${app.customer_name} cancelou o agendamento do dia ${formattedDate} às ${app.start_time}.`,
             url: `https://agendamento.sinergemkt.com/${tenant.slug}/agenda`
@@ -301,11 +351,17 @@ export default function AgendamentoCliente() {
         end_time: endTime,
         status: 'agendado'
       })
-      .eq('id', editingUserApp.id);
+      .eq('id', editingUserApp.id)
+      .eq('tenant_id', tenant.id);
 
     setIsSavingUserReschedule(false);
 
     if (error) {
+      if (isSlotTakenError(error)) {
+        setUserNewTime('');
+        fetchExistingAppointmentsAndBlocks(userNewDate, editingUserApp.professional_id);
+        return alert("⚠️ Este horário acabou de ser reservado por outra pessoa. Escolha outro horário.");
+      }
       return alert("Erro ao reagendar: " + error.message);
     }
 
@@ -316,6 +372,7 @@ export default function AgendamentoCliente() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          tenant_id: tenant.id,
           title: '🔄 Horário Reagendado!',
           message: `${editingUserApp.customer_name} reagendou o atendimento para ${formattedDate} às ${userNewTime}.`,
           url: `https://agendamento.sinergemkt.com/${tenant.slug}/agenda`
@@ -336,6 +393,9 @@ export default function AgendamentoCliente() {
         `Novo Horário: *${userNewTime}*`;
 
       const waTarget = cleanWhatsapp.length <= 11 ? `55${cleanWhatsapp}` : cleanWhatsapp;
+      // Fecha o formulário antes de sair, para não reenviar ao voltar do WhatsApp
+      setEditingUserApp(null);
+      setMyAppointments(prev => prev.map(a => a.id === editingUserApp.id ? { ...a, appointment_date: userNewDate, start_time: userNewTime, end_time: endTime } : a));
       window.location.href = `https://wa.me/${waTarget}?text=${encodeURIComponent(msg)}`;
     } else {
       alert("Agendamento reagendado com sucesso!");
@@ -566,6 +626,9 @@ export default function AgendamentoCliente() {
 
   const handleConfirmAppointment = async (e) => {
     e.preventDefault();
+    // TRAVA IMEDIATA: impede dois envios por toque duplo
+    if (submittingRef.current) return;
+
     const cleanPhone = customerPhone.replace(/\D/g, '');
 
     if (!selectedProf) return alert("Selecione a profissional!");
@@ -573,6 +636,7 @@ export default function AgendamentoCliente() {
     if (!selectedTime) return alert("Selecione o horário desejado!");
     if (!customerName || cleanPhone.length < 10) return alert("Preencha seu Nome e WhatsApp válido!");
 
+    submittingRef.current = true;
     setIsSubmitting(true);
     localStorage.setItem('client_saved_phone', cleanPhone);
     if (customerBirthDate) {
@@ -580,14 +644,55 @@ export default function AgendamentoCliente() {
     }
 
     const [h, m] = selectedTime.split(':').map(Number);
-    const endDateObj = new Date();
-    endDateObj.setHours(h, m + totalDuration, 0, 0);
-    const endTime = endDateObj.toTimeString().substring(0, 5);
+    const startMinutes = h * 60 + m;
+    const endMinutesTotal = startMinutes + totalDuration;
+    const endTime = `${String(Math.floor(endMinutesTotal / 60) % 24).padStart(2, '0')}:${String(endMinutesTotal % 60).padStart(2, '0')}`;
 
     // TRATAMENTO SEGURO DE ID DO PROFISSIONAL (NUMÉRICO OU STRING/UUID)
     const chosenProfId = isNaN(Number(selectedProf)) ? String(selectedProf) : Number(selectedProf);
     const chosenProfObj = professionals.find(p => String(p.id) === String(selectedProf));
     const chosenProfName = chosenProfObj?.name || '';
+    const formattedDate = selectedDate.split('-').reverse().join('/');
+
+    const finishWithError = (message) => {
+      submittingRef.current = false;
+      setIsSubmitting(false);
+      if (message) alert(message);
+    };
+
+    // 1) CONFERE NO BANCO, NA HORA, SE O HORÁRIO AINDA ESTÁ LIVRE
+    const { data: freshApps, error: freshError } = await supabase
+      .from('appointments')
+      .select('id, start_time, end_time, total_duration_minutes, customer_phone, status')
+      .eq('tenant_id', tenant.id)
+      .eq('appointment_date', selectedDate)
+      .eq('professional_id', chosenProfId)
+      .neq('status', 'cancelado');
+
+    if (!freshError && freshApps) {
+      const toMin = (t) => { const [hh, mm] = String(t || '0:0').split(':').map(Number); return hh * 60 + (mm || 0); };
+      const conflicts = freshApps.filter(a => {
+        const aStart = toMin(a.start_time);
+        const aEnd = a.end_time ? toMin(a.end_time) : aStart + (a.total_duration_minutes || 30);
+        return startMinutes < aEnd && endMinutesTotal > aStart;
+      });
+
+      // A mesma cliente já tem este horário (ex.: tocou duas vezes / voltou e confirmou de novo)
+      const ownBooking = conflicts.find(a => String(a.customer_phone || '').replace(/\D/g, '').endsWith(cleanPhone) && toMin(a.start_time) === startMinutes);
+      if (ownBooking) {
+        submittingRef.current = false;
+        setIsSubmitting(false);
+        setSelectedTime('');
+        setBookingDone({ id: ownBooking.id, date: formattedDate, time: selectedTime, profName: chosenProfName, waUrl: '', alreadyExisted: true });
+        return;
+      }
+
+      if (conflicts.length > 0) {
+        setSelectedTime('');
+        setExistingAppointments(freshApps);
+        return finishWithError("⚠️ Este horário acabou de ser reservado por outra pessoa. Escolha outro horário disponível.");
+      }
+    }
 
     const appointmentData = {
       tenant_id: tenant.id,
@@ -606,26 +711,33 @@ export default function AgendamentoCliente() {
       is_paid: false
     };
 
+    // 2) GRAVA (o banco também recusa se outra pessoa gravou no mesmo instante)
     const { data: createdApp, error } = await supabase.from('appointments').insert([appointmentData]).select().single();
 
     if (error) {
-      setIsSubmitting(false);
-      return alert("Erro ao agendar: " + error.message);
+      if (isSlotTakenError(error)) {
+        setSelectedTime('');
+        fetchExistingAppointmentsAndBlocks(selectedDate, selectedProf);
+        return finishWithError("⚠️ Este horário acabou de ser reservado por outra pessoa. Escolha outro horário disponível.");
+      }
+      return finishWithError("Erro ao agendar: " + error.message);
     }
 
-    const formattedDate = selectedDate.split('-').reverse().join('/');
     const servicesListText = selectedServices.map(s => `• ${s.name} (R$ ${Number(s.price).toFixed(2)})`).join('\n');
 
+    // Notificação para a equipe deste estabelecimento (não espera terminar)
     try {
-      await fetch('/api/notify', {
+      fetch('/api/notify', {
         method: 'POST',
+        keepalive: true,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          tenant_id: tenant.id,
           title: '✂️ Novo Agendamento Recebido!',
           message: `${customerName} agendou para ${formattedDate} às ${selectedTime} (${chosenProfName}).`,
           url: `https://agendamento.sinergemkt.com/${tenant.slug}/agenda`
         })
-      });
+      }).catch(err => console.error("Erro ao disparar notificação:", err));
     } catch (err) {
       console.error("Erro ao disparar notificação:", err);
     }
@@ -648,18 +760,30 @@ export default function AgendamentoCliente() {
     const targetPhone = (chosenProfObj && chosenProfObj.phone && chosenProfObj.phone.trim() !== '') 
       ? chosenProfObj.phone 
       : tenant.whatsapp;
-      
-    const cleanWhatsapp = targetPhone ? targetPhone.replace(/\D/g, '') : '';
 
+    const waTarget = toWaNumber(targetPhone);
+    const waUrl = waTarget ? `https://wa.me/${waTarget}?text=${encodeURIComponent(msg)}` : '';
+
+    // 3) MOSTRA A TELA DE SUCESSO E LIMPA A SELEÇÃO.
+    //    Se a cliente voltar do WhatsApp, verá "Agendamento confirmado" — e não o formulário preenchido.
+    submittingRef.current = false;
     setIsSubmitting(false);
+    setSelectedTime('');
+    setBookingDone({ id: createdApp.id, date: formattedDate, time: selectedTime, profName: chosenProfName, waUrl });
+    fetchExistingAppointmentsAndBlocks(selectedDate, selectedProf);
 
-    if (cleanWhatsapp) {
-      const waTarget = cleanWhatsapp.length <= 11 ? `55${cleanWhatsapp}` : cleanWhatsapp;
-      window.location.href = `https://wa.me/${waTarget}?text=${encodeURIComponent(msg)}`;
-    } else {
-      alert("Agendamento realizado com sucesso!");
-      router.reload();
+    // Mantém o comportamento de antes: abre o WhatsApp automaticamente
+    if (waUrl) {
+      setTimeout(() => { window.location.href = waUrl; }, 900);
     }
+  };
+
+  const handleNewBooking = () => {
+    setBookingDone(null);
+    setSelectedServices([]);
+    setSelectedTime('');
+    if (selectedProf) fetchExistingAppointmentsAndBlocks(selectedDate, selectedProf);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const targetLoyaltyVisits = tenant?.loyalty_target_visits || 10;
@@ -671,7 +795,9 @@ export default function AgendamentoCliente() {
       {/* PWA & METATAGS DINÂMICAS */}
       <Head>
         <title>{tenant?.name ? `${tenant.name} - Agendamento Online` : 'Agendamento Online'}</title>
-        {slug && <link rel="manifest" href={`/api/manifest?slug=${slug}`} />}
+        {slug && <link rel="manifest" href={`/api/manifest?slug=${slug}&app=catalogo`} />}
+        <meta name="theme-color" content={primaryColor} />
+        <link rel="apple-touch-icon" href="/icon-192.png" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="apple-mobile-web-app-title" content={tenant?.name || 'Agendamento'} />
@@ -916,7 +1042,7 @@ export default function AgendamentoCliente() {
                   </label>
                   <input
                     type="date"
-                    min={new Date().toISOString().split('T')[0]}
+                    min={getTodayLocal()}
                     value={selectedDate}
                     onChange={(e) => {
                       setSelectedDate(e.target.value);
@@ -1037,7 +1163,7 @@ export default function AgendamentoCliente() {
                 type="submit"
                 disabled={isSubmitting}
                 style={{ backgroundColor: primaryColor, color: btnTextColor }}
-                className="w-full font-bold py-3.5 rounded-xl text-xs shadow-lg transition hover:opacity-90">
+                className="w-full font-bold py-3.5 rounded-xl text-xs shadow-lg transition hover:opacity-90 disabled:opacity-60">
                 {isSubmitting ? 'Agendando...' : 'Confirmar Agendamento no WhatsApp 🚀'}
               </button>
             </form>
@@ -1071,6 +1197,44 @@ export default function AgendamentoCliente() {
           Tecnologia por Sinerge MKT
         </p>
       </footer>
+
+      {/* TELA DE SUCESSO DO AGENDAMENTO */}
+      {bookingDone && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <div style={{ backgroundColor: cardColor, color: textColor }} className="border border-black/10 w-full max-w-sm rounded-2xl p-6 space-y-4 shadow-2xl text-center">
+            <div className="text-4xl">✅</div>
+            <div>
+              <h3 className="font-bold text-base" style={{ color: priceColor }}>
+                {bookingDone.alreadyExisted ? 'Você já está agendada(o)!' : 'Agendamento confirmado!'}
+              </h3>
+              <p className="text-xs opacity-80 mt-1">
+                Código <b>#{bookingDone.id}</b>
+              </p>
+            </div>
+            <div style={{ backgroundColor: bgColor }} className="p-3 rounded-xl text-xs space-y-1 border border-black/10">
+              <p><b>📅 {bookingDone.date}</b> às <b>{bookingDone.time}</b></p>
+              {bookingDone.profName && <p>👤 {bookingDone.profName}</p>}
+            </div>
+            <p className="text-[11px] opacity-70">
+              Seu horário já está reservado. Não é preciso agendar de novo.
+            </p>
+            {bookingDone.waUrl && (
+              <a
+                href={bookingDone.waUrl}
+                style={{ backgroundColor: primaryColor, color: btnTextColor }}
+                className="block w-full font-bold py-3 rounded-xl text-xs shadow-lg">
+                💬 Enviar confirmação no WhatsApp
+              </a>
+            )}
+            <button
+              type="button"
+              onClick={handleNewBooking}
+              className="w-full py-2.5 rounded-xl text-xs font-bold border border-black/10 opacity-80">
+              Fazer outro agendamento
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* MODAL MEUS AGENDAMENTOS */}
       {showMyAppsModal && (
@@ -1188,7 +1352,7 @@ export default function AgendamentoCliente() {
                   <label className="text-[11px] opacity-70 block mb-1">Nova Data:</label>
                   <input
                     type="date"
-                    min={new Date().toISOString().split('T')[0]}
+                    min={getTodayLocal()}
                     value={userNewDate}
                     onChange={(e) => {
                       setUserNewDate(e.target.value);

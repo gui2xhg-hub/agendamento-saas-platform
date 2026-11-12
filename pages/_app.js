@@ -7,11 +7,14 @@ export default function MyApp({ Component, pageProps }) {
   useEffect(() => {
     // 1. Registro do Service Worker para suporte ao PWA
     if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
+      const registerSw = () => {
         navigator.serviceWorker.register('/sw.js').catch((err) => {
           console.error('Erro ao registrar ServiceWorker:', err);
         });
-      });
+      };
+      // Se a página já terminou de carregar, registra na hora (antes podia nunca registrar)
+      if (document.readyState === 'complete') registerSw();
+      else window.addEventListener('load', registerSw, { once: true });
     }
 
     // 2. Inicialização do OneSignal
@@ -20,7 +23,10 @@ export default function MyApp({ Component, pageProps }) {
       await OneSignal.init({
         appId: "4459285b-e81c-458e-a6dc-ebc5e1d9baef",
         notifyButton: { enable: false },
-        allowLocalhostAsSecureOrigin: true
+        allowLocalhostAsSecureOrigin: true,
+        // Um único service worker para o app e para as notificações (o sw.js já carrega o OneSignal)
+        serviceWorkerPath: 'sw.js',
+        serviceWorkerParam: { scope: '/' }
       });
     });
   }, []);

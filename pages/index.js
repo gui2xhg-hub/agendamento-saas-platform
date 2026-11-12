@@ -1,6 +1,29 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
+import Head from 'next/head';
 import { supabase } from '../lib/supabase';
+import { apiLogin, saveToken, clearToken } from '../lib/clientAuth';
+
+// Busca os dados da loja pelo servidor (sem senhas/tokens)
+const fetchPublicTenant = async (slug) => {
+  try {
+    const r = await fetch(`/api/public-tenant?slug=${encodeURIComponent(slug)}`);
+    const j = await r.json();
+    return j.tenant || null;
+  } catch (e) {
+    return null;
+  }
+};
+
+// Remove senhas que versões antigas guardavam no aparelho
+const stripSecrets = (t) => {
+  if (!t) return t;
+  const clean = { ...t };
+  Object.keys(clean).forEach(k => {
+    if (/(password|senha|token|secret|api_key|pin)$/i.test(k) || k === 'instance_id' || k === 'bot_whatsapp_instance') delete clean[k];
+  });
+  return clean;
+};
 
 export default function HomePortalAgendamento() {
   const router = useRouter();
@@ -34,23 +57,19 @@ export default function HomePortalAgendamento() {
     const savedTenantStr = localStorage.getItem('sinerge_authenticated_tenant');
     if (savedTenantStr) {
       try {
-        const saved = JSON.parse(savedTenantStr);
+        const saved = stripSecrets(JSON.parse(savedTenantStr));
         setTenant(saved);
+        localStorage.setItem('sinerge_authenticated_tenant', JSON.stringify(saved));
         
-        if (saved && saved.id) {
+        if (saved && saved.slug) {
           // Busca dados mais recentes da loja e estatísticas de agendamentos no banco
-          supabase
-            .from('tenants')
-            .select('*')
-            .eq('id', saved.id)
-            .single()
-            .then(({ data }) => {
-              if (data) {
-                setTenant(data);
-                localStorage.setItem('sinerge_authenticated_tenant', JSON.stringify(data));
-                fetchTenantStats(data.id);
-              }
-            });
+          fetchPublicTenant(saved.slug).then((data) => {
+            if (data) {
+              setTenant(data);
+              localStorage.setItem('sinerge_authenticated_tenant', JSON.stringify(data));
+              fetchTenantStats(data.id);
+            }
+          });
         }
       } catch (e) {
         localStorage.removeItem('sinerge_authenticated_tenant');
@@ -63,14 +82,14 @@ export default function HomePortalAgendamento() {
     try {
       const { data: appointments } = await supabase
         .from('appointments')
-        .select('price, service_price, status')
+        .select('total_price, status')
         .eq('tenant_id', tenantId)
         .neq('status', 'cancelado');
 
       if (appointments) {
         const count = appointments.length;
         const revenue = appointments.reduce((acc, app) => {
-          const val = Number(app.price || app.service_price || 0);
+          const val = Number(app.total_price || 0);
           return acc + val;
         }, 0);
         setStats({ appointmentsCount: count, totalRevenue: revenue });
@@ -87,18 +106,19 @@ export default function HomePortalAgendamento() {
     setLoading(true);
     const cleanSlug = slugInput.toLowerCase().trim();
 
-    const { data, error } = await supabase
-      .from('tenants')
-      .select('*')
-      .eq('slug', cleanSlug)
-      .eq('admin_password', passwordInput)
-      .maybeSingle();
+    // Senha conferida no servidor
+    const res = await apiLogin(cleanSlug, 'admin', passwordInput);
+    const data = res.ok ? await fetchPublicTenant(cleanSlug) : null;
 
     setLoading(false);
 
-    if (error || !data) {
-      alert("Identificador da loja ou Senha de Administrador incorretos!");
+    if (!res.ok || !data) {
+      alert(res.error && !['Senha incorreta', 'Estabelecimento não encontrado'].includes(res.error)
+        ? res.error
+        : "Identificador da loja ou Senha de Administrador incorretos!");
     } else {
+      // Já deixa o painel admin e a agenda liberados neste aparelho
+      if (res.token) saveToken(cleanSlug, res.token);
       setTenant(data);
       localStorage.setItem('sinerge_authenticated_tenant', JSON.stringify(data));
       fetchTenantStats(data.id);
@@ -106,6 +126,7 @@ export default function HomePortalAgendamento() {
   };
 
   const handleLogout = () => {
+    if (tenant?.slug) clearToken(tenant.slug);
     localStorage.removeItem('sinerge_authenticated_tenant');
     setTenant(null);
     setSlugInput('');
@@ -171,6 +192,14 @@ export default function HomePortalAgendamento() {
       className="min-h-screen font-sans flex flex-col justify-between p-4 md:p-8 transition-colors duration-300"
       style={{ backgroundColor: tenant ? secondaryColor : '#090D16', color: tenant ? textColor : '#FFFFFF' }}>
       
+      <Head>
+        <title>Sinerge Agendamento - Gestão</title>
+        <link rel="manifest" href="/manifest.json" />
+        <meta name="theme-color" content="#FF8C00" />
+        <meta name="apple-mobile-web-app-title" content="Sinerge Gestão" />
+        <link rel="apple-touch-icon" href="/icon-192.png" />
+      </Head>
+
       {/* CABEÇALHO */}
       <header className="max-w-5xl mx-auto w-full flex justify-between items-center py-4 border-b" style={{ borderColor: 'rgba(255,255,255,0.1)' }}>
         <div className="flex items-center space-x-3">
@@ -298,7 +327,9 @@ export default function HomePortalAgendamento() {
                 <div className="p-3 rounded-2xl border col-span-2 sm:col-span-1 flex justify-between items-center" style={{ backgroundColor: secondaryColor, borderColor: 'rgba(255,255,255,0.05)' }}>
                   <div>
                     <span className="opacity-60 block text-[10px]">Robô de WhatsApp:</span>
-                    <span className="text-xs font-bold text-green-400">🟢 Ativo</span>
+                    {tenant.bot_enabled
+                      ? <span className="text-xs font-bold text-green-400">🟢 Ativado</span>
+                      : <span className="text-xs font-bold opacity-60">⚪ Desligado</span>}
                   </div>
                   <button onClick={() => router.push(`/${tenant.slug}/admin`)} className="text-[10px] font-bold underline" style={{ color: primaryColor }}>Configurar</button>
                 </div>

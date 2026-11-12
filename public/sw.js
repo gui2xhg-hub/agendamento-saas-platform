@@ -1,32 +1,14 @@
-self.addEventListener('install', (event) => {
+// Service Worker ÚNICO do site.
+// Antes existiam dois (sw.js e OneSignalSDKWorker.js) disputando o mesmo espaço,
+// o que fazia as notificações falharem de vez em quando. Agora os dois arquivos
+// fazem exatamente a mesma coisa: carregam o OneSignal (que exibe as notificações).
+importScripts('https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.sw.js');
+// (o arquivo OneSignalSDKWorker.js foi mantido por compatibilidade, com o mesmo conteúdo)
+
+self.addEventListener('install', () => {
   self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim());
-});
-
-// Recebe e exibe a notificação no Android/PC
-self.addEventListener('push', (event) => {
-  const data = event.data ? event.data.json() : {};
-  const title = data.title || 'Novo Agendamento! 🚨';
-  const options = {
-    body: data.body || 'Você recebeu uma nova atualização na agenda.',
-    icon: '/icon-192.png',
-    badge: '/icon-192.png',
-    vibrate: [200, 100, 200],
-    data: { url: data.url || '/' }
-  };
-
-  event.waitUntil(
-    self.registration.showNotification(title, options)
-  );
-});
-
-// Ao clicar na notificação, abre o aplicativo
-self.addEventListener('notificationclick', (event) => {
-  event.notification.close();
-  event.waitUntil(
-    clients.openWindow(event.notification.data.url || '/')
-  );
 });

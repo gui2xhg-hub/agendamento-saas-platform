@@ -1,24 +1,29 @@
-import { supabase } from '../../lib/supabase';
+import { serverSupabase as supabase } from '../../lib/serverSupabase';
+
+// Endereço da sua API de WhatsApp (ex.: Evolution API). Configure WHATSAPP_API_URL na Vercel,
+// por exemplo: https://sua-evolution.com  (o sistema chama {URL}/message/sendText/{instancia})
+const WHATSAPP_API_URL = (process.env.WHATSAPP_API_URL || '').replace(/\/$/, '');
 
 export default async function handler(req, res) {
   const { secret } = req.query;
   const authHeader = req.headers.authorization;
   const envSecret = process.env.CRON_SECRET;
 
-  // Aceita tanto a chave fixa 'sinerge2026' quanto a variável CRON_SECRET da Vercel
-  const isAuthorized = 
-    secret === 'sinerge2026' || 
-    (envSecret && (secret === envSecret || authHeader === `Bearer ${envSecret}`));
+  // Só aceita a variável CRON_SECRET configurada na Vercel (a chave fixa antiga era pública no código)
+  const isAuthorized = !!envSecret && (secret === envSecret || authHeader === `Bearer ${envSecret}`);
 
   if (!isAuthorized) {
     return res.status(401).json({ error: 'Acesso não autorizado.' });
   }
 
+  if (!WHATSAPP_API_URL) {
+    return res.status(200).json({ success: false, processed: 0, logs: ['Robô desligado: configure WHATSAPP_API_URL nas variáveis da Vercel.'] });
+  }
+
   try {
-    // 1. Calcula a data de AMANHÃ (Formato YYYY-MM-DD e DD/MM/YYYY)
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const tomorrowStr = tomorrow.toISOString().split('T')[0];
+    // 1. Calcula a data de AMANHÃ no horário de Brasília (Formato YYYY-MM-DD e DD/MM/YYYY)
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const tomorrowStr = tomorrow.toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
     const tomorrowFormatted = tomorrowStr.split('-').reverse().join('/');
 
     // 2. Busca agendamentos de amanhã trazendo os dados da LOJA e do PROFISSIONAL
@@ -52,7 +57,13 @@ export default async function handler(req, res) {
       const cleanPhone = rawPhone.replace(/\D/g, '');
       if (!cleanPhone) continue;
 
-      const serviceName = app.service_name || 'Atendimento';
+      let servicesList = app.services_json;
+      if (typeof servicesList === 'string') {
+        try { servicesList = JSON.parse(servicesList); } catch (e) { servicesList = []; }
+      }
+      const serviceName = (Array.isArray(servicesList) && servicesList.length > 0)
+        ? servicesList.map(s => s?.name).filter(Boolean).join(', ')
+        : (app.service_name || 'Atendimento');
       const startTime = app.start_time || app.appointment_time || app.time || '';
       const profName = prof?.name || 'Nossa Equipe';
 
@@ -74,7 +85,7 @@ export default async function handler(req, res) {
 
       try {
         // Disparo para a API de WhatsApp
-        await fetch(`https://api.seugateway.com/message/sendText/${instanceId}`, {
+        const sendResp = await fetch(`${WHATSAPP_API_URL}/message/sendText/${instanceId}`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -85,6 +96,10 @@ export default async function handler(req, res) {
             text: finalMessage
           })
         });
+
+        if (!sendResp.ok) {
+          throw new Error(`API do WhatsApp respondeu ${sendResp.status}`);
+        }
 
         // Marca como lembrete enviado
         await supabase
